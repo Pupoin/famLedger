@@ -251,3 +251,189 @@ def test_lifespan_refuses_to_start_when_integrity_check_fails(monkeypatch):
         asyncio.run(_run())
 
     assert backup_calls == []  # must not attempt a backup of a DB that failed its check
+
+
+def test_lifespan_checks_integrity_before_running_any_ddl(monkeypatch):
+    """Ordering guarantee. The old lifespan ran create_all() and the column
+    ALTERs *before* the integrity check — i.e. it wrote to a database it had not
+    yet established was readable. A corrupt database must never be written to.
+    """
+    import main
+
+    calls = []
+    monkeypatch.setattr(main, "check_db_integrity", lambda: calls.append("integrity") or False)
+    monkeypatch.setattr(main, "create_db_and_tables", lambda: calls.append("create_all"))
+    monkeypatch.setattr(main, "sync_schema", lambda engine: calls.append("sync_schema"))
+    monkeypatch.setattr(main, "set_db_schema_version", lambda engine: calls.append("stamp"))
+
+    async def _run():
+        async with main.lifespan(main.app):
+            pass
+
+    with pytest.raises(RuntimeError, match="integrity check FAILED"):
+        asyncio.run(_run())
+
+    assert calls == ["integrity"]
+
+
+# ── Uploads are part of a backup ───────────────────────────────────────────────
+
+
+def test_backup_includes_uploads(tmp_path):
+    """Avatars live under DATA_DIR/uploads/avatars but were excluded from every
+    backup before v2.1.0, so "restore from backup" silently didn't restore
+    everything."""
+    db_path = _make_real_db(tmp_path)
+    uploads = tmp_path / "uploads" / "avatars"
+    uploads.mkdir(parents=True)
+    (uploads / "alice.png").write_bytes(b"\x89PNGfake")
+
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=tmp_path / "backups", uploads_dir=tmp_path / "uploads",
+    )
+    dest = mgr.create_backup()
+
+    assert (dest / "uploads" / "avatars" / "alice.png").read_bytes() == b"\x89PNGfake"
+
+
+def test_backup_works_when_there_are_no_uploads_yet(tmp_path):
+    db_path = _make_real_db(tmp_path)
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=tmp_path / "backups", uploads_dir=tmp_path / "nonexistent",
+    )
+    dest = mgr.create_backup()
+    assert (dest / "mosaic.db").exists()
+
+
+# ── BACKUP_PATH mirrors, it no longer relocates ────────────────────────────────
+
+
+def test_mirror_is_additional_not_a_replacement(tmp_path):
+    """The v2.0.0 behaviour was the dangerous one: setting BACKUP_PATH *moved*
+    backups, so configuring a cloud folder silently switched local backups off.
+    """
+    db_path = _make_real_db(tmp_path)
+    local = tmp_path / "backups"
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=local, mirror_dir=mirror,
+    )
+    dest = mgr.create_backup()
+
+    assert (dest / "mosaic.db").exists()                     # local copy kept
+    assert (mirror / dest.name / "mosaic.db").exists()       # and mirrored
+    assert dest.parent == local
+
+
+def test_mirror_is_rotated_on_the_same_policy(tmp_path):
+    """An off-site folder that is never pruned grows without bound."""
+    db_path = _make_real_db(tmp_path)
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=tmp_path / "backups", mirror_dir=mirror, max_backups=2,
+    )
+    for _ in range(4):
+        mgr.create_backup()
+
+    assert len([d for d in mirror.iterdir() if d.is_dir()]) == 2
+
+
+def test_mirror_failure_never_costs_the_local_backup(tmp_path):
+    """Off-site copying is redundancy. A broken mount must not take down the app
+    or discard the local backup that already succeeded."""
+    db_path = _make_real_db(tmp_path)
+    local = tmp_path / "backups"
+    # A *file* where a directory is expected — copytree raises OSError.
+    broken_mirror = tmp_path / "not-a-dir"
+    broken_mirror.write_text("this is a file")
+
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=local, mirror_dir=broken_mirror,
+    )
+    dest = mgr.create_backup()  # must not raise
+
+    assert (dest / "mosaic.db").exists()
+    assert mgr.verify_backup(dest) is True
+
+
+def test_a_backup_that_failed_verification_is_not_mirrored(tmp_path, monkeypatch):
+    """Copying a known-bad backup off-site just spreads false confidence."""
+    db_path = _make_real_db(tmp_path)
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+
+    mgr = BackupManager(
+        db_path=db_path, audit_log_path=tmp_path / "audit.jsonl",
+        backup_dir=tmp_path / "backups", mirror_dir=mirror,
+    )
+    monkeypatch.setattr(BackupManager, "verify_backup", lambda self, dest: False)
+
+    mgr.create_backup()
+
+    assert list(mirror.iterdir()) == []
+
+
+# ── The mirror-path startup guard ──────────────────────────────────────────────
+
+
+def test_local_backup_dir_is_always_inside_the_data_dir():
+    import main
+    assert main.BACKUP_DIR == main.DATA_DIR / "backups"
+
+
+def test_startup_refuses_when_the_mirror_path_is_missing(tmp_path, monkeypatch):
+    """The old code called mkdir(parents=True) on this path, so an unmounted
+    target became a plain directory holding backups that synced nowhere — while
+    logging "Backup created and verified"."""
+    import main
+
+    missing = tmp_path / "not-mounted-yet"
+    monkeypatch.setattr(main, "BACKUP_MIRROR_DIR", missing)
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        main._assert_backup_mirror_usable()
+
+    # Critically: it must not have created it as a side effect.
+    assert not missing.exists()
+
+
+def test_startup_accepts_an_existing_writable_mirror_path(tmp_path, monkeypatch):
+    import main
+
+    mirror = tmp_path / "mounted"
+    mirror.mkdir()
+    monkeypatch.setattr(main, "BACKUP_MIRROR_DIR", mirror)
+    monkeypatch.setattr(main, "BACKUP_REQUIRE_MOUNT", False)
+
+    main._assert_backup_mirror_usable()  # must not raise
+
+
+def test_startup_is_a_no_op_when_no_mirror_is_configured(monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "BACKUP_MIRROR_DIR", None)
+    main._assert_backup_mirror_usable()  # must not raise
+
+
+def test_require_mount_rejects_a_plain_directory(tmp_path, monkeypatch):
+    """Opt-in strictness for a genuine network/FUSE mount: an unmounted target is
+    a normal empty directory, which is indistinguishable from a correct setup
+    without this check."""
+    import main
+
+    mirror = tmp_path / "mountpoint"
+    mirror.mkdir()
+    monkeypatch.setattr(main, "BACKUP_MIRROR_DIR", mirror)
+    monkeypatch.setattr(main, "BACKUP_REQUIRE_MOUNT", True)
+
+    with pytest.raises(RuntimeError, match="not a mountpoint"):
+        main._assert_backup_mirror_usable()

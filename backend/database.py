@@ -56,23 +56,18 @@ def check_db_integrity() -> bool:
 def ensure_user_preference_columns():
     """Add columns introduced to `userpreference` after its first release.
 
-    SQLModel.metadata.create_all() only creates missing *tables* — it never
-    alters an existing table's schema. On a database that already has a
-    userpreference table (from when it only had date_format), newly added
-    model fields would otherwise be missing from the real SQLite table and
-    every query touching them would fail with "no such column".
+    Superseded by services.schema.sync_schema(), which does the same diff-and-ALTER
+    for *every* table rather than just this one — the hand-written version here
+    had to be extended by hand each time a column was added, and every table it
+    didn't cover reintroduced the original bug ("no such column" at runtime, on
+    an app that started up perfectly).
+
+    Kept as a delegating wrapper because it is part of the module's public
+    surface and is directly covered by tests/test_preference_column_migration.py.
+    Prefer calling sync_schema() in new code.
     """
-    with engine.connect() as conn:
-        existing = {
-            row[1] for row in conn.execute(text("PRAGMA table_info(userpreference)")).fetchall()
-        }
-        if not existing:
-            return  # table doesn't exist yet — create_db_and_tables() will create it with all columns
-        if "currency" not in existing:
-            conn.execute(text("ALTER TABLE userpreference ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT 'CAD'"))
-        if "income_mode_enabled" not in existing:
-            conn.execute(text("ALTER TABLE userpreference ADD COLUMN income_mode_enabled BOOLEAN NOT NULL DEFAULT 0"))
-        conn.commit()
+    from services.schema import sync_schema
+    sync_schema(engine)
 
 
 def get_session():

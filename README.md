@@ -82,6 +82,19 @@ Mosaic is a personal expense tracker that runs entirely on your own machine. No 
 
 ---
 
+## What's New in v2.1.0
+
+A data-safety and operations release. No new features in the app itself — this is about being able to move, verify and upgrade your data without losing any of it.
+
+- **Export and import your whole installation.** `python -m cli export` writes one verifiable archive (database + audit log + avatars); `python -m cli import` restores it. The database travels as the binary SQLite file, so amounts and dates cannot be altered by a text round-trip.
+- **Verifiable, not just hopeful.** Every archive carries a checksum *and* a data fingerprint — row counts, your total expenses, sums per category and payer, date range, users. Import checks both and refuses rather than landing something almost-right. `python -m cli verify` prints the same fingerprint for a live database, so you can compare totals by eye.
+- **Automatic schema migrations.** Columns added in a future release are now ALTERed into an existing database on startup, for every table. Previously only `userpreference` was handled by hand, so a new column elsewhere would fail at *runtime* with `no such column` on an app that had started up perfectly.
+- **Databases are version-stamped**, and Mosaic refuses to start against one written by a newer release instead of risking your data.
+- **Avatars are included in backups.** They were silently excluded before, so "restore from backup" didn't restore everything.
+- **`BACKUP_PATH` is now an additional destination, not a replacement** — see the note under Backups below. This is a behaviour change if you already use it.
+- **`GET /api/health`** reports liveness, version and schema version, and the container now has a real health check — so a wedged process is detectable, and "did my upgrade land?" has an answer.
+- **The container runs as a non-root user**, and the release build no longer publishes without running the test suite first.
+
 ## What's New in v2.0.0
 
 *Released 2026-07-15*
@@ -200,7 +213,9 @@ SECRET_KEY=<long random string>
 ENV=production
 COOKIE_SECURE=false
 
-# Optional: cloud backup path
+# Optional: an ADDITIONAL cloud-synced destination for backups.
+# Backups always land locally first; this is a mirror, not a replacement.
+# Must already exist — Mosaic refuses to start rather than create it.
 # BACKUP_PATH=C:/Users/yourname/OneDrive/Mosaic-Backups
 ```
 
@@ -329,7 +344,8 @@ Create `backend/.env`:
 SECRET_KEY=<long random string>
 # Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
 
-# Optional: path to a cloud-synced folder for off-site backups
+# Optional: an ADDITIONAL cloud-synced destination for off-site backups.
+# Backups always land locally first; this is a mirror, not a replacement.
 # BACKUP_PATH=C:/Users/yourname/OneDrive/Mosaic-Backups
 ```
 
@@ -380,6 +396,41 @@ python cli_reset_password.py
 ```
 
 ---
+
+## Backups, and moving your data
+
+Mosaic backs itself up automatically — database, audit log and avatars — on every startup and every 20 data changes, keeping the 30 most recent copies in `DATA_DIR/backups/`. Each one is verified after it's written, and Mosaic refuses to start on a corrupt database rather than backing up over a good copy.
+
+Set `BACKUP_PATH` to also mirror those backups somewhere off-site (a OneDrive-synced folder, a NAS mount). It's an **additional** destination: backups always land locally first, so a broken mirror can't cost you the local copy. The path must already exist and be writable — Mosaic stops at startup if it isn't, instead of creating it and writing backups that sync nowhere.
+
+> Snapshots and syncs are not backups on their own. A sync propagates deletions and corruption; a restore you have never tested is a guess.
+
+### Moving to another machine
+
+```bash
+# On the old machine
+python -m cli export --out mosaic-backup.tar.gz
+
+# On the new one
+python -m cli import --archive mosaic-backup.tar.gz
+
+# Either side, any time — prints the data fingerprint
+python -m cli verify
+```
+
+Under Docker, run the same commands inside the container:
+
+```bash
+docker compose run --rm mosaic python -m cli export --out /app/data/mosaic-backup.tar.gz
+```
+
+The archive holds the database, the audit log and your avatars. The database travels as the binary SQLite file rather than CSV or JSON, so amounts and dates can't be changed by a text round-trip.
+
+**How you know it worked.** Every archive carries a checksum, proving the file arrived byte-identical, and a **data fingerprint** — row counts, your total expenses, sums per category and per payer, the date range, the user list. Import verifies both before installing anything and again afterwards, refuses to overwrite an existing database unless you pass `--force`, and snapshots whatever was there into `DATA_DIR/pre-import/` first.
+
+Run `verify` on both machines and compare the totals by eye. If the headline expense total matches to the cent, your data moved intact.
+
+Keep the old copy until you've used the new one for a while. A migration you can't reverse isn't finished.
 
 ## Troubleshooting
 

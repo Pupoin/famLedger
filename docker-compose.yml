@@ -1,8 +1,14 @@
 services:
   mosaic:
     # Pulls the published image by default; pin a version with MOSAIC_VERSION in .env
-    # (e.g. MOSAIC_VERSION=2.0.0). The build: block is kept so contributors can still
-    # build from source with `docker compose build` / `docker compose up -d --build`.
+    # (e.g. MOSAIC_VERSION=2.1.0 — note: no leading "v", the release workflow strips
+    # it from the git tag). Pinning is strongly recommended for anything you care
+    # about: `latest` moves under you on the next release, and Mosaic has no
+    # migration tooling beyond additive column adds, so upgrades are a decision you
+    # want to make deliberately rather than discover.
+    #
+    # The build: block is kept so contributors can still build from source with
+    # `docker compose build` / `docker compose up -d --build`.
     image: srpraveen97/mosaic:${MOSAIC_VERSION:-latest}
     build:
       context: .
@@ -10,15 +16,42 @@ services:
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ENV=production
+      # Must be true when serving over HTTPS and false over plain HTTP. Getting
+      # this wrong is silent: with COOKIE_SECURE=true over HTTP the browser
+      # discards the session cookie, so login appears to succeed and then every
+      # request 401s. main.py logs a warning for that combination at startup.
       - COOKIE_SECURE=${COOKIE_SECURE:-false}
       - DATA_DIR=/app/data
       # Same-origin (FastAPI serves the UI + API together) — no cross-origin CORS needed
       - CORS_ORIGINS=
+      # Optional off-site mirror for backups. Backups ALWAYS land locally in the
+      # volume first; this is an additional copy, never a replacement. Leave unset
+      # for local-only backups. If set, the path must already exist inside the
+      # container and be writable by uid 10001 — the app refuses to start otherwise
+      # rather than silently backing up nowhere.
+      - BACKUP_PATH=${BACKUP_PATH:-}
+      # Set true when BACKUP_PATH is a real network/FUSE mount and an unmounted
+      # target should be fatal. Leave false for an OS-level sync folder (the
+      # OneDrive or Dropbox client), which is a plain directory, not a mountpoint.
+      - BACKUP_REQUIRE_MOUNT=${BACKUP_REQUIRE_MOUNT:-false}
     ports:
       - "${MOSAIC_PORT:-8000}:8000"
     volumes:
       - mosaic-data:/app/data
+      # Uncomment together with BACKUP_PATH to mirror backups onto a host folder
+      # (e.g. one synced to OneDrive). The host directory must be writable by
+      # uid 10001.
+      # - ${BACKUP_HOST_PATH:-/dev/null}:/mnt/backup-mirror
     restart: unless-stopped
+    # A memory cap is worth setting so a runaway container cannot take the whole
+    # VM down with it — but it is left commented because the right number depends
+    # on your data size, and setting it too low gets the ONNX embedding model
+    # OOM-killed mid-request rather than failing cleanly. Measure with
+    # `docker stats` under real use, then set it comfortably above the peak.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 2g
 
 volumes:
   mosaic-data:

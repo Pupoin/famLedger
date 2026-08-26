@@ -197,6 +197,7 @@ def audit_log(tmp_path):
     import services.audit as audit_mod
     import routes.expenses as expenses_mod
     import routes.income as income_mod
+    import routes.insights as insights_mod
     import auth as auth_mod
     import main as main_mod
 
@@ -204,18 +205,25 @@ def audit_log(tmp_path):
     old_audit = audit_mod.audit_logger
     old_expenses = expenses_mod.audit_logger
     old_income = income_mod.audit_logger
+    # routes/insights.py binds its own `audit_logger` at import time (for
+    # DISMISS_ALERT) and was missing from this list, so the alert-dismissal tests
+    # wrote to the *real* backend/audit/audit.jsonl — a tracked file in the repo.
+    # Entries from earlier runs had already been committed to it.
+    old_insights = insights_mod.audit_logger
     old_auth = auth_mod.audit_logger
     old_main = main_mod.audit_logger
 
     audit_mod.audit_logger = test_logger
     expenses_mod.audit_logger = test_logger
     income_mod.audit_logger = test_logger
+    insights_mod.audit_logger = test_logger
     auth_mod.audit_logger = test_logger
     main_mod.audit_logger = test_logger
 
     yield test_logger
 
     audit_mod.audit_logger = old_audit
+    insights_mod.audit_logger = old_insights
     expenses_mod.audit_logger = old_expenses
     income_mod.audit_logger = old_income
     auth_mod.audit_logger = old_auth

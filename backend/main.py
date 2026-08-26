@@ -6,9 +6,10 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlmodel import Session
 
 from auth import get_current_user, COOKIE_SECURE, IS_DEV
@@ -17,7 +18,7 @@ from users import get_display_names, get_user_count, is_primary_user
 from database import (
     create_db_and_tables,
     check_db_integrity,
-    ensure_user_preference_columns,
+    engine,
     DB_PATH,
     DATA_DIR,
     get_session,
@@ -26,21 +27,50 @@ from routes import expenses, analytics, export, insights, income
 from auth import router as auth_router
 from services.audit import audit_logger
 from services.backup import BackupManager
+from services.schema import (
+    SCHEMA_VERSION,
+    assert_schema_not_newer,
+    set_db_schema_version,
+    sync_schema,
+)
+from version import __version__
 
 logger = logging.getLogger("mosaic")
 logging.basicConfig(level=logging.INFO)
 
-# Backup location: use BACKUP_PATH from config if set, otherwise default to DATA_DIR/backups/
-BACKUP_DIR = Path(BACKUP_PATH) if BACKUP_PATH else DATA_DIR / "backups"
+# Backups always land locally. BACKUP_PATH, when set, is an *additional*
+# destination -- it used to replace this one, which meant configuring a cloud
+# folder silently switched local backups off. See services/backup.py.
+BACKUP_DIR = DATA_DIR / "backups"
+BACKUP_MIRROR_DIR = Path(BACKUP_PATH) if BACKUP_PATH else None
+
+# Avatar uploads. Passed to BackupManager because they are user data and were
+# previously excluded from every backup.
+UPLOADS_DIR = DATA_DIR / "uploads"
+
+# Require BACKUP_PATH to be a real mountpoint rather than merely an existing
+# directory. Off by default: an OS-level sync folder (the OneDrive client, or a
+# Dropbox directory) is a plain directory, not a mount, so demanding a mount
+# would reject a perfectly good setup. Turn it on when BACKUP_PATH is a genuine
+# network or FUSE mount and you want an unmounted target to be fatal.
+BACKUP_REQUIRE_MOUNT = os.getenv("BACKUP_REQUIRE_MOUNT", "false").lower() in (
+    "true", "1", "yes",
+)
 
 # CORS_ORIGINS: comma-separated list of allowed origins.
-# Defaults to localhost:5173 for dev. Set to empty string when serving behind a
-# same-origin reverse proxy (nginx) or when FastAPI serves the frontend directly.
+# Defaults to localhost:5173 for dev. Set to empty string whenever the UI and API
+# share an origin — which is both supported deployments, since FastAPI serves the
+# built SPA itself (see FRONTEND_DIST below) — or when behind a same-origin
+# reverse proxy.
 _cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:5173")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 
-# Frontend dist directory — present after `npm run build` (Method 1: git clone).
-# Absent in Docker (nginx serves static files instead).
+# Frontend dist directory — present after `npm run build` (Method 1: git clone),
+# and also present in Docker: the image's build stage produces it and the
+# Dockerfile copies it to /app/frontend/dist, which is exactly this path. So this
+# block is what serves the SPA in Docker too. (An earlier comment here claimed
+# nginx served static files in Docker — there is no nginx in the image; see the
+# header of the Dockerfile, "one image, one container".)
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 FRONTEND_DIST_RESOLVED = FRONTEND_DIST.resolve()
 
@@ -76,22 +106,64 @@ def _warn_if_insecure_cookie_config() -> None:
         )
 
 
+def _assert_backup_mirror_usable() -> None:
+    """Fail loudly when BACKUP_PATH is configured but unusable.
+
+    The previous behaviour was the dangerous one: create_backup() called
+    mkdir(parents=True), so pointing BACKUP_PATH at an unmounted path simply
+    created a plain directory there and wrote backups to the container's own
+    disk -- while logging "Backup created and verified". You would discover it
+    only when you went looking for an off-site copy that had never existed.
+
+    So: never create this directory. If it isn't already there, that is a
+    misconfiguration or an unmounted volume, and both should stop the app.
+    """
+    if BACKUP_MIRROR_DIR is None:
+        return
+    if not BACKUP_MIRROR_DIR.is_dir():
+        raise RuntimeError(
+            f"BACKUP_PATH is set to {BACKUP_MIRROR_DIR}, which does not exist "
+            f"(or is not a directory). Refusing to start rather than creating it "
+            f"and writing backups nowhere useful. Mount the target, or unset "
+            f"BACKUP_PATH to keep local-only backups."
+        )
+    if BACKUP_REQUIRE_MOUNT and not os.path.ismount(BACKUP_MIRROR_DIR):
+        raise RuntimeError(
+            f"BACKUP_REQUIRE_MOUNT is enabled but {BACKUP_MIRROR_DIR} is not a "
+            f"mountpoint — the volume is probably not mounted. Refusing to start."
+        )
+    if not os.access(BACKUP_MIRROR_DIR, os.W_OK):
+        raise RuntimeError(
+            f"BACKUP_PATH {BACKUP_MIRROR_DIR} is not writable by this process. "
+            f"Refusing to start rather than failing every backup silently."
+        )
+    logger.info("Backups will also be mirrored to %s", BACKUP_MIRROR_DIR)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _warn_if_insecure_cookie_config()
+    _assert_backup_mirror_usable()
 
-    create_db_and_tables()
-    ensure_user_preference_columns()
-
-    # A corrupt database must never boot and start serving traffic — and must
-    # never get backed up over a good prior backup. Refuse to start instead.
+    # Integrity is checked BEFORE any DDL runs. The previous order created
+    # tables and ran ALTERs first, i.e. it wrote to a database it had not yet
+    # established was readable. A corrupt database must never be written to,
+    # never serve traffic, and never get backed up over a good prior backup.
     if not check_db_integrity():
         raise RuntimeError(
             f"Database integrity check FAILED for {DB_PATH}. Refusing to start "
             f"to avoid serving corrupt data or overwriting a good backup with a "
             f"corrupt one. Restore from the most recent backup in {BACKUP_DIR} "
-            f"before restarting."
+            f"before restarting (see `python -m cli import`)."
         )
+
+    # Refuse a database written by a newer Mosaic before touching it — older
+    # code cannot safely write to a schema it doesn't know about.
+    assert_schema_not_newer(engine)
+
+    create_db_and_tables()
+    sync_schema(engine)
+    set_db_schema_version(engine)
 
     backup_mgr = BackupManager(
         db_path=DB_PATH,
@@ -99,6 +171,8 @@ async def lifespan(app: FastAPI):
         backup_dir=BACKUP_DIR,
         max_backups=MAX_BACKUPS,
         backup_every_n_mutations=BACKUP_EVERY_N_MUTATIONS,
+        uploads_dir=UPLOADS_DIR,
+        mirror_dir=BACKUP_MIRROR_DIR,
     )
     backup_mgr.create_backup()
     audit_logger.on_mutation = backup_mgr.notify_mutation
@@ -124,6 +198,37 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(insights.router, prefix="/api")
 app.include_router(income.router, prefix="/api")
+
+
+@app.get("/api/health")
+def health():
+    """Liveness + version, for container health checks and deploy verification.
+
+    Unauthenticated on purpose: a health check that needs a session cookie is
+    useless to Docker. It leaks only the version and schema number, which the
+    image tag already tells anyone who can reach this port.
+
+    It actually touches the database, because the failure worth catching is a
+    process that still holds the port while being unable to serve — a liveness
+    probe that only proves "uvicorn is running" would report that as healthy.
+    `restart: unless-stopped` alone cannot see it either, since it reacts to
+    the process *exiting*, not to it wedging.
+    """
+    db_ok = True
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check could not query the database")
+        db_ok = False
+
+    payload = {
+        "status": "ok" if db_ok else "degraded",
+        "version": __version__,
+        "schema_version": SCHEMA_VERSION,
+        "database": "ok" if db_ok else "unavailable",
+    }
+    return JSONResponse(payload, status_code=200 if db_ok else 503)
 
 
 @app.get("/api/config")
@@ -258,9 +363,11 @@ def resolve_spa_path(full_path: str, dist_dir: Path = FRONTEND_DIST, dist_dir_re
     return candidate
 
 
-# ── Static file serving (Method 1: git clone + npm run build) ────────────────
+# ── Static file serving ───────────────────────────────────────────────────────
 # Only activates when frontend/dist/ exists. API routes above take priority.
-# In Docker, nginx serves the frontend and this block is never reached.
+# Active in BOTH deployment methods: after `npm run build` on a git clone, and in
+# Docker, where the image ships the built SPA at this same path. There is no
+# nginx in the image.
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 

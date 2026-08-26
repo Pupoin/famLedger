@@ -1,8 +1,8 @@
 name: Release
 
 # Builds and publishes the Docker image whenever a version tag is pushed.
-# Tagging `v2.0.0` publishes:
-#   srpraveen97/mosaic:2.0.0  + :latest
+# Tagging `v2.1.0` publishes:
+#   srpraveen97/mosaic:2.1.0  + :latest
 #
 # Requires two repository secrets:
 #   DOCKERHUB_USERNAME  — your Docker Hub username
@@ -14,7 +14,15 @@ on:
       - "v*.*.*"
 
 jobs:
+  # Publishing is gated on the full test suite. Previously a tag push went
+  # straight to Docker Hub with no tests run at all — tests.yml only triggers on
+  # pushes to main and on pull requests, so tags bypassed it. A release is the
+  # last place you want an unverified build.
+  test:
+    uses: ./.github/workflows/tests.yml
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,7 +32,7 @@ jobs:
 
       - name: Derive version from tag
         id: meta
-        # v2.0.0 -> 2.0.0
+        # v2.1.0 -> 2.1.0
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -42,6 +50,11 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          # Baked into the image and reported at GET /api/health. Without this the
+          # running container cannot tell you which release it is, which makes
+          # "did the upgrade land?" unanswerable.
+          build-args: |
+            MOSAIC_BUILD_VERSION=${{ steps.meta.outputs.version }}
           tags: |
             srpraveen97/mosaic:${{ steps.meta.outputs.version }}
             srpraveen97/mosaic:latest

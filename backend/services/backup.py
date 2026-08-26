@@ -17,7 +17,19 @@ logger = logging.getLogger("mosaic")
 
 
 class BackupManager:
-    """Creates timestamped, verified backups of the SQLite database and audit log."""
+    """Creates timestamped, verified backups of the database, audit log and uploads.
+
+    `uploads_dir` closes a real gap: avatars live under DATA_DIR/uploads/avatars
+    (see auth.AVATARS_DIR) and used to be omitted entirely, so "restore from
+    backup" silently did not restore everything.
+
+    `mirror_dir` is an *additional* destination, not a replacement. Setting the
+    BACKUP_PATH env var used to *relocate* backups -- local copies stopped, and
+    if the target was an unmounted path the backup silently landed on the
+    container's own disk while still logging success. Backups now always land
+    locally first and are copied outward afterwards, so a mirror failure can
+    never cost you the local copy.
+    """
 
     def __init__(
         self,
@@ -26,10 +38,14 @@ class BackupManager:
         backup_dir: Path,
         max_backups: int = 10,
         backup_every_n_mutations: Optional[int] = None,
+        uploads_dir: Optional[Path] = None,
+        mirror_dir: Optional[Path] = None,
     ):
         self.db_path = db_path
         self.audit_log_path = audit_log_path
         self.backup_dir = backup_dir
+        self.uploads_dir = uploads_dir
+        self.mirror_dir = mirror_dir
         self.max_backups = max_backups
         # If set, notify_mutation() triggers a backup once this many mutations
         # have been observed since the last one — correlating backups with
@@ -61,7 +77,20 @@ class BackupManager:
         if self.audit_log_path.exists():
             shutil.copy2(self.audit_log_path, dest / "audit.jsonl")
 
-        if self.verify_backup(dest):
+        # Uploads (avatars). Small, but they are user data and were previously
+        # left out of every backup.
+        if self.uploads_dir and self.uploads_dir.is_dir():
+            try:
+                shutil.copytree(self.uploads_dir, dest / "uploads", dirs_exist_ok=True)
+            except OSError:
+                logger.exception(
+                    "Could not copy uploads from %s into backup %s. The database "
+                    "backup itself is unaffected.",
+                    self.uploads_dir, dest,
+                )
+
+        verified = self.verify_backup(dest)
+        if verified:
             logger.info("Backup created and verified at %s", dest)
         else:
             logger.error(
@@ -71,7 +100,34 @@ class BackupManager:
             )
 
         self._rotate_backups()
+
+        # Only mirror a backup that actually verified — copying a known-bad
+        # backup off-site just spreads the false confidence.
+        if verified:
+            self._mirror_backup(dest)
         return dest
+
+    def _mirror_backup(self, dest: Path) -> None:
+        """Copy a verified backup to the mirror destination, if one is configured.
+
+        Never raises: an off-site copy is redundancy, so a failure here must not
+        take down the app or discard the local backup that already succeeded. It
+        is logged at ERROR because a mirror that has quietly stopped working is
+        exactly the thing you want to find out about before you need it.
+        """
+        if not self.mirror_dir:
+            return
+        target = self.mirror_dir / dest.name
+        try:
+            shutil.copytree(dest, target, dirs_exist_ok=True)
+            logger.info("Backup mirrored to %s", target)
+            self._rotate_backups(self.mirror_dir)
+        except OSError:
+            logger.exception(
+                "Failed to mirror backup to %s. The local backup at %s is intact. "
+                "Check that the mirror path is still mounted and writable.",
+                target, dest,
+            )
 
     def verify_backup(self, dest: Path) -> bool:
         """Open the freshly-created backup copy and confirm it's actually restorable.
@@ -146,12 +202,21 @@ class BackupManager:
             self._mutation_count = 0
         return self.create_backup()
 
-    def _rotate_backups(self) -> None:
-        """Keep only the most recent max_backups, delete the rest."""
-        if not self.backup_dir.exists():
+    def _rotate_backups(self, directory: Optional[Path] = None) -> None:
+        """Keep only the most recent max_backups in `directory`, delete the rest.
+
+        Takes a directory so the mirror destination is rotated on the same
+        policy as the local one -- otherwise an off-site folder grows without
+        bound. Only directories matching the timestamp pattern are considered,
+        which is what keeps anything else living alongside them (notably the
+        `pre-import/` snapshots written by services.portable) from being
+        deleted by rotation.
+        """
+        directory = directory or self.backup_dir
+        if not directory.exists():
             return
         backups = sorted(
-            [d for d in self.backup_dir.iterdir() if d.is_dir() and _TIMESTAMP_RE.match(d.name)],
+            [d for d in directory.iterdir() if d.is_dir() and _TIMESTAMP_RE.match(d.name)],
             reverse=True,
         )
         for old in backups[self.max_backups :]:

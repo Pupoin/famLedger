@@ -315,13 +315,33 @@ Every mutation (create, update, delete, description merge) is appended to `backe
 
 ### Automatic Backups
 
-Mosaic creates timestamped backups of both the database and the audit log — on startup and again periodically as your data changes, so a long-running install stays current. Each backup is **verified after it's written** (integrity check plus a row-count comparison against the live data) so a silently-corrupt backup isn't mistaken for a good one. Backups are stored in `backend/data/backups/` and rotated to keep the most recent (30 by default, configurable). For off-site redundancy, set `BACKUP_PATH` in `backend/.env` to a cloud-synced folder:
+Mosaic creates timestamped backups of the database, the audit log, and your avatar uploads — on startup and again periodically as your data changes, so a long-running install stays current. Each backup is **verified after it's written** (integrity check plus a row-count comparison against the live data) so a silently-corrupt backup isn't mistaken for a good one. Backups are stored in `backend/data/backups/` and rotated to keep the most recent (30 by default, configurable).
+
+Backups use the SQLite online backup API — safe to create while the app is running. On startup, Mosaic checks the database's integrity and refuses to start on a corrupt file (naming the backup folder to restore from) rather than backing up over a good copy.
+
+For off-site redundancy, set `BACKUP_PATH` to a cloud-synced folder:
 
 ```env
 BACKUP_PATH=C:/Users/yourname/OneDrive/Mosaic-Backups
 ```
 
-Backups use the SQLite online backup API — safe to create while the app is running. On startup, Mosaic checks the database's integrity and refuses to start on a corrupt file (naming the backup folder to restore from) rather than backing up over a good copy.
+This is an **additional** destination, not a replacement — backups always land locally first, so a broken or unmounted mirror can never cost you the local copy. Mosaic will **refuse to start** if `BACKUP_PATH` is set but missing or unwritable, rather than creating the directory and writing backups that sync nowhere.
+
+> **Changed in v2.1.0.** Previously `BACKUP_PATH` *relocated* backups: setting it silently switched local backups off, and pointing it at an unmounted path caused Mosaic to create a plain directory there and report "Backup created and verified" while nothing was ever synced anywhere. If you rely on `BACKUP_PATH`, you will now also get local copies, and a missing target is a startup failure instead of a silent one.
+
+### Moving your data to another machine
+
+`python -m cli export` writes a single verifiable archive of everything — database, audit log and avatars — and `python -m cli import` restores it:
+
+```bash
+python -m cli export --out mosaic-backup.tar.gz    # on the old machine
+python -m cli import --archive mosaic-backup.tar.gz  # on the new one
+python -m cli verify                                 # print the data fingerprint
+```
+
+The database travels as the binary SQLite file rather than as CSV or JSON, so amounts and dates cannot be altered by a text round-trip. Each archive carries a checksum (proving the file arrived intact) and a **data fingerprint** — row counts, your total expenses, sums per category and per payer, the date range, and the user list. Import verifies both, refuses to overwrite an existing database unless you pass `--force`, snapshots whatever was there first, and re-checks the fingerprint after installing. `verify` prints the same fingerprint for a live database, so you can compare the two totals by eye and see for yourself that nothing changed.
+
+In Docker: `docker compose run --rm mosaic python -m cli verify`.
 
 ### Security
 

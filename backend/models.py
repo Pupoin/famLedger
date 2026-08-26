@@ -158,8 +158,10 @@ class UserPreference(SQLModel, table=True):
 
     New columns added to this table after its first release will not appear in
     already-deployed SQLite databases (SQLModel.metadata.create_all() only
-    creates missing tables, it never alters existing ones) — see
-    database.ensure_user_preference_columns(), which ALTERs them in on startup.
+    creates missing tables, it never alters existing ones). services/schema.py's
+    sync_schema() ALTERs them in on startup — for every table, not just this one,
+    which is why the hand-written database.ensure_user_preference_columns() that
+    used to live here is now only a delegating wrapper.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(max_length=100, unique=True, index=True)

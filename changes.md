@@ -4,6 +4,96 @@ Tracks what was actually implemented for each item in `review_order/*.md`, bucke
 
 ---
 
+## v2.1.0 — Portable data, automatic schema migrations, container hardening
+
+Not from `review_order/*.md`. Driven by a real lift-and-shift: moving a live installation off a personal PC onto a server, where losing the expense history was not an acceptable outcome. Everything below exists to make that move verifiable and to make the *next* one routine.
+
+### 1. Export / import a whole installation
+**Status: Done**
+
+- New `backend/services/portable.py` — `export_archive()` / `import_archive()` / `compute_fingerprint()` / `format_fingerprint()`.
+- New `backend/cli.py` — `python -m cli export|import|verify|inspect`. Deliberately imports neither `config` nor `main`, so it runs without `SECRET_KEY`; needing a session-signing secret in order to rescue data would be a poor arrangement.
+- New `backend/version.py` — `__version__` from the `MOSAIC_BUILD_VERSION` env var, baked in at image build time, honestly `"dev"` for a plain checkout.
+- The database travels as the **binary SQLite file** produced by the online backup API, never CSV/JSON. Amounts are `Decimal` on `Numeric(10, 2)` and dates are real dates; a text round-trip risks a float conversion or a reformat that silently changes a number.
+- Each archive carries a manifest with **two independent verifications**, because they catch different failures:
+  - `db_sha256` — proves the file arrived byte-identical (truncated copy, corrupted transfer).
+  - a **data fingerprint** — row counts, expense total, sums per category and per payer, date range, income total, user list. This is the only one that still means anything *after* a schema migration, since a migration legitimately changes the file's bytes.
+- Money in the fingerprint is summed in Python as `Decimal` and reported as **strings**. SQLite has no DECIMAL type, so `Numeric(10, 2)` lands with NUMERIC affinity and `SUM()` in SQL would be float arithmetic; a JSON float would reintroduce exactly the precision loss the module exists to prevent.
+- Import ordering is chosen so nothing irreversible happens until every check passes: manifest format → schema version → overwrite guard → extract (`filter="data"`, blocking path traversal and symlinks) → checksum → `integrity_check` → fingerprint vs manifest → snapshot the existing DB → **discard stale `-wal`/`-shm`** → atomic `os.replace` → restore audit + uploads → re-verify the fingerprint on what actually landed.
+- Refuses to overwrite a populated database without `--force`, and snapshots the previous one either way into `DATA_DIR/pre-import/<timestamp>/` — deliberately *not* under `backups/`, which `BackupManager` rotates by timestamp pattern and would eventually delete.
+- Backups are excluded from the archive: derived data, up to thirty copies, no recovery value in shipping backups-of-backups.
+- Covered by `backend/tests/test_portable.py` (18 tests): round-trip fingerprint equality, negative reimbursements netting into the total, money-as-strings surviving JSON, audit log and avatars carried across, source never modified, overwrite refusal, `--force` + snapshot recoverability, snapshot placed outside rotation, tampered database caught by checksum, forged manifest caught by fingerprint, newer-schema refusal, unknown-format refusal, missing-manifest refusal, and the stale-WAL case.
+
+### 2. Additive schema migrations for every table
+**Status: Done**
+
+- New `backend/services/schema.py` — `sync_schema()` diffs every model table against the live SQLite schema and `ALTER TABLE ADD COLUMN`s whatever is missing, logging each statement at INFO.
+- Replaces the hand-written `database.ensure_user_preference_columns()`, which covered exactly two columns on one table. Every *other* table reintroduced the original bug: a new model field absent from the real schema, failing at **runtime** with `no such column` on an app that had started up perfectly. `ensure_user_preference_columns()` is retained as a delegating wrapper (it is public surface and directly tested) — its three existing tests pass unchanged.
+- **Add-only by design.** Never drops, renames or retypes. A column in the database but not in the model is left alone and logged — it may belong to a newer version someone rolled back from.
+- Two unambiguous cases **refuse to start**, because both would otherwise lose or invent data: a missing NOT NULL column with no derivable default (SQLite cannot add one to a table with rows), and a missing UNIQUE column (`ALTER TABLE ADD COLUMN` cannot express UNIQUE on SQLite). This turns CLAUDE.md's "every new column needs a default" from a convention into something enforced.
+- A declared **type** difference only warns. Comparing compiled type strings is genuinely ambiguous (`VARCHAR`, `VARCHAR(50)` and `TEXT` all describe one SQLite affinity), so a false positive would take a healthy app down — worse than the risk it guards against.
+- `sync_schema(engine, metadata=...)` takes metadata as a parameter purely for testability: a throwaway SQLModel model declared in a test would register itself in the *global* `SQLModel.metadata`, where another test's `create_all()` would start creating it.
+
+### 3. Schema version stamp
+**Status: Done**
+
+- `SCHEMA_VERSION = 1`, stored in `PRAGMA user_version` — no extra table, so v2.1.0 makes **no schema change of its own**.
+- `assert_schema_not_newer()` aborts startup against a database written by a newer Mosaic. Downgrades are the one direction an add-only migrator can never handle: old code writing to a newer schema can violate constraints it cannot see.
+- 0 means "unstamped — a fresh database, or any pre-v2.1.0 one", read as *migrate it*, never as *empty*.
+
+### 4. Backups now cover everything, and `BACKUP_PATH` mirrors instead of relocating
+**Status: Done — behaviour change**
+
+- `services/backup.py` — `BackupManager` gained `uploads_dir` and `mirror_dir`.
+- **Avatars are backed up.** They live at `DATA_DIR/uploads/avatars` (`auth.py:37`) and were excluded from every backup, so "restore from backup" silently did not restore everything.
+- **`BACKUP_PATH` is now additive.** It used to *relocate*: `BACKUP_DIR = Path(BACKUP_PATH) if BACKUP_PATH else DATA_DIR / "backups"` meant configuring a cloud folder silently switched local backups off. Backups now always land locally and are copied outward afterwards, so a mirror failure can never cost the local copy. Mirror failures are caught and logged at ERROR, never raised.
+- **A missing mirror path is now fatal at startup**, via `main._assert_backup_mirror_usable()`. Previously `create_backup()` called `mkdir(parents=True)`, so pointing `BACKUP_PATH` at an unmounted path created a plain directory there and wrote backups to the container's own disk — while logging *"Backup created and verified"*. The path is never created; it must exist and be writable. Optional `BACKUP_REQUIRE_MOUNT=true` additionally demands a real mountpoint (off by default, since an OS-level sync folder is a plain directory).
+- Only a backup that **passed verification** is mirrored — copying a known-bad backup off-site just spreads false confidence.
+- The mirror is rotated on the same `max_backups` policy, so an off-site folder cannot grow without bound.
+- **Integrity is now checked before any DDL runs.** The old lifespan called `create_all()` and the column ALTERs *before* `check_db_integrity()` — it wrote to a database it had not yet established was readable.
+- Covered by 14 new tests in `backend/tests/test_backup.py`.
+
+### 5. Health endpoint and a real container health check
+**Status: Done**
+
+- `GET /api/health` → `{status, version, schema_version, database}`. Unauthenticated on purpose: a health check needing a session cookie is useless to Docker, and it leaks only what the image tag already tells anyone who can reach the port.
+- It queries the database and returns **503** when that fails. The failure worth catching is a process still holding the port while unable to serve — `restart: unless-stopped` cannot see that, since it reacts to the process *exiting*, not to it wedging.
+- `HEALTHCHECK` in the Dockerfile uses the interpreter already present rather than adding curl to the image.
+- Version is baked in via `ARG MOSAIC_BUILD_VERSION`, fed from the git tag by `release.yml`. Without it, a running container cannot say which release it is, so "did the upgrade land?" has no answer.
+- Covered by `backend/tests/test_health.py`.
+
+### 6. Container hardening
+**Status: Done**
+
+- Runs as **uid/gid 10001 (`mosaic`)** instead of root. `scripts/start.sh` became the **ENTRYPOINT** rather than the CMD: it starts as root only to `chown` a root-owned volume left by v2.0.0, then `exec gosu`s the given command. As the entrypoint it also covers one-off invocations — `docker compose run --rm mosaic python -m cli import ...` runs unprivileged, so a maintenance command cannot leave root-owned files the app is then unable to write. The `chown -R` is guarded on the directory's current owner so it is not repeated on every restart.
+- `FASTEMBED_CACHE_PATH=/app/model-cache` pins the ONNX model location and chowns it. fastembed otherwise defaults to `$TMPDIR/fastembed_cache`, which would leave the app depending on root-created files in `/tmp` staying readable — and silently re-downloading the model at runtime if they weren't, defeating the point of baking it in.
+- `BACKUP_PATH` is deliberately **not** chowned: it is an external mount whose ownership belongs to whoever mounted it. It must be writable by uid 10001 on the host side, which `main.py` now checks at startup.
+- `pytest` and `httpx` moved to a new `backend/requirements-dev.txt`, so the production image no longer ships a test runner. `httpx` is test-only — nothing in the app imports it, and `fastembed` downloads over `requests`.
+
+### 7. CI: the release was publishing untested images
+**Status: Done**
+
+- `release.yml` ran **no tests at all**. `tests.yml` only triggered on pushes to `main` and on pull requests, so a tag push went straight to Docker Hub ungated. `tests.yml` gained `workflow_call:` and `release.yml` now has `publish: needs: test`.
+- `release.yml` passes `build-args: MOSAIC_BUILD_VERSION` so the published image knows its own version.
+- `tests.yml` installs `requirements-dev.txt` (it previously installed `requirements.txt` and ran `pytest` — which the dependency split would have broken) and caches on `backend/requirements*.txt`.
+- New **`docker` job** builds the image and smoke-tests the running container: waits for the container's own HEALTHCHECK to report healthy, asserts the baked-in version is served, asserts `/app/data/mosaic.db` is owned by uid 10001 (proving privileges were actually dropped — `docker exec` bypasses the entrypoint, so checking `id -u` would prove nothing), and runs the CLI inside the image. Unit tests cannot catch a broken Dockerfile; without this a container-level mistake would first surface while cutting a release.
+
+### 8. Corrected stale documentation
+**Status: Done**
+
+- Three comments in `main.py` plus one line in `CLAUDE.md` and one in `backend/.env.example` claimed **nginx serves static files in Docker**. There is no nginx in the image — the Dockerfile's own header says "one image, one container", and its build stage copies the SPA to `/app/frontend/dist`, which is exactly the `FRONTEND_DIST` path FastAPI serves from. The claim was actively misleading for anyone reasoning about a deployment.
+- `CLAUDE.md`'s "**No migration tooling exists**" is no longer true; updated, along with new entries for `services/schema.py`, `services/portable.py` and the CLI.
+- `models.py`'s `UserPreference` docstring now points at `sync_schema()`.
+- `FEATURES.md` and `README.md` document the CLI, the fingerprint check, and the `BACKUP_PATH` behaviour change.
+
+### Verification performed
+- `pytest tests/ -v` in `backend/`: **426 passing** (up from 379 — 47 new). The three pre-existing `ensure_user_preference_columns()` tests pass unchanged against the delegating wrapper.
+- Manual end-to-end CLI round-trip against a seeded 250-expense database: export → import into an empty directory → identical fingerprints; overwrite refusal; `--force` + snapshot; audit log and avatar carried across.
+- **Not verified locally**: the Docker image. No Docker daemon was available on the development machine, which is exactly why the CI `docker` job above was added. The image is built and smoke-tested on every PR and, via `needs: test`, before any release is published.
+- **Not performed**: no browser click-through, and no frontend code was touched.
+
+---
+
 ## Bucket 01 — Frontend: Add/Edit Expense Flow & Split Legibility
 
 Source: `review_order/01-frontend-add-expense-flow.md`
