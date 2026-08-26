@@ -311,11 +311,13 @@ Mosaic supports up to 2 user accounts, created through the web UI.
 
 ### Audit Log
 
-Every mutation (create, update, delete, description merge) is appended to `backend/data/audit/audit.jsonl` as a permanent, append-only record. Each entry captures the timestamp, operation type, user, and full before/after data — a complete reconstruction history even if the database is lost.
+Every mutation (create, update, delete, description merge) is appended to `<DATA_DIR>/audit/audit.jsonl` as a permanent, append-only record. Each entry captures the timestamp, operation type, user, and full before/after data — a complete reconstruction history even if the database is lost.
+
+`DATA_DIR` is where all your data lives — database, audit log, backups and avatar uploads. It defaults to the `backend/` directory itself (so `backend/audit/audit.jsonl`), is `/app/data` in Docker, and can be pointed anywhere with the `DATA_DIR` environment variable. Run `python -m cli verify` if you're ever unsure which database is the live one.
 
 ### Automatic Backups
 
-Mosaic creates timestamped backups of the database, the audit log, and your avatar uploads — on startup and again periodically as your data changes, so a long-running install stays current. Each backup is **verified after it's written** (integrity check plus a row-count comparison against the live data) so a silently-corrupt backup isn't mistaken for a good one. Backups are stored in `backend/data/backups/` and rotated to keep the most recent (30 by default, configurable).
+Mosaic creates timestamped backups of the database, the audit log, and your avatar uploads — on startup and again periodically as your data changes, so a long-running install stays current. Each backup is **verified after it's written** (integrity check plus a row-count comparison against the live data) so a silently-corrupt backup isn't mistaken for a good one. Backups are stored in `<DATA_DIR>/backups/` and rotated to keep the most recent (30 by default, configurable).
 
 Backups use the SQLite online backup API — safe to create while the app is running. On startup, Mosaic checks the database's integrity and refuses to start on a corrupt file (naming the backup folder to restore from) rather than backing up over a good copy.
 
