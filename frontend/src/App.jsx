@@ -14,9 +14,50 @@ import ForgotPassword from "./pages/ForgotPassword";
 import Settings from "./pages/Settings";
 import ModeSwitchBanner from "./components/ModeSwitchBanner";
 
-const Analytics = lazy(() => import("./pages/Analytics"));
-const Calendar = lazy(() => import("./pages/Calendar"));
-const Insights = lazy(() => import("./pages/Insights"));
+// A lazily loaded route whose chunk fails to load almost always means this tab
+// is running an index.html from an older build and asking for chunk names the
+// server no longer has (see the Cache-Control note in backend/main.py). The
+// index.html is no longer cacheable without revalidation, so a plain reload
+// fetches the current one and fixes it — but a tab opened before that change
+// shipped still has the stale copy, and the error it shows ("Something went
+// wrong") tells the user nothing about what to do. Reload once instead.
+const RELOAD_FLAG = "mosaic:chunk-reload";
+
+function lazyWithReload(importer) {
+  return lazy(() =>
+    importer()
+      .then((mod) => {
+        // Import succeeded, so the tab is current: clear the guard so a future
+        // deploy gets its own one reload rather than inheriting a spent one.
+        try {
+          sessionStorage.removeItem(RELOAD_FLAG);
+        } catch {
+          /* storage unavailable (private mode) — nothing to clear */
+        }
+        return mod;
+      })
+      .catch((err) => {
+        // Default to "already reloaded" when sessionStorage is unreadable: the
+        // guard exists to stop a reload loop when the chunk is genuinely gone
+        // rather than merely stale, and failing closed keeps that guarantee.
+        let alreadyReloaded = true;
+        try {
+          alreadyReloaded = sessionStorage.getItem(RELOAD_FLAG) === "1";
+          if (!alreadyReloaded) sessionStorage.setItem(RELOAD_FLAG, "1");
+        } catch {
+          /* storage unavailable — surface the error to the ErrorBoundary */
+        }
+        if (alreadyReloaded) throw err;
+        window.location.reload();
+        // Never settles; the reload replaces the page before React sees it.
+        return new Promise(() => {});
+      }),
+  );
+}
+
+const Analytics = lazyWithReload(() => import("./pages/Analytics"));
+const Calendar = lazyWithReload(() => import("./pages/Calendar"));
+const Insights = lazyWithReload(() => import("./pages/Insights"));
 
 export default function App() {
   const { user, loading } = useAuth();

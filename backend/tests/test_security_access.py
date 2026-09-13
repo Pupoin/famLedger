@@ -281,3 +281,73 @@ def test_refreshed_session_survives_past_original_ttl(client, db):
     client.cookies.set(auth_mod.SESSION_COOKIE, refreshed_token)
     resp2 = client.get("/api/auth/me")
     assert resp2.status_code == 200
+
+
+# ── SPA cache headers ──────────────────────────────────────────────────────
+# The bug these guard against presents as two apparently unrelated symptoms
+# from one cause. index.html keeps a stable URL across builds while naming the
+# content-hashed chunks of *that* build; FileResponse sets only last-modified
+# and etag, and a response with no explicit freshness is heuristically
+# cacheable, so a browser can keep serving an old index.html after a redeploy.
+# The already-cached main bundle then keeps rendering the previous release's UI
+# (looking like the update simply never arrived) while the lazily loaded routes
+# — Analytics, Insights, Calendar — request chunk names the new build does not
+# have and 404.
+
+
+@pytest.fixture
+def spa_client(tmp_path):
+    """A TestClient over a throwaway built-SPA layout.
+
+    mount_spa() takes its app and dist directory as arguments so this can exist
+    without frontend/dist — which is a build artifact, absent in CI.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    dist_dir = tmp_path / "dist"
+    (dist_dir / "assets").mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><title>Mosaic</title>")
+    (dist_dir / "assets" / "Analytics-abc123.js").write_text("export default 1;")
+    (dist_dir / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    spa_app = FastAPI()
+    main_mod.mount_spa(spa_app, dist_dir)
+    return TestClient(spa_app)
+
+
+def test_index_html_is_revalidated_not_heuristically_cached(spa_client):
+    response = spa_client.get("/")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_spa_route_fallback_is_also_revalidated(spa_client):
+    # A deep link renders index.html under a different URL; it needs the same
+    # header, or the stale-index problem just moves to /analytics.
+    response = spa_client.get("/analytics")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_hashed_assets_are_cached_immutably(spa_client):
+    response = spa_client.get("/assets/Analytics-abc123.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_unfingerprinted_public_file_is_revalidated(spa_client):
+    # Copied verbatim from frontend/public: stable URL, mutable bytes, so it
+    # must not inherit the immutable policy that hashed assets get.
+    response = spa_client.get("/logo.png")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_missing_chunk_404s_rather_than_falling_back_to_index_html(spa_client):
+    # The /assets mount must win over the catch-all: serving index.html here
+    # would turn a clear 404 into a "MIME type text/html is not executable"
+    # module error that says nothing about the real problem.
+    response = spa_client.get("/assets/Analytics-staleoldhash.js")
+    assert response.status_code == 404
+    assert "text/html" not in response.headers.get("content-type", "")

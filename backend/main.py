@@ -367,15 +367,74 @@ def resolve_spa_path(full_path: str, dist_dir: Path = FRONTEND_DIST, dist_dir_re
 # Only activates when frontend/dist/ exists. API routes above take priority.
 # Active in BOTH deployment methods: after `npm run build` on a git clone, and in
 # Docker, where the image ships the built SPA at this same path. There is no
-# nginx in the image.
-if FRONTEND_DIST.exists():
-    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+# nginx in the image — which means nothing else is setting cache headers, so
+# this module is the only place they can come from.
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+# Everything under /assets is content-hashed by Vite (index-<hash>.js,
+# Analytics-<hash>.js, ...), so a given URL's bytes never change — a changed
+# file gets a new name. Those are safe to cache forever.
+IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+# index.html is the opposite case and must never be cached without
+# revalidation. It keeps the same URL across every build while being the index
+# of *which* hashed chunks are current. FileResponse sets only last-modified
+# and etag, and a response carrying neither Cache-Control nor Expires is
+# heuristically cacheable (RFC 9111 s4.2.2) — browsers commonly reuse it for
+# ~10% of its age without asking. The failure that produces is confusing out of
+# all proportion to its cause: after a rebuild, a browser holding the previous
+# build's index.html keeps rendering the old UI from its already-cached main
+# bundle (so the app looks like it simply never received the update), while the
+# lazily loaded routes — Analytics, Insights, Calendar — request chunk names
+# that the new build no longer has and 404. Same root cause, two symptoms that
+# look unrelated.
+NO_CACHE_CONTROL = "no-cache, must-revalidate"
+
+
+class _ImmutableStaticFiles(StaticFiles):
+    """StaticFiles that stamps the immutable Cache-Control on what it serves.
+
+    *args/**kwargs rather than the real signature: file_response() is internal
+    Starlette API and has changed shape before, and a pinned-version bump
+    should not be able to break static serving here.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = IMMUTABLE_CACHE_CONTROL
+        return response
+
+
+def mount_spa(target_app: FastAPI, dist_dir: Path) -> None:
+    """Attach the built SPA at dist_dir to target_app.
+
+    Takes the app and directory as arguments rather than closing over the
+    module globals so a test can mount a throwaway dist from tmp_path — the
+    real frontend/dist is a build artifact and is absent in CI's backend job,
+    which is exactly where the cache headers below would otherwise go
+    unverified. Same reasoning as resolve_spa_path() being a free function.
+    """
+    dist_dir_resolved = dist_dir.resolve()
+    target_app.mount(
+        "/assets",
+        _ImmutableStaticFiles(directory=str(dist_dir / "assets")),
+        name="assets",
+    )
+
+    @target_app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        candidate = resolve_spa_path(full_path)
+        candidate = resolve_spa_path(full_path, dist_dir, dist_dir_resolved)
         if candidate is None:
             raise HTTPException(status_code=404)
         if candidate.is_file():
-            return FileResponse(str(candidate))
-        return FileResponse(str(FRONTEND_DIST / "index.html"))
+            # Files reaching here are the un-fingerprinted ones copied from
+            # frontend/public (logo.png and friends): stable URLs, mutable
+            # bytes, so they must be revalidated like index.html.
+            return FileResponse(str(candidate), headers={"Cache-Control": NO_CACHE_CONTROL})
+        return FileResponse(
+            str(dist_dir / "index.html"),
+            headers={"Cache-Control": NO_CACHE_CONTROL},
+        )
+
+
+if FRONTEND_DIST.exists():
+    mount_spa(app, FRONTEND_DIST)
