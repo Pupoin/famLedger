@@ -11,7 +11,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: backend + the built frontend it serves
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 # Version string baked in at build time and reported at GET /api/health, so
 # "did my upgrade actually take effect?" has an answer. Fed from the git tag by
@@ -28,27 +28,14 @@ RUN apt-get update \
 
 # Unprivileged runtime account. Fixed uid/gid so file ownership on a mounted
 # volume stays stable across image rebuilds.
-RUN groupadd --gid 10001 mosaic \
-    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin mosaic
+RUN groupadd --gid 10001 famledger \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin famledger
 
 WORKDIR /app/backend
 
 # Install dependencies first (cached layer — only re-runs if requirements.txt changes)
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Pre-download the fastembed ONNX model at build time so the container starts
-# instantly and needs no internet at runtime.
-#
-# The cache path is pinned rather than left to fastembed's default of
-# $TMPDIR/fastembed_cache: the model is downloaded here as root, but the app
-# runs as `mosaic`, so the location has to be somewhere predictable that can be
-# chown'd. Leaving it in /tmp would leave the app depending on root-created
-# files staying readable — and silently re-downloading the model at runtime if
-# they weren't.
-ENV FASTEMBED_CACHE_PATH=/app/model-cache
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding()" \
-    && chown -R mosaic:mosaic /app/model-cache
 
 # Copy backend source
 COPY backend/ .
@@ -71,7 +58,7 @@ RUN chmod +x /start.sh
 
 # The application code itself is owned by root and only read by the app — the
 # runtime user deliberately cannot modify its own source.
-RUN chown -R mosaic:mosaic /app/frontend/dist
+RUN chown -R famledger:famledger /app/frontend/dist
 
 EXPOSE 8000
 

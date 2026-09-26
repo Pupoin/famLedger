@@ -6,6 +6,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { ThemeProvider } from "./ThemeContext";
 import { ToastProvider } from "./ToastContext";
 import App from "./App";
+import "./i18n";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(

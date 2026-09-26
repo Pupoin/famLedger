@@ -8,7 +8,7 @@ const SECTIONS = [
     icon: "home",
     title: "Overview",
     content: (mode, incomeEnabled) => [
-      "Mosaic is a personal and collaborative expense-tracking app. It supports three modes: Personal (solo), Shared (split every expense with a partner), and Blended (mix of personal and shared expenses).",
+      "famLedger is a personal and collaborative expense-tracking app. It supports three modes: Personal (solo), Shared (split every expense with a partner), and Blended (mix of personal and shared expenses).",
       `You are currently in **${mode === "personal" ? "Personal" : mode === "blended" ? "Blended" : "Shared"}** mode. You can change this in Settings.`,
     ],
   },
@@ -323,7 +323,7 @@ export default function HelpModal({ onClose }) {
                 App Guide
               </h2>
               <p className="text-on-surface-variant text-sm">
-                Everything you need to know about Mosaic.
+                Everything you need to know about famLedger.
               </p>
             </div>
             <button

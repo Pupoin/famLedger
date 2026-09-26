@@ -10,21 +10,24 @@ import config from "../config";
 import { useUsers } from "../ConfigContext";
 
 const topLinks = [
-  { to: "/", label: "Home" },
-  { to: "/add", label: "Add New" },
-  { to: "/analytics", label: "Analytics" },
-  { to: "/calendar", label: "Calendar" },
-  { to: "/insights", label: "Insights" },
-  { to: "/history", label: "Expenses" },
+  { to: "/", label: "总览" },
+  { to: "/history", label: "明细" },
+  { to: "/rules", label: "规则" },
+  { to: "/debts", label: "借贷" },
+  { to: "/emails", label: "邮件箱" },
+  { to: "/analytics", label: "统计" },
+  { to: "/calendar", label: "日历" },
+  { to: "/insights", label: "洞察" },
+  { to: "/add", label: "记账" },
 ];
 
 const bottomLinks = [
-  { to: "/", label: "Home", icon: "home" },
-  { to: "/add", label: "Add New", icon: "add_circle" },
-  { to: "/analytics", label: "Analytics", icon: "bar_chart" },
-  { to: "/calendar", label: "Calendar", icon: "calendar_month" },
-  { to: "/insights", label: "Insights", icon: "lightbulb" },
-  { to: "/history", label: "Expenses", icon: "receipt_long" },
+  { to: "/", label: "总览", icon: "home" },
+  { to: "/history", label: "明细", icon: "receipt_long" },
+  { to: "/rules", label: "规则", icon: "account_tree" },
+  { to: "/debts", label: "借贷", icon: "payments" },
+  { to: "/emails", label: "邮件", icon: "mail" },
+  { to: "/add", label: "记账", icon: "add_circle" },
 ];
 
 export default function Navbar() {
@@ -55,7 +58,7 @@ export default function Navbar() {
               to="/"
               className="flex items-center gap-2"
             >
-              <img src="/logo.png" alt="Mosaic" className="h-9 w-9 object-contain -mr-1" />
+              <img src="/logo.png" alt="famLedger" className="h-9 w-9 object-contain -mr-1" />
               <span className="text-xl font-bold text-primary italic font-headline">
                 {config.appName}
               </span>

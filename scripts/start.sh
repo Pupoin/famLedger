@@ -15,7 +15,7 @@
 set -e
 
 DATA_DIR="${DATA_DIR:-/app/data}"
-APP_USER=mosaic
+APP_USER=famledger
 APP_UID=10001
 
 mkdir -p "${DATA_DIR}/audit"

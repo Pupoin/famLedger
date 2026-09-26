@@ -12,6 +12,9 @@ import Login from "./pages/Login";
 import CreateAccount from "./pages/CreateAccount";
 import ForgotPassword from "./pages/ForgotPassword";
 import Settings from "./pages/Settings";
+import RulesPage from "./pages/RulesPage";
+import DebtsPage from "./pages/DebtsPage";
+import EmailsPage from "./pages/EmailsPage";
 import ModeSwitchBanner from "./components/ModeSwitchBanner";
 
 // A lazily loaded route whose chunk fails to load almost always means this tab
@@ -21,7 +24,7 @@ import ModeSwitchBanner from "./components/ModeSwitchBanner";
 // fetches the current one and fixes it — but a tab opened before that change
 // shipped still has the stale copy, and the error it shows ("Something went
 // wrong") tells the user nothing about what to do. Reload once instead.
-const RELOAD_FLAG = "mosaic:chunk-reload";
+const RELOAD_FLAG = "famledger:chunk-reload";
 
 function lazyWithReload(importer) {
   return lazy(() =>
@@ -120,6 +123,9 @@ export default function App() {
               </Suspense>
             } />
             <Route path="/history" element={<History />} />
+            <Route path="/rules" element={<RulesPage />} />
+            <Route path="/debts" element={<DebtsPage />} />
+            <Route path="/emails" element={<EmailsPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

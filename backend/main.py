@@ -46,7 +46,7 @@ from services.schema import (
 )
 from version import __version__
 
-logger = logging.getLogger("mosaic")
+logger = logging.getLogger("famledger")
 logging.basicConfig(level=logging.INFO)
 
 # Backups always land locally. BACKUP_PATH, when set, is an *additional*
@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI):
     audit_logger.on_mutation = None
 
 
-app = FastAPI(title="Mosaic API", lifespan=lifespan)
+app = FastAPI(title="famLedger API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

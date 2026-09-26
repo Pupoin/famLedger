@@ -11,4 +11,4 @@ both answerable without guessing.
 
 import os
 
-__version__ = os.getenv("MOSAIC_BUILD_VERSION", "dev")
+__version__ = os.getenv("FAMLEDGER_BUILD_VERSION", os.getenv("MOSAIC_BUILD_VERSION", "dev"))
