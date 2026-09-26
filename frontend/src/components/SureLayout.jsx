@@ -9,7 +9,7 @@ import {
   Inbox,
   SlidersHorizontal,
   HandCoins,
-  PlusCircle,
+  Plus,
   HelpCircle,
   Settings,
   LogOut,
@@ -18,11 +18,9 @@ import {
   Menu,
   X,
   ChevronRight,
-  ShieldCheck,
   Eye,
   EyeOff,
   PanelLeft,
-  PanelLeftClose,
   Wallet,
   ReceiptText,
 } from 'lucide-react';
@@ -36,15 +34,15 @@ import Avatar from './Avatar';
 import AccountsPanel from './AccountsPanel';
 import config from '../config';
 
-const navItems = [
-  { to: '/', label: '总览看板', icon: LayoutDashboard },
-  { to: '/transactions', label: '交易明细', icon: CreditCard, badge: '163' },
-  { to: '/analytics', label: '统计报表', icon: BarChart3 },
-  { to: '/calendar', label: '消费日历', icon: CalendarDays },
-  { to: '/insights', label: '财务洞察', icon: Sparkles },
-  { to: '/emails', label: '邮件归档', icon: Inbox, badge: '164' },
-  { to: '/rules', label: '分类规则', icon: SlidersHorizontal },
-  { to: '/debts', label: '借贷结算', icon: HandCoins },
+// 84px Rail navigation items (Sure desktop vertical style)
+const railNavItems = [
+  { to: '/', label: '总览', icon: LayoutDashboard },
+  { to: '/transactions', label: '明细', icon: CreditCard, badge: '163' },
+  { to: '/analytics', label: '报表', icon: BarChart3 },
+  { to: '/calendar', label: '日历', icon: CalendarDays },
+  { to: '/emails', label: '邮件', icon: Inbox, badge: '164' },
+  { to: '/rules', label: '规则', icon: SlidersHorizontal },
+  { to: '/debts', label: '借贷', icon: HandCoins },
 ];
 
 export default function SureLayout({ children }) {
@@ -55,129 +53,232 @@ export default function SureLayout({ children }) {
   const { mode } = useUsers();
   const { showToast } = useToast();
 
+  // Desktop left accounts sidebar visibility (Sure defaults to open!)
+  const [showAccountsSidebar, setShowAccountsSidebar] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [mobileAccountsDrawerOpen, setMobileAccountsDrawerOpen] = useState(false);
-  const [desktopSidebarAccountsOpen, setDesktopSidebarAccountsOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const handleCurrencyChange = async (code) => {
-    try {
-      await setCurrency(code);
-    } catch {
-      showToast('货币设置更新失败', 'error');
-    }
+  // Breadcrumb resolver
+  const getBreadcrumbs = () => {
+    const p = location.pathname;
+    if (p === '/') return ['Home', 'Dashboard'];
+    if (p.startsWith('/transactions')) return ['Home', 'Transactions'];
+    if (p.startsWith('/analytics')) return ['Home', 'Reports'];
+    if (p.startsWith('/calendar')) return ['Home', 'Calendar'];
+    if (p.startsWith('/emails')) return ['Home', 'Emails'];
+    if (p.startsWith('/rules')) return ['Home', 'Rules'];
+    if (p.startsWith('/debts')) return ['Home', 'Debts'];
+    if (p.startsWith('/settings')) return ['Home', 'Settings'];
+    return ['Home', 'Overview'];
   };
 
-  const modeBadge = mode === 'personal' ? '个人模式' : mode === 'blended' ? '混合模式' : '家庭共享';
-
-  const NavLinkItem = ({ item, isMobile = false }) => {
-    const Icon = item.icon;
-    const isActive = location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(item.to));
-
-    return (
-      <Link
-        to={item.to}
-        onClick={() => isMobile && setMobileMenuOpen(false)}
-        className={`group relative flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 select-none ${
-          isActive
-            ? 'bg-primary text-white shadow-sm shadow-primary/25 font-semibold'
-            : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container/70'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <Icon className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${isActive ? 'text-white' : 'text-on-surface-variant group-hover:text-primary'}`} />
-          <span className="truncate">{item.label}</span>
-        </div>
-
-        {item.badge && (
-          <span
-            className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-semibold shrink-0 ${
-              isActive
-                ? 'bg-white/20 text-white'
-                : 'bg-surface-container text-on-surface-variant group-hover:bg-primary/10 group-hover:text-primary'
-            }`}
-          >
-            {item.badge}
-          </span>
-        )}
-      </Link>
-    );
-  };
+  const breadcrumbs = getBreadcrumbs();
 
   return (
-    <div className="min-h-screen bg-background text-on-surface flex flex-col lg:flex-row antialiased">
-      {/* ── 1. Desktop Primary Left Rail (Sure Style) ── */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 w-64 border-r border-outline/10 bg-surface-container-lowest flex-col justify-between z-40 select-none shadow-[1px_0_12px_rgba(0,0,0,0.02)]">
-        {/* Brand Header */}
-        <div className="p-5 pb-3">
-          <Link to="/" className="flex items-center gap-3 group">
+    <div className="min-h-screen bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col lg:flex-row antialiased font-sans">
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 1. DESKTOP 84px SLIM RAIL NAVBAR (Exact Sure Design)     */}
+      {/* ────────────────────────────────────────────────────────── */}
+      <nav
+        aria-label="主功能导航"
+        className="hidden lg:flex fixed inset-y-0 left-0 w-[84px] bg-white dark:bg-zinc-900 border-r border-zinc-200/80 dark:border-zinc-800 flex-col items-center py-4 z-40 select-none justify-between"
+      >
+        {/* Top: Brand Logo */}
+        <div className="w-full flex flex-col items-center gap-4">
+          <Link to="/" className="block p-1 hover:opacity-85 transition-opacity" title="famLedger 首页">
             <img
               src="/logo.svg"
               alt="famLedger"
-              className="h-9 w-9 object-contain drop-shadow-sm transition-transform group-hover:scale-105"
+              className="w-9 h-9 object-contain drop-shadow-xs"
               onError={(e) => { e.currentTarget.src = '/logo.png'; }}
             />
-            <div className="min-w-0">
-              <span className="text-lg font-bold tracking-tight text-on-surface font-headline flex items-center gap-1.5">
-                {config.appName}
-              </span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[11px] font-medium text-on-surface-variant uppercase tracking-wider">
-                  {modeBadge}
-                </span>
-              </div>
-            </div>
           </Link>
+
+          {/* Vertical Icon Nav List */}
+          <ul className="w-full space-y-1.5 px-2">
+            {railNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(item.to));
+
+              return (
+                <li key={item.to} className="w-full">
+                  <Link
+                    to={item.to}
+                    className={`group relative flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all duration-150 text-center ${
+                      isActive
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-semibold shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    <Icon className={`w-5 h-5 shrink-0 transition-transform group-hover:scale-105 ${isActive ? 'text-zinc-900 dark:text-white' : 'text-zinc-500 group-hover:text-zinc-800 dark:group-hover:text-zinc-200'}`} />
+                    <span className="text-[11px] mt-1 tracking-tight leading-none">{item.label}</span>
+
+                    {item.badge && (
+                      <span className="absolute top-1.5 right-2 min-w-3.5 h-3.5 px-1 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 text-[9px] font-mono font-bold flex items-center justify-center">
+                        {item.badge}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         </div>
 
-        {/* Quick Actions (Add & Multi-Card Quick Toggle) */}
-        <div className="px-4 py-2 space-y-2">
-          <Link
-            to="/add"
-            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold text-sm shadow-sm shadow-primary/20 transition-all duration-200 active:scale-[0.98]"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>记一笔账</span>
-          </Link>
-
+        {/* Bottom: Utilities & User Avatar */}
+        <div className="w-full flex flex-col items-center gap-2.5 px-2">
+          {/* Theme toggle */}
           <button
-            onClick={() => setDesktopSidebarAccountsOpen(!desktopSidebarAccountsOpen)}
-            className={`flex items-center justify-between w-full py-2 px-3 rounded-xl border text-xs font-semibold transition-all duration-200 ${
-              desktopSidebarAccountsOpen
-                ? 'bg-primary/10 border-primary/40 text-primary'
-                : 'bg-surface-container/60 hover:bg-surface-container border-outline/15 text-on-surface-variant'
-            }`}
+            onClick={toggleTheme}
+            title="切换明暗主题"
+            className="w-9 h-9 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
           >
-            <div className="flex items-center gap-2">
-              <Wallet className="w-3.5 h-3.5 text-primary" />
-              <span>多卡账户侧栏</span>
-            </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">
-              {desktopSidebarAccountsOpen ? '收起' : '展开'}
-            </span>
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
-        </div>
 
-        {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 scrollbar-none">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-outline px-3 py-1.5">
-            财务中心
+          {/* Help guide */}
+          <button
+            onClick={() => setShowHelp(true)}
+            title="系统使用说明"
+            className="w-9 h-9 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+
+          {/* User Avatar Circle (Sure Style) */}
+          <Link
+            to="/settings"
+            title="个人偏好设置"
+            className="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-bold flex items-center justify-center hover:ring-2 hover:ring-zinc-400 transition-all cursor-pointer"
+          >
+            {(user?.displayName || user?.username || 'QQ').slice(0, 2).toUpperCase()}
+          </Link>
+        </div>
+      </nav>
+
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 2. DESKTOP ACCOUNTS SIDEBAR (Sure 280px Persistent Sidebar) */}
+      {/* ────────────────────────────────────────────────────────── */}
+      <aside
+        className={`hidden lg:flex fixed inset-y-0 left-[84px] bg-white dark:bg-zinc-900 border-r border-zinc-200/80 dark:border-zinc-800 flex-col z-30 transition-all duration-200 ease-in-out select-none ${
+          showAccountsSidebar ? 'w-72 opacity-100' : 'w-0 opacity-0 pointer-events-none overflow-hidden'
+        }`}
+      >
+        <div className="w-72 h-full flex flex-col">
+          <AccountsPanel />
+        </div>
+      </aside>
+
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 3. MOBILE HEADER (Exact Sure Mobile Topbar)               */}
+      {/* ────────────────────────────────────────────────────────── */}
+      <header className="lg:hidden fixed top-0 inset-x-0 h-14 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800 z-40 flex items-center justify-between px-3.5">
+        {/* Left: [|] Panel Icon to open Accounts Drawer */}
+        <button
+          onClick={() => setMobileSidebarOpen(true)}
+          title="打开银行卡账户列表"
+          className="w-9 h-9 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors active:scale-95"
+        >
+          <PanelLeft className="w-5 h-5" />
+        </button>
+
+        {/* Center: Sure-style Clean Centered LogoMark */}
+        <Link to="/" className="flex items-center justify-center">
+          <img
+            src="/logo.svg"
+            alt="famLedger"
+            className="w-8 h-8 object-contain"
+            onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+          />
+        </Link>
+
+        {/* Right: Privacy Eye & User Avatar */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={togglePrivacyMode}
+            title={privacyMode ? '显示金额' : '隐藏敏感金额'}
+            className="w-9 h-9 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
+          >
+            {privacyMode ? <EyeOff className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Eye className="w-4 h-4" />}
+          </button>
+
+          <Link
+            to="/settings"
+            className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-bold flex items-center justify-center"
+          >
+            {(user?.displayName || user?.username || 'QQ').slice(0, 2).toUpperCase()}
+          </Link>
+        </div>
+      </header>
+
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 4. MOBILE FULLSCREEN ACCOUNTS SLIDE-OVER (Sure Mobile)     */}
+      {/* ────────────────────────────────────────────────────────── */}
+      {mobileSidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div className="relative w-80 max-w-[85vw] bg-white dark:bg-zinc-900 h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-left duration-200">
+            <div className="p-3 pb-1 flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800">
+              <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2">Accounts Navigation</span>
+              <button
+                onClick={() => setMobileSidebarOpen(false)}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                title="关闭侧栏"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <AccountsPanel isMobileDrawer onClose={() => setMobileSidebarOpen(false)} />
+            </div>
           </div>
-          {navItems.map((item) => (
-            <NavLinkItem key={item.to} item={item} />
-          ))}
         </div>
+      )}
 
-        {/* Footer User & Utility Controls */}
-        <div className="p-3 border-t border-outline/10 bg-surface-container-low/50 space-y-2">
-          {/* Currency, Privacy Mode & Theme Toggles */}
-          <div className="flex items-center justify-between px-1">
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 5. SHARED MAIN CONTENT AREA                                */}
+      {/* ────────────────────────────────────────────────────────── */}
+      <main
+        id="main"
+        className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-20 lg:pb-8 ${
+          showAccountsSidebar ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
+        }`}
+      >
+        {/* Desktop Sticky Header with Breadcrumbs & Toggles (Exact Sure Topbar) */}
+        <div className="hidden lg:flex items-center justify-between px-8 py-3.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800 sticky top-0 z-20">
+          {/* Left: Sidebar Toggle + Breadcrumb */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAccountsSidebar(!showAccountsSidebar)}
+              title={showAccountsSidebar ? '收起账户侧栏' : '展开账户侧栏'}
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+
+            <nav aria-label="面包屑导航" className="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+              {breadcrumbs.map((b, idx) => (
+                <React.Fragment key={idx}>
+                  {idx > 0 && <span className="text-zinc-400">/</span>}
+                  <span className={idx === breadcrumbs.length - 1 ? 'text-zinc-900 dark:text-zinc-100 font-semibold' : ''}>
+                    {b}
+                  </span>
+                </React.Fragment>
+              ))}
+            </nav>
+          </div>
+
+          {/* Right: Currency Selector & Privacy Toggle */}
+          <div className="flex items-center gap-2">
             <select
               aria-label="选择显示币种"
               value={currency}
-              onChange={(e) => handleCurrencyChange(e.target.value)}
-              className="bg-surface-container hover:bg-surface-container-high text-xs font-bold text-on-surface rounded-lg px-2.5 py-1.5 border border-outline/15 outline-none cursor-pointer transition-colors"
+              onChange={(e) => setCurrency(e.target.value)}
+              className="bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-800 dark:text-zinc-200 rounded-lg px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 outline-none cursor-pointer transition-colors"
             >
               {currencies.map((c) => (
                 <option key={c.code} value={c.code}>
@@ -186,297 +287,101 @@ export default function SureLayout({ children }) {
               ))}
             </select>
 
-            <div className="flex items-center gap-1">
-              <button
-                onClick={togglePrivacyMode}
-                title={privacyMode ? '显示金额' : '隐藏敏感金额 (隐私模式)'}
-                className={`p-1.5 rounded-lg transition-colors ${
-                  privacyMode
-                    ? 'bg-primary/15 text-primary'
-                    : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
-                }`}
-              >
-                {privacyMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={() => setShowHelp(true)}
-                title="系统帮助指南"
-                className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-              >
-                <HelpCircle className="w-4 h-4" />
-              </button>
-              <button
-                onClick={toggleTheme}
-                title="切换明暗主题"
-                className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-              >
-                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-              <Link
-                to="/settings"
-                title="个人设置"
-                className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-              >
-                <Settings className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
-
-          {/* User Profile Bar */}
-          {user && (
-            <div className="flex items-center justify-between p-2 rounded-xl bg-surface-container-lowest border border-outline/10">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Avatar user={user.displayName || user.username} size="sm" />
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-on-surface truncate">
-                    {user.displayName || user.username}
-                  </div>
-                  <div className="text-[10px] text-on-surface-variant truncate">
-                    {user.username}
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={logout}
-                title="退出当前登录"
-                className="p-1.5 rounded-lg text-on-surface-variant hover:text-red-600 hover:bg-red-500/10 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </div>
-      </aside>
-
-      {/* ── 2. Desktop Collapsible Secondary Accounts Panel (Sure Style) ── */}
-      {desktopSidebarAccountsOpen && (
-        <aside className="hidden lg:flex fixed inset-y-0 left-64 w-80 border-r border-outline/10 bg-surface-container-lowest/95 backdrop-blur-md flex-col z-30 shadow-lg">
-          <AccountsPanel
-            onClose={() => setDesktopSidebarAccountsOpen(false)}
-          />
-        </aside>
-      )}
-
-      {/* ── 3. Mobile Header (Sure Style) ── */}
-      <header className="lg:hidden fixed top-0 inset-x-0 h-14 bg-surface-container-lowest/90 backdrop-blur-md border-b border-outline/10 z-40 flex items-center justify-between px-4">
-        {/* Left: Quick Accounts Drawer Toggle */}
-        <button
-          onClick={() => setMobileAccountsDrawerOpen(true)}
-          title="银行卡 / 账户"
-          className="p-2 -ml-2 rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-container active:scale-95 transition-all flex items-center gap-1.5"
-        >
-          <PanelLeft className="w-5 h-5 text-primary" />
-          <span className="text-xs font-bold text-on-surface">卡片</span>
-        </button>
-
-        {/* Center: Brand */}
-        <Link to="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="famLedger" className="h-7 w-7 object-contain" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
-          <span className="font-bold text-base font-headline tracking-tight">{config.appName}</span>
-        </Link>
-
-        {/* Right: Privacy & Menu */}
-        <div className="flex items-center gap-1 -mr-2">
-          <button
-            onClick={togglePrivacyMode}
-            title={privacyMode ? '显示金额' : '隐藏敏感金额'}
-            className={`p-2 rounded-xl transition-colors ${
-              privacyMode ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:bg-surface-container'
-            }`}
-          >
-            {privacyMode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-          </button>
-          <button
-            onClick={() => setMobileMenuOpen(true)}
-            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container active:scale-95 transition-transform"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
-
-      {/* ── 4. Mobile Accounts Drawer (Slide-over) ── */}
-      {mobileAccountsDrawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
-            onClick={() => setMobileAccountsDrawerOpen(false)}
-          />
-          <div className="relative w-80 max-w-[85vw] bg-surface-container-lowest h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-left duration-200">
-            <AccountsPanel
-              isMobileDrawer
-              onClose={() => setMobileAccountsDrawerOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── 5. Mobile Full Menu Drawer ── */}
-      {mobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-
-          <div className="relative w-72 max-w-[80vw] bg-surface-container-lowest h-full shadow-2xl flex flex-col justify-between p-4 z-10 animate-in slide-in-from-right duration-200">
-            <div>
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline/10">
-                <div className="flex items-center gap-2">
-                  <img src="/logo.svg" alt="famLedger" className="h-7 w-7" onError={(e) => { e.currentTarget.src = '/logo.png'; }} />
-                  <span className="font-bold font-headline">{config.appName}</span>
-                </div>
-                <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                {navItems.map((item) => (
-                  <NavLinkItem key={item.to} item={item} isMobile />
-                ))}
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-outline/10 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-on-surface-variant">明暗主题</span>
-                <button
-                  onClick={toggleTheme}
-                  className="p-1.5 rounded-lg border border-outline/15 text-on-surface"
-                >
-                  {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                </button>
-              </div>
-
-              <button
-                onClick={logout}
-                className="flex items-center justify-center gap-2 w-full px-3 py-2 text-sm text-red-600 font-semibold bg-red-500/10 hover:bg-red-500/20 rounded-xl transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>退出登录</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 6. Main Content Area (Sure Style with generous breathing space) ── */}
-      <main
-        className={`flex-1 min-h-screen pt-16 lg:pt-0 flex flex-col transition-all duration-300 pb-24 lg:pb-8 ${
-          desktopSidebarAccountsOpen ? 'lg:pl-[36rem]' : 'lg:pl-64'
-        }`}
-      >
-        {/* Desktop Topbar Quick Switcher */}
-        <div className="hidden lg:flex items-center justify-between px-8 py-3.5 border-b border-outline/10 bg-surface-container-lowest/60 backdrop-blur-sm sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setDesktopSidebarAccountsOpen(!desktopSidebarAccountsOpen)}
-              title="切换银行卡账户侧栏"
-              className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                desktopSidebarAccountsOpen
-                  ? 'bg-primary text-white border-primary shadow-xs'
-                  : 'bg-surface-container hover:bg-surface-container-high border-outline/15 text-on-surface'
-              }`}
-            >
-              <PanelLeft className="w-4 h-4" />
-              <span>{desktopSidebarAccountsOpen ? '收起卡片' : '展开银行卡'}</span>
-            </button>
-            <span className="text-xs text-on-surface-variant">
-              支持一户多卡智能对账与流水穿透
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
             <button
               onClick={togglePrivacyMode}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+              title={privacyMode ? '显示金额' : '隐藏敏感金额 (隐私模式)'}
+              className={`p-1.5 rounded-lg border transition-colors ${
                 privacyMode
-                  ? 'bg-primary/10 border-primary/40 text-primary'
-                  : 'bg-surface-container hover:bg-surface-container-high border-outline/15 text-on-surface-variant'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
             >
-              {privacyMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              <span>{privacyMode ? '隐私保护中' : '隐私模式'}</span>
+              {privacyMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
         </div>
 
-        <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Content Body Container */}
+        <div className="grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {children}
         </div>
       </main>
 
-      {/* ── 7. Sure Mobile Bottom Navigation Bar (Fixed with Safe Area) ── */}
+      {/* ────────────────────────────────────────────────────────── */}
+      {/* 6. MOBILE BOTTOM NAVIGATION (Exact Sure 5-Tab Flat Bar)    */}
+      {/* ────────────────────────────────────────────────────────── */}
       <nav
         aria-label="移动端快速导航"
-        className="lg:hidden fixed bottom-0 inset-x-0 bg-surface-container-lowest/90 backdrop-blur-md border-t border-outline/15 z-40 px-2 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] flex items-center justify-around shadow-[0_-4px_16px_rgba(0,0,0,0.04)]"
+        className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-t border-zinc-200/80 dark:border-zinc-800 z-40 px-2 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] flex items-center justify-around shadow-sm select-none"
       >
-        {/* 1. 总览 */}
+        {/* Tab 1: Home */}
         <Link
           to="/"
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
+          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
             location.pathname === '/'
-              ? 'text-primary font-bold scale-105'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'text-zinc-900 dark:text-white font-semibold'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
           }`}
         >
+          {location.pathname === '/' && (
+            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
+          )}
           <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">总览</span>
+          <span className="text-[10px] leading-tight">Home</span>
         </Link>
 
-        {/* 2. 我的卡片 (呼出抽屉) */}
+        {/* Tab 2: Accounts (Opens Drawer) */}
         <button
-          onClick={() => setMobileAccountsDrawerOpen(true)}
-          className="flex flex-col items-center gap-1 py-1 px-3 rounded-xl text-on-surface-variant hover:text-primary transition-all active:scale-95"
+          onClick={() => setMobileSidebarOpen(true)}
+          className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
         >
-          <CreditCard className="w-5 h-5 text-primary" />
-          <span className="text-[10px] leading-tight font-semibold text-primary">卡片</span>
+          <Wallet className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Accounts</span>
         </button>
 
-        {/* 3. 记一笔 (中心突出快捷按钮) */}
+        {/* Tab 3: New Transaction */}
         <Link
           to="/add"
-          className="flex flex-col items-center -mt-4 group active:scale-95 transition-transform"
+          className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
         >
-          <div className="w-11 h-11 rounded-full bg-primary text-white flex items-center justify-center shadow-md shadow-primary/30 group-hover:bg-primary/90">
-            <PlusCircle className="w-6 h-6" />
-          </div>
-          <span className="text-[10px] font-semibold text-primary mt-0.5">记账</span>
+          <Plus className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">New</span>
         </Link>
 
-        {/* 4. 流水 */}
+        {/* Tab 4: Transactions */}
         <Link
           to="/transactions"
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
+          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
             location.pathname.startsWith('/transactions')
-              ? 'text-primary font-bold scale-105'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'text-zinc-900 dark:text-white font-semibold'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
           }`}
         >
-          <ReceiptText className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">明细</span>
+          {location.pathname.startsWith('/transactions') && (
+            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
+          )}
+          <CreditCard className="w-5 h-5" />
+          <span className="text-[10px] leading-tight">Transactions</span>
         </Link>
 
-        {/* 5. 报表 */}
+        {/* Tab 5: Reports */}
         <Link
           to="/analytics"
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
+          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
             location.pathname.startsWith('/analytics')
-              ? 'text-primary font-bold scale-105'
-              : 'text-on-surface-variant hover:text-on-surface'
+              ? 'text-zinc-900 dark:text-white font-semibold'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
           }`}
         >
+          {location.pathname.startsWith('/analytics') && (
+            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
+          )}
           <BarChart3 className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">报表</span>
+          <span className="text-[10px] leading-tight">Reports</span>
         </Link>
       </nav>
 
-      {/* System Help Modal */}
+      {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
