@@ -46,11 +46,11 @@ export default function DebtsPage() {
       ]);
       if (debtsRes.ok) {
         const d = await debtsRes.json();
-        setDebts(d);
+        setDebts(Array.isArray(d) ? d : (d.items || []));
       }
       if (loansRes.ok) {
         const l = await loansRes.json();
-        setLoans(l);
+        setLoans(Array.isArray(l) ? l : (l.items || []));
       }
     } catch (err) {
       console.error('Failed to fetch debts or loans', err);

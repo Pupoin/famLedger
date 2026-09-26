@@ -147,12 +147,12 @@ export function VirtualTransactionList({
                   className={`text-base font-bold font-mono block ${
                     txn.transaction_type === 'transfer'
                       ? 'text-on-surface-variant'
-                      : isNegative
-                      ? 'text-on-surface'
-                      : 'text-emerald-600 dark:text-emerald-400'
+                      : (txn.transaction_type === 'refund' || isNegative)
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-on-surface'
                   }`}
                 >
-                  {isNegative ? '' : '+'}¥{Math.abs(Number(txn.amount)).toFixed(2)}
+                  {txn.transaction_type === 'transfer' ? '' : (txn.transaction_type === 'refund' || isNegative) ? '+' : '-'}¥{Math.abs(Number(txn.amount)).toFixed(2)}
                 </span>
                 <span className="text-[10px] text-on-surface-variant uppercase tracking-wider font-semibold">
                   {txn.currency}

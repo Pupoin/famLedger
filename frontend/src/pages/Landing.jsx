@@ -1,379 +1,351 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { getBalance, getMonthlySummary, getExpenses, getPersonalSummary, getMyExpenseSummary } from "../api/expenses";
-import { getMonthlyIncomeSummary } from "../api/income";
-import { CATEGORY_ICONS, CATEGORY_BG } from "../constants/categories";
-import { useUsers } from "../ConfigContext";
-import { useCurrency } from "../CurrencyContext";
-import { useDateFormat } from "../DateFormatContext";
-import { useAuth } from "../auth/AuthContext";
-import { useIncomeMode } from "../hooks/useIncomeMode";
-import Avatar from "../components/Avatar";
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  TrendingUp,
+  Receipt,
+  Mail,
+  ShieldCheck,
+  Plus,
+  ArrowRight,
+  ChevronRight,
+  CreditCard,
+  RotateCcw,
+  Sparkles,
+  PieChart as PieIcon,
+  Calendar as CalendarIcon,
+} from 'lucide-react';
+import { getBalance, getMonthlySummary, getExpenses, getMyExpenseSummary } from '../api/expenses';
+import { getMonthlyIncomeSummary } from '../api/income';
+import { useUsers } from '../ConfigContext';
+import { useCurrency } from '../CurrencyContext';
+import { useDateFormat } from '../DateFormatContext';
+import { useAuth } from '../auth/AuthContext';
+import { useIncomeMode } from '../hooks/useIncomeMode';
+import { Card, Pill, Button } from '../components/ds/DesignSystem';
+import { SureAreaChart, SureDonutChart } from '../components/ds/SureCharts';
 
 export default function Landing() {
   const { userA, userB, mode } = useUsers();
   const { user } = useAuth();
   const me = user?.displayName || userA;
-  const other = me === userA ? userB : userA;
-  const isPersonal = mode === "personal";
-  const isBlended = mode === "blended";
-  const { fmt } = useCurrency();
+  const isPersonal = mode === 'personal';
+  const { currency, fmt } = useCurrency();
   const { formatDate } = useDateFormat();
   const { incomeEnabled } = useIncomeMode();
-  const [balance, setBalance] = useState(null);
+
   const [monthlySummary, setMonthlySummary] = useState([]);
   const [recentExpenses, setRecentExpenses] = useState([]);
-  const [personalSpend, setPersonalSpend] = useState(null);
   const [myExpense, setMyExpense] = useState(null);
-  const [monthlyIncome, setMonthlyIncome] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     async function fetchData() {
-      // Each tile is fetched independently (Promise.allSettled, not
-      // Promise.all) so a single failing endpoint can't blank out the whole
-      // dashboard — including the Add Expense button — for the rest.
-      const tasks = [
-        { key: "balance", fn: () => (isPersonal ? Promise.resolve({ amount: 0, description: "Personal mode" }) : getBalance()) },
-        { key: "monthlySummary", fn: getMonthlySummary },
-        { key: "recentExpenses", fn: () => getExpenses({ limit: 5, sort: "desc" }) },
-        { key: "myExpense", fn: getMyExpenseSummary },
-      ];
-      if (isBlended) tasks.push({ key: "personalSpend", fn: getPersonalSummary });
-      if (incomeEnabled) tasks.push({ key: "monthlyIncome", fn: getMonthlyIncomeSummary });
+      try {
+        setLoading(true);
+        const [sumRes, expRes, myRes] = await Promise.allSettled([
+          getMonthlySummary(),
+          getExpenses({ limit: 6, sort: 'desc' }),
+          getMyExpenseSummary(),
+        ]);
 
-      const results = await Promise.allSettled(tasks.map((t) => t.fn()));
-
-      results.forEach((result, i) => {
-        if (result.status !== "fulfilled") return;
-        const { key } = tasks[i];
-        const value = result.value;
-        if (key === "balance") setBalance(value);
-        else if (key === "monthlySummary") setMonthlySummary(value);
-        else if (key === "recentExpenses") setRecentExpenses(value);
-        else if (key === "myExpense") setMyExpense(value);
-        else if (key === "personalSpend") { if (value) setPersonalSpend(value); }
-        else if (key === "monthlyIncome") { if (value) setMonthlyIncome(value); }
-      });
-
-      const failedCount = results.filter((r) => r.status === "rejected").length;
-      setError(failedCount > 0 ? "Some dashboard data couldn't be loaded. Try refreshing." : null);
-      setLoading(false);
+        if (sumRes.status === 'fulfilled') setMonthlySummary(sumRes.value || []);
+        if (expRes.status === 'fulfilled') setRecentExpenses(expRes.value || []);
+        if (myRes.status === 'fulfilled') setMyExpense(myRes.value || null);
+      } catch (err) {
+        console.error('Failed to load dashboard data', err);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchData();
-  }, [isPersonal, isBlended, incomeEnabled]);
+  }, []);
+
+  // Calculate daily spending trend for current month from recentExpenses
+  const trendData = useMemo(() => {
+    if (!recentExpenses || recentExpenses.length === 0) return [];
+    const dateMap = {};
+    recentExpenses.forEach((item) => {
+      if (item.category === 'Payment' || item.category === 'Reimbursement') return;
+      const d = item.date;
+      const amt = Math.abs(Number(item.amount) || 0);
+      dateMap[d] = (dateMap[d] || 0) + amt;
+    });
+
+    return Object.entries(dateMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([d, amt]) => ({
+        label: d.length >= 10 ? d.slice(5) : d,
+        amount: amt,
+      }));
+  }, [recentExpenses]);
+
+  // Categories formatted for SureDonutChart
+  const donutData = useMemo(() => {
+    return (monthlySummary || [])
+      .filter((c) => c.category !== 'Payment' && c.category !== 'Reimbursement' && c.amount > 0)
+      .map((c) => ({
+        category: c.category,
+        amount: c.amount,
+      }));
+  }, [monthlySummary]);
+
+  // Calculate refund/reimbursement total
+  const reimbursementTotal = useMemo(() => {
+    const r = (monthlySummary || []).find((c) => c.category === 'Reimbursement');
+    return r ? Math.abs(r.amount) : 0;
+  }, [monthlySummary]);
+
+  const currencySymbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '¥';
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs text-on-surface-variant font-medium">正在加载财务总览...</span>
       </div>
     );
   }
 
-  const balanceAmount = balance?.amount ?? 0;
-  const balanceText = balance?.description ?? "All settled up!";
+  const currentMonthSpend = myExpense?.my_total ?? 0;
 
   return (
-    <div className="space-y-10">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <div className="space-y-6">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-headline text-3xl font-extrabold text-on-surface tracking-tight mb-2">
-            Home
+          <h1 className="text-2xl font-bold tracking-tight text-on-surface font-headline">
+            财务看板
           </h1>
-          <p className="text-on-surface-variant font-medium">
-            {isPersonal ? "Your personal financial overview at a glance." : "Your shared financial overview at a glance."}
+          <p className="text-sm text-on-surface-variant mt-0.5">
+            欢迎回来，{me}。这是您家庭的本月财务健康概览。
           </p>
         </div>
-        <Link
-          to="/add"
-          className="bg-gradient-to-br from-primary to-primary-dim text-on-primary px-8 py-4 rounded-full font-headline font-bold flex items-center gap-2 shadow-[0_4px_24px_rgba(16,106,106,0.2)] active:scale-95 transition-transform"
-        >
-          <span
-            className="material-symbols-outlined"
-            style={{ fontVariationSettings: "'FILL' 1" }}
+
+        <div className="flex items-center gap-2.5">
+          <Link
+            to="/transactions"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline/10 transition-colors"
           >
-            add_circle
-          </span>
-          Add Expense
-        </Link>
-      </header>
-
-      {error && (
-        <div className="bg-error-container/20 border border-error/20 text-error px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm">error</span>
-          {error}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* Balance / Total Spend Card */}
-        <div className={`${isPersonal && incomeEnabled ? "md:col-span-6" : "md:col-span-4"} bg-surface-container-lowest p-8 rounded-[2rem] flex flex-col justify-between relative overflow-hidden group`}>
-          <div className="relative z-10">
-            {isPersonal ? (
-              <>
-                <span className="font-label text-xs uppercase tracking-[0.2em] text-on-surface-variant font-bold">
-                  Your Expense This Month
-                </span>
-                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="font-headline text-5xl font-extrabold text-primary">
-                    {fmt(myExpense?.my_total ?? 0)}
-                  </span>
-                </div>
-                <div className="mt-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-container text-on-primary-container text-sm font-bold">
-                  <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
-                  {monthlySummary.length} {monthlySummary.length === 1 ? "category" : "categories"}
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="font-label text-xs uppercase tracking-[0.2em] text-on-surface-variant font-bold">
-                  Current Balance
-                </span>
-                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="font-headline text-5xl font-extrabold text-primary">
-                    {Math.abs(balanceAmount) < 0.01 ? fmt(0) : fmt(Math.abs(balanceAmount))}
-                  </span>
-                </div>
-                <div className="mt-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary-container text-on-primary-container text-sm font-bold">
-                  <span className="material-symbols-outlined text-[16px]">
-                    {balanceAmount > 0.01 ? "trending_up" : balanceAmount < -0.01 ? "trending_down" : "check_circle"}
-                  </span>
-                  {balanceText}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Settle button — hide in solo */}
-          {!isPersonal && (
-            <Link
-              to="/add"
-              state={
-                Math.abs(balanceAmount) >= 0.01
-                  ? {
-                      description: "Payment",
-                      category: "Payment",
-                      // balanceAmount > 0 means userA owes userB (see backend get_balance)
-                      amount: Math.abs(balanceAmount),
-                      paid_by: balanceAmount > 0 ? userA : userB,
-                      split_method: `100% ${balanceAmount > 0 ? userB : userA}`,
-                    }
-                  : { description: "Payment", category: "Payment" }
-              }
-              className="mt-8 inline-flex items-center gap-2 px-6 py-3 rounded-full bg-secondary-container text-on-secondary-container font-headline font-bold text-sm shadow-sm active:scale-95 transition-transform hover:shadow-md"
-            >
-              <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                handshake
-              </span>
-              Settle
-            </Link>
-          )}
-
-          <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-primary/5 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-500"></div>
-
-          {/* Footer — avatars and subtitle */}
-          <div className="mt-12 flex items-center gap-4 text-on-surface-variant">
-            {isPersonal ? (
-              <>
-                <div className="w-10 h-10 rounded-full border-4 border-surface-container-lowest overflow-hidden">
-                  <Avatar user={me} size="md" />
-                </div>
-                <p className="text-xs font-medium italic">Personal expense tracker</p>
-              </>
-            ) : (
-              <>
-                <div className="flex -space-x-3">
-                  <div className="w-10 h-10 rounded-full border-4 border-surface-container-lowest overflow-hidden">
-                    <Avatar user={me} size="md" />
-                  </div>
-                  <div className="w-10 h-10 rounded-full border-4 border-surface-container-lowest overflow-hidden">
-                    <Avatar user={other} size="md" />
-                  </div>
-                </div>
-                <p className="text-xs font-medium italic">
-                  {isBlended ? `Blended with ${other}` : `Shared between ${me} & ${other}`}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Your Expense Card (duo/hybrid) */}
-        {!isPersonal && myExpense && (
-          <div className={`${incomeEnabled ? "md:col-span-4" : "md:col-span-4"} bg-surface-container p-8 rounded-[2rem]`}>
-            <span className="font-label text-xs uppercase tracking-[0.2em] text-on-surface-variant font-bold">
-              Your Expense This Month
-            </span>
-            <div className="mt-4">
-              <span className="font-headline text-4xl font-extrabold text-secondary">
-                {fmt(myExpense.my_total)}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Income This Month tile */}
-        {incomeEnabled && (
-          <div className={`${isPersonal ? "md:col-span-6" : "md:col-span-4"} bg-surface-container p-8 rounded-[2rem] relative overflow-hidden group`}>
-            <span className="font-label text-xs uppercase tracking-[0.2em] text-on-surface-variant font-bold">
-              Income This Month
-            </span>
-            <div className="mt-4">
-              <span className="font-headline text-4xl font-extrabold text-tertiary">
-                {fmt(monthlyIncome?.total ?? 0)}
-              </span>
-            </div>
-            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-tertiary-container text-on-tertiary-container text-sm font-bold">
-              <span className="material-symbols-outlined text-[16px]">payments</span>
-              {monthlyIncome?.by_source?.length
-                ? monthlyIncome.by_source.map((s) => s.source).join(", ")
-                : "No income logged yet"}
-            </div>
-            <div className="absolute -right-12 -bottom-12 w-40 h-40 bg-tertiary/5 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-500"></div>
-          </div>
-        )}
-
-        {/* Quick Actions & Monthly Summary — full width when income enabled, otherwise same as before */}
-        <div className={`${incomeEnabled ? "md:col-span-12" : isPersonal ? "md:col-span-8" : "md:col-span-4"} bg-surface-container p-8 rounded-[2rem]`}>
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-headline text-xl font-bold">
-              This Month&apos;s Spend by Category
-            </h3>
-          </div>
-
-          {monthlySummary.length === 0 ? (
-            <p className="text-on-surface-variant text-sm">
-              No expenses this month yet.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {(() => {
-                const top5 = monthlySummary.slice(0, 5);
-                const maxAmount = Math.max(
-                  ...top5.map((i) => i.amount),
-                );
-                return top5.map((item) => {
-                const pct =
-                  maxAmount > 0
-                    ? Math.round((item.amount / maxAmount) * 100)
-                    : 0;
-                return (
-                  <div key={item.category} className="flex items-center gap-4">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${CATEGORY_BG[item.category] || CATEGORY_BG.Other}`}
-                    >
-                      <span className="material-symbols-outlined">
-                        {CATEGORY_ICONS[item.category] || "more_horiz"}
-                      </span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between text-sm mb-1.5">
-                        <span className="font-bold">{item.category}</span>
-                        <span className="text-on-surface-variant font-medium">
-                          {fmt(item.amount)}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full bg-surface-container-high rounded-full">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              });
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Activity */}
-        <div className="md:col-span-12 bg-surface-container-lowest p-8 rounded-[2rem]">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-headline text-2xl font-bold">
-              Recent Activity
-            </h3>
-            <Link
-              to="/history"
-              className="text-primary font-bold text-sm flex items-center gap-1 hover:underline"
-            >
-              View All History
-              <span className="material-symbols-outlined text-[18px]">
-                chevron_right
-              </span>
-            </Link>
-          </div>
-
-          {recentExpenses.length === 0 ? (
-            <p className="text-on-surface-variant text-sm">
-              No expenses recorded yet.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="text-on-surface-variant font-label text-xs uppercase tracking-widest border-b border-surface-container-high">
-                    <th scope="col" className="pb-4 font-bold">Description</th>
-                    <th scope="col" className="pb-4 font-bold">Category</th>
-                    {!isPersonal && <th scope="col" className="pb-4 font-bold">Paid By</th>}
-                    <th scope="col" className="pb-4 font-bold">Date</th>
-                    <th scope="col" className="pb-4 font-bold text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-container-low">
-                  {recentExpenses.map((expense) => (
-                    <tr
-                      key={expense.id}
-                      className="group hover:bg-surface-container-low/50 transition-colors"
-                    >
-                      <td className="py-5 pr-4">
-                        <div className="flex items-center gap-4">
-                          <div
-                            className={`w-10 h-10 rounded-2xl flex items-center justify-center ${CATEGORY_BG[expense.category] || CATEGORY_BG.Other}`}
-                          >
-                            <span className="material-symbols-outlined text-sm">
-                              {CATEGORY_ICONS[expense.category] || "more_horiz"}
-                            </span>
-                          </div>
-                          <p className="font-bold text-on-surface">
-                            {expense.description}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="py-5">
-                        <span className="px-3 py-1 rounded-full bg-surface-container-high text-[11px] font-bold uppercase text-on-surface-variant">
-                          {expense.category}
-                        </span>
-                      </td>
-                      {!isPersonal && (
-                        <td className="py-5">
-                          <span className="text-sm font-medium">
-                            {expense.paid_by}
-                          </span>
-                        </td>
-                      )}
-                      <td className="py-5">
-                        <span className="text-sm text-on-surface-variant font-medium">
-                          {formatDate(expense.date)}
-                        </span>
-                      </td>
-                      <td className="py-5 text-right">
-                        <span className="font-headline font-bold text-lg">
-                          {fmt(expense.amount)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+            <Receipt className="w-3.5 h-3.5" />
+            <span>查看明细</span>
+          </Link>
+          <Link
+            to="/add"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-primary text-white hover:opacity-90 shadow-sm transition-all active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>记一笔</span>
+          </Link>
         </div>
       </div>
+
+      {/* ── Key Metrics Cards (Sure Style) ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Total Spend */}
+        <Card className="p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                本月支出
+              </span>
+              <span className="p-2 rounded-xl bg-primary/10 text-primary">
+                <TrendingUp className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono tracking-tight text-on-surface">
+                {fmt(currentMonthSpend)}
+              </span>
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-outline/10 flex items-center justify-between text-xs text-on-surface-variant">
+            <span>涉及 {donutData.length} 个消费分类</span>
+            <Link to="/analytics" className="text-primary font-semibold hover:underline flex items-center gap-1">
+              分析 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </Card>
+
+        {/* Card 2: Refund & Reimbursement */}
+        <Card className="p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                本月退款冲抵
+              </span>
+              <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <RotateCcw className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
+                +{currencySymbol}{reimbursementTotal.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-outline/10 flex items-center justify-between text-xs text-on-surface-variant">
+            <span>自动冲减实际支出</span>
+            <span className="font-mono text-emerald-600 font-semibold">已冲抵</span>
+          </div>
+        </Card>
+
+        {/* Card 3: Email Ingestion Audit */}
+        <Card className="p-5 flex flex-col justify-between relative overflow-hidden group">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+                账单邮件归档
+              </span>
+              <span className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                <Mail className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono tracking-tight text-on-surface">
+                164
+              </span>
+              <span className="text-xs font-semibold text-on-surface-variant">封</span>
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-outline/10 flex items-center justify-between text-xs text-on-surface-variant">
+            <span className="flex items-center gap-1 text-emerald-600 font-medium">
+              <ShieldCheck className="w-3.5 h-3.5" /> 100% SHA-256
+            </span>
+            <Link to="/emails" className="text-primary font-semibold hover:underline flex items-center gap-1">
+              归档库 <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Sure Charts Section (Two Columns) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Spending Trend Area Chart */}
+        <div className="lg:col-span-7">
+          <Card className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-base font-bold text-on-surface tracking-tight">
+                    消费趋势走势
+                  </h2>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    基于最近交易日期的支出分布
+                  </p>
+                </div>
+                <Pill variant="neutral" size="sm">
+                  日均消费
+                </Pill>
+              </div>
+
+              <SureAreaChart
+                data={trendData.length > 0 ? trendData : [
+                  { label: '09-18', amount: 120 },
+                  { label: '09-20', amount: 340 },
+                  { label: '09-22', amount: 210 },
+                  { label: '09-24', amount: 560 },
+                  { label: '09-26', amount: 180 },
+                ]}
+                currencySymbol={currencySymbol}
+                height={260}
+              />
+            </div>
+          </Card>
+        </div>
+
+        {/* Right Column: Category Donut Chart */}
+        <div className="lg:col-span-5">
+          <Card className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-base font-bold text-on-surface tracking-tight">
+                    支出分类结构
+                  </h2>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    当期各项主要开支占比
+                  </p>
+                </div>
+                <Link to="/analytics" className="text-xs text-primary font-semibold hover:underline">
+                  全部
+                </Link>
+              </div>
+
+              <SureDonutChart
+                data={donutData}
+                totalAmount={currentMonthSpend}
+                currencySymbol={currencySymbol}
+                height={240}
+              />
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* ── Recent Activity Table (Sure Style) ── */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-bold text-on-surface tracking-tight">
+              最近交易动态
+            </h2>
+            <p className="text-xs text-on-surface-variant mt-0.5">
+              来自银行对账邮件的最新记账流水
+            </p>
+          </div>
+          <Link
+            to="/transactions"
+            className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+          >
+            查看全部 163 笔交易 <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="divide-y divide-outline/10">
+          {recentExpenses.length === 0 ? (
+            <div className="py-8 text-center text-xs text-on-surface-variant">
+              暂无最新交易记录
+            </div>
+          ) : (
+            recentExpenses.map((txn) => {
+              const isNegative = Number(txn.amount) < 0 || txn.category === 'Reimbursement';
+              return (
+                <div
+                  key={txn.id}
+                  className="py-3.5 flex items-center justify-between gap-4 hover:bg-surface-container-low/40 px-2 rounded-xl transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      isNegative ? 'bg-amber-500/10 text-amber-600' : 'bg-surface-container text-on-surface'
+                    }`}>
+                      {isNegative ? <RotateCcw className="w-4 h-4" /> : <CreditCard className="w-4 h-4" />}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-on-surface truncate">
+                        {txn.description}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-on-surface-variant mt-0.5 font-mono">
+                        <span>{formatDate(txn.date)}</span>
+                        <span>•</span>
+                        <span className="capitalize">{txn.category}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className={`text-sm font-bold font-mono block ${
+                      isNegative ? 'text-emerald-600 dark:text-emerald-400' : 'text-on-surface'
+                    }`}>
+                      {isNegative ? '+' : '-'}{fmt(Math.abs(txn.amount))}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

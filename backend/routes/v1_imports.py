@@ -134,7 +134,7 @@ def import_raw_email(
 def list_stored_emails(
     status: Optional[str] = Query(None, description="pending | parsed | failed | ignored"),
     mail_kind: Optional[str] = Query(None, description="credit_daily | credit_recent | debit | other"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
     user_or_ctx: Any = Depends(get_current_user_or_token),

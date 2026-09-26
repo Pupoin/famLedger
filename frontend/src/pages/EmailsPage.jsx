@@ -25,7 +25,7 @@ export default function EmailsPage() {
   const fetchEmails = async () => {
     try {
       setLoading(true);
-      const res = await fetchWithAuth('/api/v1/imports/emails?limit=500');
+      const res = await fetchWithAuth('/api/v1/imports/emails?limit=200');
       if (res.ok) {
         const data = await res.json();
         setEmails(Array.isArray(data) ? data : (data.items || []));

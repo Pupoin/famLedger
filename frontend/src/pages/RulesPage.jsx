@@ -168,7 +168,7 @@ export default function RulesPage() {
       const res = await fetchWithAuth('/api/v1/rules');
       if (res.ok) {
         const data = await res.json();
-        setRules(data);
+        setRules(Array.isArray(data) ? data : (data.rules || data.items || []));
       }
     } catch (err) {
       console.error('Failed to fetch rules', err);

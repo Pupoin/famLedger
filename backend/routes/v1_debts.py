@@ -191,6 +191,7 @@ def repay_personal_debt(
 # ── 长期正规贷款 (Loans & Mortgages) ───────────────────────────────────────
 
 @router.get("/loans")
+@router.get("/debts/loans")
 def list_loans(
     session: Session = Depends(get_session),
     user_or_ctx: Any = Depends(get_current_user_or_token),
@@ -203,29 +204,29 @@ def list_loans(
         session.commit()
         session.refresh(family)
 
-    loans = session.exec(
-        select(Loan).where(Loan.family_id == family.id)
-    ).all()
+    loans = session.exec(select(Loan)).all()
 
     items = []
     total_loan_balance = Decimal("0")
     for l in loans:
-        total_loan_balance += l.current_balance
+        amt = l.original_amount or Decimal("0")
+        total_loan_balance += amt
         items.append({
             "id": str(l.id),
-            "name": l.name,
-            "lender": l.lender,
-            "original_principal": str(l.original_principal),
-            "current_balance": str(l.current_balance),
-            "interest_rate": str(l.interest_rate),
+            "name": l.loan_type or "借贷",
+            "lender": l.lender_name or "金融机构",
+            "original_principal": str(amt),
+            "current_balance": str(amt),
+            "interest_rate": str(l.interest_rate or 0),
             "monthly_payment": str(l.monthly_payment) if l.monthly_payment else None,
-            "start_date": l.start_date.isoformat(),
+            "start_date": l.start_date.isoformat() if l.start_date else "",
             "end_date": l.end_date.isoformat() if l.end_date else None,
-            "notes": l.notes,
+            "notes": None,
         })
 
     return {
         "loans": items,
+        "items": items,
         "total_loan_balance": str(total_loan_balance),
         "count": len(items),
     }

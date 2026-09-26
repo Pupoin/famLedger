@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { DateFormatProvider } from "./DateFormatContext";
 import ErrorBoundary from "./ErrorBoundary";
-import Navbar from "./components/Navbar";
+import SureLayout from "./components/SureLayout";
 import Landing from "./pages/Landing";
 import AddExpense from "./pages/AddExpense";
 import AddNew from "./pages/AddNew";
@@ -86,9 +86,7 @@ export default function App() {
 
   return (
     <DateFormatProvider>
-    <div className="min-h-screen bg-background font-body text-on-surface">
-      <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-32 md:pb-8">
+      <SureLayout>
         <ModeSwitchBanner />
         <ErrorBoundary>
           <Routes>
@@ -132,8 +130,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ErrorBoundary>
-      </main>
-    </div>
+      </SureLayout>
     </DateFormatProvider>
   );
 }
