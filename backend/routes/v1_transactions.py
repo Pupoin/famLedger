@@ -16,6 +16,7 @@ from models import (
     Category,
     Family,
     RefundAllocation,
+    RejectedTransfer,
     Rule,
     StoredEmail,
     Transaction,
@@ -219,25 +220,35 @@ async def create_or_ingest_transaction(
         if candidate:
             out_txn = txn if txn_type in ("expense", "transfer") else candidate
             in_txn = candidate if txn_type in ("expense", "transfer") else txn
-            transfer_record = Transfer(
-                family_id=family.id,
-                outflow_transaction_id=out_txn.id,
-                inflow_transaction_id=in_txn.id,
-                amount=amount,
-                status="confirmed",
-            )
-            session.add(transfer_record)
-            session.commit()
-            session.refresh(transfer_record)
 
-            out_txn.transfer_id = transfer_record.id
-            out_txn.transaction_type = "transfer"
-            in_txn.transfer_id = transfer_record.id
-            in_txn.transaction_type = "transfer"
-            session.add(out_txn)
-            session.add(in_txn)
-            session.commit()
-            logger.info("自动撮合转账对: outflow=%s inflow=%s amount=%s", out_txn.id, in_txn.id, amount)
+            # 校验是否在已驳回黑名单中
+            is_rejected = session.exec(
+                select(RejectedTransfer).where(
+                    RejectedTransfer.outflow_transaction_id == out_txn.id,
+                    RejectedTransfer.inflow_transaction_id == in_txn.id,
+                )
+            ).first()
+
+            if not is_rejected:
+                transfer_record = Transfer(
+                    family_id=family.id,
+                    outflow_transaction_id=out_txn.id,
+                    inflow_transaction_id=in_txn.id,
+                    amount=amount,
+                    status="confirmed",
+                )
+                session.add(transfer_record)
+                session.commit()
+                session.refresh(transfer_record)
+
+                out_txn.transfer_id = transfer_record.id
+                out_txn.transaction_type = "transfer"
+                in_txn.transfer_id = transfer_record.id
+                in_txn.transaction_type = "transfer"
+                session.add(out_txn)
+                session.add(in_txn)
+                session.commit()
+                logger.info("自动撮合转账对: outflow=%s inflow=%s amount=%s", out_txn.id, in_txn.id, amount)
 
     # 8. 退款自动匹配 (90 天内同商户原消费)
     if txn_type == "refund":

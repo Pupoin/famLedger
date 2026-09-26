@@ -438,6 +438,10 @@ CURRENCY_SYMBOLS = {
     "SGD": "S$",
 }
 
+VALID_DATE_FORMATS = {"DD/MM/YYYY", "MM/DD/YYYY", "YYYY/MM/DD", "YYYY/DD/MM"}
+VALID_CURRENCIES = set(CURRENCY_SYMBOLS.keys())
+VALID_INCOME_SOURCES = ["Salary", "Freelance", "Investment", "Gift", "Other"]
+
 class IncomeBase(SQLModel):
     date: date
     amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(10, 2)))
