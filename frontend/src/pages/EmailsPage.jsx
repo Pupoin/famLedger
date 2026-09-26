@@ -25,10 +25,10 @@ export default function EmailsPage() {
   const fetchEmails = async () => {
     try {
       setLoading(true);
-      const res = await fetchWithAuth('/api/v1/imports/emails');
+      const res = await fetchWithAuth('/api/v1/imports/emails?limit=500');
       if (res.ok) {
         const data = await res.json();
-        setEmails(data);
+        setEmails(Array.isArray(data) ? data : (data.items || []));
       }
     } catch (err) {
       console.error('Failed to fetch stored emails', err);

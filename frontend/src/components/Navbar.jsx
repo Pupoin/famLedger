@@ -58,7 +58,12 @@ export default function Navbar() {
               to="/"
               className="flex items-center gap-2"
             >
-              <img src="/logo.png" alt="famLedger" className="h-9 w-9 object-contain -mr-1" />
+              <img
+                src="/logo.svg"
+                alt="famLedger"
+                className="h-8 w-8 object-contain"
+                onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+              />
               <span className="text-xl font-bold text-primary italic font-headline">
                 {config.appName}
               </span>

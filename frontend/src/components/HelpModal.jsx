@@ -48,7 +48,7 @@ const SECTIONS = [
       lines.push("**Amount** — the total cost of the expense (hero input at the top).");
       lines.push("**Date** — when the expense occurred. Dates are entered in your chosen format (configurable in Settings). A calendar picker icon is available for convenience. Future dates are not allowed.");
       lines.push("**Description** — what the expense was for. As you type, the app suggests matching descriptions from your history (fuzzy search). Selecting a suggestion auto-fills the category.");
-      lines.push("**Auto-suggested category** — when you type a description, Mosaic automatically suggests a category based on your past expenses. A sparkle indicator appears when a category has been auto-suggested.");
+      lines.push("**Auto-suggested category** — when you type a description, famLedger automatically suggests a category based on your past expenses. A sparkle indicator appears when a category has been auto-suggested.");
       lines.push("**Category** — choose from predefined categories (Groceries, Rent, Utilities, Dining, Transportation, Entertainment, Healthcare, Shopping, Travel, Payment, Gas, Car Insurance, Car Maintenance, Home Care, Pet Care, Pet Insurance, Vet, Gift, Subscription, Parking, Tenant Insurance, Reimbursement, Other) or create a custom category with \"+ New Category\".");
       lines.push("**Note on amounts:** Zero amounts are not allowed. Negative amounts are only permitted for the Reimbursement category (used to record money received back). Future dates are not allowed.");
       if (mode !== "personal") {
@@ -202,7 +202,7 @@ const SECTIONS = [
     title: "Settings",
     content: (mode, incomeEnabled) => {
       const lines = [
-        "Configure how you use Mosaic.",
+        "Configure how you use famLedger.",
         "### Profile Picture",
         "Upload a custom avatar photo. Your display name is shown alongside it.",
       ];
@@ -233,7 +233,7 @@ const SECTIONS = [
     title: "Navigation & Toolbar",
     content: () => [
       "### Top Navigation Bar",
-      "**Logo & Mode Badge** — the Mosaic logo links to Home. The badge next to it shows your current mode (Personal, Shared, or Blended).",
+      "**Logo & Mode Badge** — the famLedger logo links to Home. The badge next to it shows your current mode (Personal, Shared, or Blended).",
       "**Desktop Nav Links** — Home, Add New, Analytics, Calendar, Insights, Expenses.",
       "**Helper Icon** — this guide you're reading now.",
       "**Settings Icon** — navigate to the Settings page.",
