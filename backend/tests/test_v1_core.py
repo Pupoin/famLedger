@@ -211,3 +211,49 @@ def test_auto_refund_matching(client: TestClient):
     orig_txn = next(t for t in txns if t["external_id"] == "jd_orig_150")
 
     assert refund_txn["refund_of_transaction_id"] == orig_txn["id"]
+
+
+def test_transaction_split(client):
+    """测试单笔流水拆分为多个子分类，并校验金额一致性约束。"""
+    headers = {"X-Api-Key": "test_famledger_key"}
+
+    # 1. 录入一笔 100 元消费
+    res = client.post("/api/v1/transactions", json={
+        "account_identifier": "信用卡(9085)",
+        "transacted_at": "2026-09-26",
+        "amount": "100.00",
+        "name": "沃尔玛超市购物",
+        "merchant_name": "沃尔玛",
+        "transaction_type": "expense",
+        "external_id": "walmart_100",
+    }, headers=headers)
+    assert res.status_code == 200
+    txn_id = res.json()["id"]
+
+    # 2. 尝试不匹配的拆分（总和 90 != 100），预期报错 400
+    bad_split = client.post(f"/api/v1/transactions/{txn_id}/split", json={
+        "splits": [
+            {"amount": "50.00", "notes": "零食"},
+            {"amount": "40.00", "notes": "日用品"},
+        ]
+    }, headers=headers)
+    assert bad_split.status_code == 400
+
+    # 3. 正常拆分（30.00 + 70.00 == 100.00）
+    good_split = client.post(f"/api/v1/transactions/{txn_id}/split", json={
+        "splits": [
+            {"amount": "30.00", "notes": "生鲜蔬果"},
+            {"amount": "70.00", "notes": "家居厨具"},
+        ]
+    }, headers=headers)
+    assert good_split.status_code == 200
+    assert good_split.json()["is_split"] is True
+
+    # 4. 获取拆分项并核实
+    splits_res = client.get(f"/api/v1/transactions/{txn_id}/splits", headers=headers)
+    assert splits_res.status_code == 200
+    splits = splits_res.json()
+    assert len(splits) == 2
+    amounts = sorted([s["amount"] for s in splits])
+    assert amounts == ["30.00", "70.00"]
+

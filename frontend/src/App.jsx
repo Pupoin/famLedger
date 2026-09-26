@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import RulesPage from "./pages/RulesPage";
 import DebtsPage from "./pages/DebtsPage";
 import EmailsPage from "./pages/EmailsPage";
+import TransactionsPage from "./pages/TransactionsPage";
 import ModeSwitchBanner from "./components/ModeSwitchBanner";
 
 // A lazily loaded route whose chunk fails to load almost always means this tab
@@ -122,7 +123,8 @@ export default function App() {
                 <Insights />
               </Suspense>
             } />
-            <Route path="/history" element={<History />} />
+            <Route path="/history" element={<TransactionsPage />} />
+            <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/rules" element={<RulesPage />} />
             <Route path="/debts" element={<DebtsPage />} />
             <Route path="/emails" element={<EmailsPage />} />

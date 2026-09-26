@@ -19,6 +19,7 @@ from models import (
     Rule,
     StoredEmail,
     Transaction,
+    TransactionSplit,
     Transfer,
     User,
 )
@@ -355,3 +356,89 @@ def list_transactions(
         "next_cursor": next_cursor,
         "count": len(output),
     }
+
+
+class SplitItem(BaseModel):
+    category_id: Optional[uuid.UUID] = None
+    amount: Decimal
+    notes: Optional[str] = None
+
+
+class SplitPayload(BaseModel):
+    splits: List[SplitItem]
+
+
+@router.post("/{transaction_id}/split")
+def split_transaction(
+    transaction_id: uuid.UUID,
+    payload: SplitPayload,
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """交易拆分（Split）。将一笔交易拆分为多个分类子项，校验总金额一致性。"""
+    txn = session.get(Transaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="交易不存在")
+
+    if not payload.splits or len(payload.splits) < 2:
+        raise HTTPException(status_code=400, detail="拆分必须包含至少两个子项")
+
+    # 校验总金额（绝对值）
+    total_splits = sum(s.amount for s in payload.splits)
+    if total_splits.quantize(Decimal("0.01")) != abs(txn.amount).quantize(Decimal("0.01")):
+        raise HTTPException(
+            status_code=400,
+            detail=f"拆分子项金额总和 ({total_splits}) 必须等于交易原始金额 ({abs(txn.amount)})",
+        )
+
+    # 清除旧拆分
+    existing = session.exec(
+        select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)
+    ).all()
+    for e in existing:
+        session.delete(e)
+
+    # 写入新拆分
+    for s in payload.splits:
+        split_entry = TransactionSplit(
+            transaction_id=txn.id,
+            category_id=s.category_id,
+            amount=s.amount,
+            notes=s.notes,
+        )
+        session.add(split_entry)
+
+    txn.is_split = True
+    session.add(txn)
+    session.commit()
+    session.refresh(txn)
+
+    return {
+        "transaction_id": str(txn.id),
+        "is_split": True,
+        "splits_count": len(payload.splits),
+    }
+
+
+@router.get("/{transaction_id}/splits")
+def get_transaction_splits(
+    transaction_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """获取单笔交易的所有拆分明细。"""
+    splits = session.exec(
+        select(TransactionSplit).where(TransactionSplit.transaction_id == transaction_id)
+    ).all()
+
+    return [
+        {
+            "id": str(s.id),
+            "transaction_id": str(s.transaction_id),
+            "category_id": str(s.category_id) if s.category_id else None,
+            "amount": str(s.amount.quantize(Decimal("0.01"))),
+            "notes": s.notes,
+            "created_at": s.created_at.isoformat(),
+        }
+        for s in splits
+    ]
