@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- 极简高质感线性渐变（对标 Sure Design System） -->
+    <linearGradient id="famledger-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B0B0B" />
+      <stop offset="100%" stop-color="#262626" />
+    </linearGradient>
+    <linearGradient id="famledger-accent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#16A34A" />
+      <stop offset="100%" stop-color="#22C55E" />
+    </linearGradient>
+    <linearGradient id="famledger-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#3B82F6" />
+    </linearGradient>
+    <!-- 微投影滤镜 -->
+    <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <!-- 外层卡片底座 (深邃黑圆角矩形，仿 Sure 应用图标) -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#famledger-gradient)" filter="url(#soft-shadow)" />
+  <rect x="33" y="33" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.1" />
+
+  <!-- 核心图标：由 F + L + 账本与流动折线融合而成的几何构造 -->
+  <!-- 左侧主立柱（坚固的基石与账本折页） -->
+  <path d="M144 140 C144 126.7 154.7 116 168 116 L224 116 C237.3 116 248 126.7 248 140 L248 372 C248 385.3 237.3 396 224 396 L168 396 C154.7 396 144 385.3 144 372 Z" fill="#FFFFFF" fill-opacity="0.95" />
+
+  <!-- 右侧阶梯流动资产梁（象征财富流转、转账平衡与家庭柱状账目） -->
+  <!-- 上梁 (Family Top Bar) -->
+  <path d="M268 140 C268 126.7 278.7 116 292 116 L348 116 C361.3 116 372 126.7 372 140 L372 196 C372 209.3 361.3 220 348 220 L292 220 C278.7 220 268 209.3 268 196 Z" fill="#FFFFFF" fill-opacity="0.75" />
+
+  <!-- 中梁 (Transfer & Connection Flow) -->
+  <path d="M268 256 C268 242.7 278.7 232 292 232 L328 232 C341.3 232 352 242.7 352 256 L352 284 C352 297.3 341.3 308 328 308 L292 308 C278.7 308 268 297.3 268 284 Z" fill="url(#famledger-accent)" />
+
+  <!-- 底基 (Ledger Base Foot) -->
+  <path d="M268 344 C268 330.7 278.7 320 292 320 L368 320 C381.3 320 392 330.7 392 344 L392 372 C392 385.3 381.3 396 368 396 L292 396 C278.7 396 268 385.3 268 372 Z" fill="#FFFFFF" fill-opacity="0.95" />
+
+  <!-- 微妙的资产连线点（小光斑） -->
+  <circle cx="206" cy="156" r="10" fill="url(#famledger-blue)" />
+</svg>

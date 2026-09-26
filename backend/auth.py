@@ -253,10 +253,8 @@ def register(data: RegisterRequest, response: Response, session: Session = Depen
     if not data.security_answer.strip():
         raise HTTPException(status_code=422, detail="Security answer is required")
 
-    # Check user cap
+    # Uncap user limit - FamLedger supports unlimited multi-user family members
     count = get_user_count(session)
-    if count >= 2:
-        raise HTTPException(status_code=409, detail="Maximum of 2 accounts allowed")
 
     # Check uniqueness
     if get_user_by_username(session, data.username):
@@ -265,34 +263,30 @@ def register(data: RegisterRequest, response: Response, session: Session = Depen
     if get_user_by_display_name(session, data.display_name):
         raise HTTPException(status_code=409, detail="Display name already taken")
 
+    # Ensure a default Family exists
+    from models import Family
+    default_family = session.exec(select(Family)).first() if "select" in globals() else None
+    if not default_family:
+        from sqlmodel import select as sm_select
+        default_family = session.exec(sm_select(Family)).first()
+    if not default_family:
+        default_family = Family(name="我的家庭", currency="CNY")
+        session.add(default_family)
+        session.commit()
+        session.refresh(default_family)
+
+    user_role = "owner" if count == 0 else "member"
+
     user = User(
+        family_id=default_family.id,
         username=data.username,
         display_name=data.display_name,
+        role=user_role,
         password_hash=hash_password(data.password),
         security_question=data.security_question,
         security_answer_hash=_hash_answer(data.security_answer),
     )
     session.add(user)
-
-    # First user → ensure mode is set to personal
-    if count == 0:
-        from models import Settings
-        settings = session.get(Settings, 1)
-        if settings:
-            settings.app_mode = "personal"
-        else:
-            settings = Settings(id=1, app_mode="personal")
-        session.add(settings)
-
-    # Second user → automatically switch mode to shared so both users can log in immediately
-    if count == 1:
-        from models import Settings
-        settings = session.get(Settings, 1)
-        if settings:
-            settings.app_mode = "shared"
-        else:
-            settings = Settings(id=1, app_mode="shared")
-        session.add(settings)
 
     session.commit()
     session.refresh(user)
@@ -308,8 +302,11 @@ def register(data: RegisterRequest, response: Response, session: Session = Depen
         max_age=SESSION_TTL,
     )
     return {
+        "id": str(user.id),
+        "family_id": str(user.family_id),
         "username": user.username,
         "display_name": user.display_name,
+        "role": user.role,
         "user_map": build_user_map(session),
     }
 
@@ -318,7 +315,8 @@ def register(data: RegisterRequest, response: Response, session: Session = Depen
 def account_status(session: Session = Depends(get_session)):
     """Public endpoint: how many accounts exist, is registration open?"""
     count = get_user_count(session)
-    return {"user_count": count, "registration_open": count < 2}
+    return {"user_count": count, "registration_open": True}
+
 
 
 @router.get("/auth/security-questions")
