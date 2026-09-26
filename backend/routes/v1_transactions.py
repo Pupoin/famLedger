@@ -338,11 +338,21 @@ def list_transactions(
     has_more = len(results) > limit
     items = results[:limit]
 
+    accounts_map = {a.id: a for a in session.exec(select(Account)).all()}
+    import re
+
     output = []
     for t in items:
+        acc = accounts_map.get(t.account_id)
+        acc_name = acc.name if acc else "招商银行账户"
+        m = re.search(r"\(([0-9Xx]{4})\)", acc_name)
+        mask = m.group(1) if m else (acc_name[-4:] if len(acc_name) >= 4 else "0000")
+
         output.append({
             "id": str(t.id),
             "account_id": str(t.account_id),
+            "account_name": acc_name,
+            "account_mask": mask,
             "raw_email_id": str(t.raw_email_id) if t.raw_email_id else None,
             "external_id": t.external_id,
             "transacted_at": t.transacted_at.isoformat(),

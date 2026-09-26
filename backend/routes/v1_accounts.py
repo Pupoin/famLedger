@@ -57,18 +57,33 @@ def list_accounts(
         select(Account).where(Account.family_id == family.id)
     ).all()
 
+    from models import Transaction
+    import re
+
+    tx_counts = dict(
+        session.exec(
+            select(Transaction.account_id, func.count(Transaction.id))
+            .group_by(Transaction.account_id)
+        ).all()
+    )
+
     items = []
     for a in accounts:
+        # Extract card mask like 7931 from name "招商银行借记卡 (7931)"
+        mask_match = re.search(r"\(([0-9Xx]{4})\)", a.name or "")
+        mask = mask_match.group(1) if mask_match else (a.name[-4:] if len(a.name or "") >= 4 else "0000")
+
         items.append({
             "id": str(a.id),
             "name": a.name,
+            "mask": mask,
             "account_type": a.account_type,
+            "classification": getattr(a, "classification", "asset"),
             "currency": a.currency,
-            "institution_name": a.institution_name,
-            "balance": str(a.balance),
-            "color": a.color,
-            "icon": a.icon,
-            "is_archived": a.is_archived,
+            "institution_name": a.institution_name or "招商银行",
+            "balance": str(a.balance or 0),
+            "transaction_count": tx_counts.get(a.id, 0),
+            "is_active": getattr(a, "is_active", True),
         })
     return {"accounts": items, "items": items, "count": len(items)}
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Search,
@@ -10,6 +11,8 @@ import {
   Sparkles,
   RefreshCw,
   CheckCircle,
+  CreditCard,
+  Wallet,
 } from 'lucide-react';
 import { VirtualTransactionList } from '../components/ds/VirtualTransactionList';
 import { Button, Card, Pill, Drawer } from '../components/ds/DesignSystem';
@@ -17,6 +20,10 @@ import { fetchWithAuth } from '../api/fetchWithAuth';
 
 export default function TransactionsPage() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const accountIdFilter = searchParams.get('account_id') || '';
+
+  const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -37,6 +44,13 @@ export default function TransactionsPage() {
     { amount: '', notes: '' },
   ]);
 
+  useEffect(() => {
+    fetchWithAuth('/api/v1/accounts')
+      .then((r) => r.json())
+      .then((d) => setAccounts(Array.isArray(d) ? d : (d.accounts || d.items || [])))
+      .catch((err) => console.error('Failed to load accounts', err));
+  }, []);
+
   const fetchTransactions = useCallback(async (reset = false) => {
     try {
       if (reset) {
@@ -47,6 +61,7 @@ export default function TransactionsPage() {
 
       const params = new URLSearchParams();
       params.append('limit', '50');
+      if (accountIdFilter) params.append('account_id', accountIdFilter);
       if (search) params.append('search', search);
       if (typeFilter) params.append('transaction_type', typeFilter);
 
@@ -63,11 +78,12 @@ export default function TransactionsPage() {
       setLoading(false);
       setIsLoadingMore(false);
     }
-  }, [search, typeFilter]);
+  }, [accountIdFilter, search, typeFilter]);
 
   useEffect(() => {
     fetchTransactions(true);
   }, [fetchTransactions]);
+
 
   const handleSelectTransaction = async (txn) => {
     setSelectedTxn(txn);
@@ -121,36 +137,44 @@ export default function TransactionsPage() {
     }
   };
 
+  const totalAllCount = accounts.reduce((s, a) => s + (a.transaction_count || 0), 0);
+  const currentAccount = accounts.find((a) => a.id === accountIdFilter);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-on-surface">
-            交易明细
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-on-surface flex items-center gap-2">
+            <span>交易明细</span>
+            {currentAccount && (
+              <span className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary font-mono font-semibold border border-primary/20">
+                {currentAccount.institution_name} *{currentAccount.mask}
+              </span>
+            )}
           </h1>
-          <p className="text-sm text-on-surface-variant mt-1">
-            60FPS 虚拟滚动低内存筛选引擎，支持转账/退款联动与多项拆分
+          <p className="text-xs sm:text-sm text-on-surface-variant mt-1">
+            支持一户多卡智能联动 · 退款冲抵 · 内部对冲转账
           </p>
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        {/* Filter Toolbar (Search & Type) */}
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索商户、摘要..."
-              className="pl-9 pr-3 py-2 rounded-lg border border-outline/20 bg-surface-container text-on-surface text-sm focus-ring w-48 sm:w-64"
+              className="w-full pl-9 pr-3 py-2 rounded-xl border border-outline/20 bg-surface-container text-on-surface text-xs sm:text-sm focus-ring"
             />
           </div>
 
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-outline/20 bg-surface-container text-on-surface text-sm focus-ring"
+            className="px-3 py-2 rounded-xl border border-outline/20 bg-surface-container text-on-surface text-xs sm:text-sm focus-ring shrink-0 cursor-pointer"
           >
             <option value="">全部类型</option>
             <option value="expense">支出</option>
@@ -159,6 +183,55 @@ export default function TransactionsPage() {
             <option value="refund">退款冲抵</option>
           </select>
         </div>
+      </div>
+
+      {/* Multi-Card Filter Pills Bar (Sure Style) */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1.5 pt-0.5 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+        <button
+          onClick={() => {
+            const p = new URLSearchParams(searchParams);
+            p.delete('account_id');
+            setSearchParams(p);
+          }}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 select-none ${
+            !accountIdFilter
+              ? 'bg-primary text-white shadow-xs'
+              : 'bg-surface-container hover:bg-surface-container-high text-on-surface-variant border border-outline/10'
+          }`}
+        >
+          <Wallet className="w-3.5 h-3.5" />
+          <span>全部卡号</span>
+          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${!accountIdFilter ? 'bg-white/20 text-white' : 'bg-surface-container-high text-on-surface-variant'}`}>
+            {totalAllCount}
+          </span>
+        </button>
+
+        {accounts.map((acc) => {
+          const isSelected = accountIdFilter === acc.id;
+          const isCredit = acc.account_type === 'credit_card' || acc.classification === 'liability';
+
+          return (
+            <button
+              key={acc.id}
+              onClick={() => {
+                const p = new URLSearchParams(searchParams);
+                p.set('account_id', acc.id);
+                setSearchParams(p);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 border select-none ${
+                isSelected
+                  ? 'bg-primary text-white border-primary shadow-xs'
+                  : 'bg-surface-container/70 hover:bg-surface-container border-outline/10 text-on-surface-variant'
+              }`}
+            >
+              <CreditCard className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : isCredit ? 'text-amber-500' : 'text-emerald-500'}`} />
+              <span>{acc.institution_name} *{acc.mask}</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${isSelected ? 'bg-white/20 text-white' : 'bg-surface-container-high text-on-surface-variant'}`}>
+                {acc.transaction_count || 0}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Main Virtualized List Container */}

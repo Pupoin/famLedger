@@ -178,11 +178,34 @@ export function UserPreferencesProvider({ children }) {
     [dateFormat],
   );
 
+  const [privacyMode, setPrivacyMode] = useState(() => {
+    try {
+      return localStorage.getItem('privacy_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const togglePrivacyMode = useCallback(() => {
+    setPrivacyMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('privacy_mode', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   const currentCurrency = CURRENCIES.find((c) => c.code === currency) || CURRENCIES[0];
 
   const fmt = useCallback(
-    (amount) => formatCurrency(amount, currentCurrency.symbol),
-    [currentCurrency.symbol],
+    (amount, ignorePrivacy = false) => {
+      if (privacyMode && !ignorePrivacy) {
+        return '••••••';
+      }
+      return formatCurrency(amount, currentCurrency.symbol);
+    },
+    [currentCurrency.symbol, privacyMode],
   );
 
   if (!loaded) return null;
@@ -198,12 +221,14 @@ export function UserPreferencesProvider({ children }) {
         toInputValue,
         placeholder: getPlaceholder(dateFormat),
         separatorPositions: getSeparatorPositions(dateFormat),
-        // currency
+        // currency & privacy
         currency,
         symbol: currentCurrency.symbol,
         setCurrency,
         fmt,
         currencies: CURRENCIES,
+        privacyMode,
+        togglePrivacyMode,
         // income mode
         incomeEnabled: incomeModeEnabled && canUseIncome,
         canUseIncome,
@@ -227,3 +252,8 @@ export function useCurrency() {
 export function useIncomeMode() {
   return useContext(UserPreferencesContext);
 }
+
+export function usePrivacyMode() {
+  return useContext(UserPreferencesContext);
+}
+

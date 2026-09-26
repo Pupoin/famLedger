@@ -179,7 +179,7 @@ export default function Landing() {
             </div>
             <div className="mt-3 flex items-baseline gap-1.5">
               <span className="text-3xl font-extrabold font-mono tracking-tight text-emerald-600 dark:text-emerald-400">
-                +{currencySymbol}{reimbursementTotal.toFixed(2)}
+                +{fmt(reimbursementTotal)}
               </span>
             </div>
           </div>

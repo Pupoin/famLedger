@@ -12,6 +12,8 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { useCurrency } from '../../CurrencyContext';
+
 
 // ── Sure Design System Chart Colors ─────────────────────────
 export const SURE_COLORS = [
@@ -94,6 +96,7 @@ export function SureAreaChart({ data, currencySymbol = '¥', height = 280 }) {
 
 // ── 2. Sure Category Donut Chart (中心大字环形分类图) ────────
 export function SureDonutChart({ data, totalAmount = 0, currencySymbol = '¥', height = 300 }) {
+  const { privacyMode } = useCurrency();
   const chartData = useMemo(() => {
     return (data || []).filter((d) => Number(d.amount) > 0);
   }, [data]);
@@ -142,7 +145,7 @@ export function SureDonutChart({ data, totalAmount = 0, currencySymbol = '¥', h
                     <div className="bg-surface-container-lowest/95 backdrop-blur-md px-3 py-2 rounded-xl shadow-lg border border-outline/10 text-xs">
                       <p className="font-semibold text-on-surface">{item.category}</p>
                       <p className="font-mono text-primary font-bold mt-0.5">
-                        {currencySymbol}{Number(item.amount).toFixed(2)} ({pct}%)
+                        {privacyMode ? '••••••' : `${currencySymbol}${Number(item.amount).toFixed(2)}`} ({pct}%)
                       </p>
                     </div>
                   );
@@ -159,7 +162,7 @@ export function SureDonutChart({ data, totalAmount = 0, currencySymbol = '¥', h
             当期总计
           </span>
           <span className="text-lg font-bold text-on-surface font-mono tracking-tight">
-            {currencySymbol}{total.toFixed(2)}
+            {privacyMode ? '••••••' : `${currencySymbol}${total.toFixed(2)}`}
           </span>
         </div>
       </div>
@@ -186,7 +189,7 @@ export function SureDonutChart({ data, totalAmount = 0, currencySymbol = '¥', h
 
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-mono font-bold text-on-surface">
-                  {currencySymbol}{Number(item.amount).toFixed(2)}
+                  {privacyMode ? '••••••' : `${currencySymbol}${Number(item.amount).toFixed(2)}`}
                 </span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-surface-container font-semibold text-on-surface-variant">
                   {pct}%

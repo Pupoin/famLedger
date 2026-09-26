@@ -7,8 +7,10 @@ import {
   Tag,
   Calendar,
   CreditCard,
+  Building,
 } from 'lucide-react';
 import { Pill } from './DesignSystem';
+import { useCurrency } from '../../CurrencyContext';
 
 export function VirtualTransactionList({
   items = [],
@@ -18,12 +20,13 @@ export function VirtualTransactionList({
   onLoadMore,
   hasMore = false,
 }) {
+  const { privacyMode } = useCurrency();
   const parentRef = useRef(null);
 
   const rowVirtualizer = useVirtualizer({
     count: hasMore ? items.length + 1 : items.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 72,
+    estimateSize: () => 76,
     overscan: 5,
   });
 
@@ -32,7 +35,7 @@ export function VirtualTransactionList({
   return (
     <div
       ref={parentRef}
-      className="h-[650px] overflow-y-auto custom-scrollbar border border-outline/15 rounded-2xl bg-surface-container-low"
+      className="h-[calc(100vh-270px)] min-h-[480px] lg:h-[700px] overflow-y-auto custom-scrollbar border border-outline/15 rounded-2xl bg-surface-container-low shadow-xs"
     >
       <div
         className="w-full relative"
@@ -85,9 +88,9 @@ export function VirtualTransactionList({
               }}
             >
               {/* Left Column: Icon & Basic Info */}
-              <div className="flex items-center gap-3.5 min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 ${
                     txn.transaction_type === 'transfer'
                       ? 'bg-blue-500/10 text-blue-600'
                       : txn.transaction_type === 'refund'
@@ -98,21 +101,26 @@ export function VirtualTransactionList({
                   }`}
                 >
                   {txn.transaction_type === 'transfer' ? (
-                    <ArrowLeftRight className="w-5 h-5" />
+                    <ArrowLeftRight className="w-4 h-4 sm:w-5 sm:h-5" />
                   ) : txn.transaction_type === 'refund' ? (
-                    <RotateCcw className="w-5 h-5" />
+                    <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
                   ) : txn.is_split ? (
-                    <Scissors className="w-5 h-5" />
+                    <Scissors className="w-4 h-4 sm:w-5 sm:h-5" />
                   ) : (
-                    <CreditCard className="w-5 h-5" />
+                    <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
                   )}
                 </div>
 
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-on-surface truncate">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="font-semibold text-xs sm:text-sm text-on-surface truncate">
                       {txn.name || txn.merchant_name || '未命名消费'}
                     </span>
+                    {txn.account_mask && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-container text-on-surface-variant font-medium shrink-0 border border-outline/10">
+                        *{txn.account_mask}
+                      </span>
+                    )}
                     {txn.transaction_type === 'transfer' && (
                       <Pill label="内部转账" variant="info" />
                     )}
@@ -124,16 +132,18 @@ export function VirtualTransactionList({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-on-surface-variant mt-1 font-mono">
-                    <span className="flex items-center gap-1">
+                  <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs text-on-surface-variant mt-0.5 font-mono overflow-hidden">
+                    <span className="flex items-center gap-1 whitespace-nowrap shrink-0">
                       <Calendar className="w-3 h-3" />
-                      {txn.transacted_at}
+                      <span>{txn.transacted_at}</span>
                     </span>
                     {txn.merchant_name && txn.merchant_name !== txn.name && (
-                      <span className="truncate max-w-[120px]">{txn.merchant_name}</span>
+                      <span className="truncate max-w-[100px] sm:max-w-[140px] shrink-0 text-on-surface-variant/80">
+                        {txn.merchant_name}
+                      </span>
                     )}
                     {txn.notes && (
-                      <span className="truncate max-w-[150px] text-outline">
+                      <span className="truncate max-w-[120px] sm:max-w-[160px] text-outline">
                         {txn.notes}
                       </span>
                     )}
@@ -144,7 +154,7 @@ export function VirtualTransactionList({
               {/* Right Column: Amount */}
               <div className="text-right shrink-0">
                 <span
-                  className={`text-base font-bold font-mono block ${
+                  className={`text-sm sm:text-base font-bold font-mono block ${
                     txn.transaction_type === 'transfer'
                       ? 'text-on-surface-variant'
                       : (txn.transaction_type === 'refund' || isNegative)
@@ -152,7 +162,9 @@ export function VirtualTransactionList({
                       : 'text-on-surface'
                   }`}
                 >
-                  {txn.transaction_type === 'transfer' ? '' : (txn.transaction_type === 'refund' || isNegative) ? '+' : '-'}¥{Math.abs(Number(txn.amount)).toFixed(2)}
+                  {privacyMode
+                    ? '••••••'
+                    : `${txn.transaction_type === 'transfer' ? '' : (txn.transaction_type === 'refund' || isNegative) ? '+' : '-'}¥${Math.abs(Number(txn.amount)).toFixed(2)}`}
                 </span>
                 <span className="text-[10px] text-on-surface-variant uppercase tracking-wider font-semibold">
                   {txn.currency}
