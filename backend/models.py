@@ -163,6 +163,42 @@ class Category(SQLModel, table=True):
 
 
 # ==========================================
+# 5.5. 原始账单邮件归档 (StoredEmail)
+# ==========================================
+class StoredEmail(SQLModel, table=True):
+    """原始账单邮件归档与审计。支持定期拉取与重复解析。"""
+    __tablename__ = "stored_emails"
+    __table_args__ = (
+        Index("uq_stored_email_msgid", "message_id", unique=True),
+        Index("uq_stored_email_fingerprint", "content_fingerprint", unique=True),
+        Index("ix_stored_emails_status", "status"),
+        Index("ix_stored_emails_received", "received_at"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    message_id: str = Field(max_length=255, index=True)
+    content_fingerprint: str = Field(max_length=128, index=True)
+    mail_kind: str = Field(default="other", max_length=50)  # credit_daily | credit_recent | debit | other
+    subject: str = Field(max_length=500)
+    sender: str = Field(max_length=255)
+    recipient: Optional[str] = Field(default=None, max_length=255)
+    received_at: datetime = Field(index=True)
+    raw_html: Optional[str] = Field(default=None)
+    raw_text: Optional[str] = Field(default=None)
+    raw_payload: Dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+    )
+    status: str = Field(default="pending", max_length=30)  # pending | parsed | failed | ignored
+    error_message: Optional[str] = Field(default=None)
+    parsed_at: Optional[datetime] = Field(default=None)
+    parsed_count: int = Field(default=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ==========================================
 # 6. 统一交易流水与拆分 (Transaction & Split)
 # ==========================================
 class Transaction(SQLModel, table=True):
@@ -175,6 +211,7 @@ class Transaction(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    raw_email_id: Optional[uuid.UUID] = Field(default=None, foreign_key="stored_emails.id", index=True)
     external_id: Optional[str] = Field(default=None, max_length=255, index=True)
     transacted_at: date = Field(index=True)
     exact_time: Optional[datetime] = Field(default=None)

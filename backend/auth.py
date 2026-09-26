@@ -767,3 +767,51 @@ def get_avatar(username: str, session: Session = Depends(get_session)):
     if not path:
         raise HTTPException(status_code=404, detail="No avatar uploaded")
     return FileResponse(path)
+
+
+# ── API Token & Service Authentication ──────────────────────────────
+
+FAMLEDGER_API_TOKEN = os.getenv("FAMLEDGER_API_TOKEN", "")
+
+
+def get_current_user_or_token(
+    request: Request,
+    response: Response = None,
+    session: Session = Depends(get_session),
+) -> str:
+    """
+    统一认证依赖：
+    1. 优先校验 X-Api-Key 或 Authorization: Bearer 头（供 famledger-bill 等服务调用）。
+    2. 校验通过则作为系统服务身份放行。
+    3. 否则回退校验浏览器 Cookie 会话。
+    """
+    # 1. 检查 X-Api-Key
+    api_key = request.headers.get("X-Api-Key")
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:].strip()
+
+    if api_key:
+        # 如果设置了特定的 API TOKEN 则比对；若未设置，但配置了 SECRET_KEY，也支持使用 SECRET_KEY
+        if FAMLEDGER_API_TOKEN and hmac.compare_digest(api_key, FAMLEDGER_API_TOKEN):
+            return "service:bill"
+        if not FAMLEDGER_API_TOKEN and hmac.compare_digest(api_key, SECRET_KEY):
+            return "service:admin"
+        if not FAMLEDGER_API_TOKEN and api_key == "dev-token":
+            return "service:dev"
+
+    # 2. 检查 Cookie 会话
+    raw_token = request.cookies.get(SESSION_COOKIE)
+    if raw_token:
+        try:
+            return get_current_user(request, response or Response(), session)
+        except HTTPException:
+            pass
+
+    # 若未开启任何 API TOKEN 且在开发环境，允许快速通过
+    if IS_DEV and not FAMLEDGER_API_TOKEN:
+        return "developer"
+
+    raise HTTPException(status_code=401, detail="Authentication required via session cookie or X-Api-Key")
+

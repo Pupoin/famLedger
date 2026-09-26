@@ -33,6 +33,10 @@ from backend.ingest.parser import (
     parse_credit_recent_message,
     parse_debit_message,
 )
+from backend.ingest.famledger_sync import (
+    FamLedgerClient,
+    sync_emails_and_parse_to_famledger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +94,30 @@ def run() -> None:
     except Exception as exc:
         logger.exception("邮件文件夹查找失败")
         raise RuntimeError(f"邮件文件夹查找失败: {exc}") from exc
+
+    famledger_url = os.getenv("FAMLEDGER_API_URL")
+    if famledger_url:
+        logger.info("启用 FamLedger API 模式: %s", famledger_url)
+        fl_client = FamLedgerClient(base_url=famledger_url, api_token=os.getenv("FAMLEDGER_API_TOKEN"))
+        credit_messages = client.list_messages(
+            folder_id=credit_folder_id, sender="", subject_keywords=[],
+            lookback_days=cfg.lookback_days_credit, since_at=since_at, include_all=True,
+        )
+        debit_messages = client.list_messages(
+            folder_id=debit_folder_id, sender="", subject_keywords=[],
+            lookback_days=cfg.lookback_days_debit, since_at=since_at, include_all=True,
+        )
+        by_kind: dict[str, list[dict]] = {}
+        for folder, messages in (("credit", credit_messages), ("debit", debit_messages)):
+            for message in messages:
+                kind = _mail_kind(message, folder)
+                by_kind.setdefault(kind, []).append(message)
+
+        stored_cnt, pushed_cnt = sync_emails_and_parse_to_famledger(fl_client, by_kind)
+        logger.info("FamLedger 任务完成: 新存邮件=%s 封, 新解析并推送交易=%s 条", stored_cnt, pushed_cnt)
+        if not cfg.pg_dsn:
+            logger.info("未配置本地旧版 PG_DSN，流程直接结束")
+            return
 
     save_emails = os.getenv("SAVE_EMAILS", "false").lower() in ("true", "1", "yes")
     if save_emails:
