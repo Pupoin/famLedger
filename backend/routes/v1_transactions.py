@@ -16,12 +16,14 @@ from models import (
     Category,
     Family,
     RefundAllocation,
+    Rule,
     StoredEmail,
     Transaction,
     Transfer,
     User,
 )
 from auth import get_current_user_or_token
+from services.rules.pipeline import RulePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,7 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str) ->
     cleaned_id = identifier.strip()
     accounts = session.exec(select(Account).where(Account.family_id == family_id)).all()
     for acc in accounts:
-        if cleaned_id in acc.name or (acc.official_name and cleaned_id in acc.official_name):
+        if cleaned_id in acc.name or (acc.institution_name and cleaned_id in acc.institution_name):
             return acc
 
     # 3. 未找到则自动预拨创建
@@ -174,6 +176,15 @@ async def create_or_ingest_transaction(
         notes=data.notes,
         extra=extra_data,
     )
+
+    # 执行自动化规则引擎清洗与自动分类 (Rules Pipeline)
+    active_rules = session.exec(
+        select(Rule).where(Rule.family_id == family.id, Rule.is_active == True).order_by(Rule.priority)
+    ).all()
+    if active_rules:
+        pipeline = RulePipeline(active_rules)
+        pipeline.process_transaction(txn, account_name=account.name, dry_run=False)
+
     session.add(txn)
     session.commit()
     session.refresh(txn)
@@ -260,7 +271,7 @@ async def create_or_ingest_transaction(
         "id": str(txn.id),
         "account_id": str(txn.account_id),
         "external_id": txn.external_id,
-        "amount": str(txn.amount),
+        "amount": str(txn.amount.quantize(Decimal("0.01"))),
         "currency": txn.currency,
         "name": txn.name,
         "transaction_type": txn.transaction_type,
@@ -324,7 +335,7 @@ def list_transactions(
             "external_id": t.external_id,
             "transacted_at": t.transacted_at.isoformat(),
             "exact_time": t.exact_time.isoformat() if t.exact_time else None,
-            "amount": str(t.amount),
+            "amount": str(t.amount.quantize(Decimal("0.01"))),
             "currency": t.currency,
             "name": t.name,
             "merchant_name": t.merchant_name,

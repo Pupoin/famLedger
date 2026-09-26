@@ -9,6 +9,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from pydantic import field_serializer, field_validator
 from sqlmodel import SQLModel, Field, Column, Relationship
 
+# 兼容 PostgreSQL 原生 JSONB 与 SQLite 测试/开发 JSON
+JSON_TYPE = JSONB().with_variant(sqlalchemy.JSON, "sqlite")
+
 # ==========================================
 # 1. 家庭组织实体 (Family)
 # ==========================================
@@ -33,7 +36,7 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    family_id: Optional[uuid.UUID] = Field(default=None, foreign_key="families.id", index=True)
     username: str = Field(max_length=50, unique=True, index=True)
     email: Optional[str] = Field(default=None, max_length=255, unique=True, index=True)
     display_name: str = Field(max_length=100, index=True)
@@ -79,7 +82,7 @@ class SSOProvider(SQLModel, table=True):
     enabled: bool = Field(default=True, index=True)
     settings: Dict[str, Any] = Field(
         default_factory=lambda: {"allow_jit": True, "default_role": "member", "allowed_domains": []},
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -99,7 +102,7 @@ class OIDCIdentity(SQLModel, table=True):
     issuer: Optional[str] = Field(default=None, max_length=255)
     info: Dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     last_authenticated_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -120,11 +123,12 @@ class Account(SQLModel, table=True):
     owner_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
     name: str = Field(max_length=100)
     account_type: str = Field(max_length=50)  # checking, savings, credit_card, investment, loan, other
-    classification: str = Field(max_length=20)  # asset | liability
+    classification: str = Field(default="asset", max_length=20)  # asset | liability
     currency: str = Field(default="CNY", max_length=10)
     balance: Decimal = Field(default=Decimal("0.00"), sa_column=Column(sqlalchemy.Numeric(19, 4)))
     is_active: bool = Field(default=True, index=True)
     exclude_from_reports: bool = Field(default=False)
+    institution_name: Optional[str] = Field(default=None, max_length=100, index=True)
     external_identifier: Optional[str] = Field(default=None, max_length=100, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -188,7 +192,7 @@ class StoredEmail(SQLModel, table=True):
     raw_text: Optional[str] = Field(default=None)
     raw_payload: Dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     status: str = Field(default="pending", max_length=30)  # pending | parsed | failed | ignored
     error_message: Optional[str] = Field(default=None)
@@ -230,11 +234,15 @@ class Transaction(SQLModel, table=True):
     reconciled: bool = Field(default=False)
     excluded_from_stats: bool = Field(default=False)
     notes: Optional[str] = Field(default=None)
+    tags: List[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON_TYPE)
+    )
     category_source: str = Field(default="import", max_length=20)  # manual | rule | import
     merchant_source: str = Field(default="import", max_length=20)
     extra: Dict[str, Any] = Field(
         default_factory=dict,
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -308,15 +316,17 @@ class Rule(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
     name: str = Field(max_length=150)
+    description: Optional[str] = Field(default=None, max_length=500)
     priority: int = Field(default=100)
-    enabled: bool = Field(default=True, index=True)
+    is_active: bool = Field(default=True, index=True)
+    enabled: bool = Field(default=True)
     stop_processing: bool = Field(default=False)
     allow_override_manual: bool = Field(default=False)
     conditions: Dict[str, Any] = Field(
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     actions: List[Dict[str, Any]] = Field(
-        sa_column=Column(JSONB if not sqlalchemy.__version__.startswith("sqlite") else sqlalchemy.JSON)
+        sa_column=Column(JSON_TYPE)
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -374,7 +384,7 @@ class Valuation(SQLModel, table=True):
     """投资与固定资产历史市值估值表。"""
     __tablename__ = "valuations"
     __table_args__ = (
-        Index("ix_valuations_account_date", "account_id", "valuation_date DESC"),
+        Index("ix_valuations_account_date", "account_id", "valuation_date"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -401,6 +411,33 @@ class Expense(ExpenseBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[str] = Field(default=None)
 
+class ExpenseCreate(ExpenseBase):
+    pass
+
+class ExpenseUpdate(ExpenseBase):
+    pass
+
+class DismissedMerge(SQLModel, table=True):
+    __tablename__ = "dismissedmerge"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    category: str = Field(max_length=100)
+    desc_a: str = Field(max_length=500)
+    desc_b: str = Field(max_length=500)
+    dismissed_by: str = Field(max_length=100)
+
+CURRENCY_SYMBOLS = {
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "CAD": "C$",
+    "AUD": "A$",
+    "INR": "₹",
+    "JPY": "¥",
+    "CNY": "¥",
+    "CHF": "CHF",
+    "SGD": "S$",
+}
+
 class IncomeBase(SQLModel):
     date: date
     amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(10, 2)))
@@ -411,6 +448,29 @@ class Income(IncomeBase, table=True):
     __tablename__ = "income"
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: str = Field(index=True)
+
+class IncomeCreate(IncomeBase):
+    pass
+
+class IncomeUpdate(IncomeBase):
+    pass
+
+class SeriesAlertState(SQLModel, table=True):
+    __tablename__ = "series_alert_states"
+    __table_args__ = (
+        Index("ix_series_alert_lookup", "series_key", "alert_type", unique=True),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    series_key: str = Field(max_length=600)
+    alert_type: str = Field(max_length=30)
+    first_seen: date = Field(default_factory=date.today)
+    last_seen: date = Field(default_factory=date.today)
+    dismissed: bool = Field(default=False)
+    dismissed_by: Optional[str] = Field(default=None, max_length=100)
+    dismissed_at: Optional[datetime] = Field(default=None)
+    baseline_amount: Optional[Decimal] = Field(
+        default=None, sa_column=Column(sqlalchemy.Numeric(10, 2))
+    )
 
 class UserPreference(SQLModel, table=True):
     __tablename__ = "userpreference"

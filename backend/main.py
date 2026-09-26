@@ -24,7 +24,17 @@ from database import (
     get_session,
 )
 from routes import expenses, analytics, export, insights, income
-from routes import v1_imports, v1_transactions, v1_accounts, v1_categories
+from routes import (
+    v1_imports,
+    v1_transactions,
+    v1_accounts,
+    v1_categories,
+    v1_rules,
+    v1_debts,
+    v1_transfers,
+    v1_refunds,
+    v1_oidc,
+)
 from auth import router as auth_router
 from services.audit import audit_logger
 from services.backup import BackupManager
@@ -203,6 +213,11 @@ app.include_router(v1_imports.router, prefix="/api")
 app.include_router(v1_transactions.router, prefix="/api")
 app.include_router(v1_accounts.router, prefix="/api")
 app.include_router(v1_categories.router, prefix="/api")
+app.include_router(v1_rules.router, prefix="/api")
+app.include_router(v1_debts.router, prefix="/api")
+app.include_router(v1_transfers.router, prefix="/api")
+app.include_router(v1_refunds.router, prefix="/api")
+app.include_router(v1_oidc.router, prefix="/api")
 
 
 @app.get("/api/health")

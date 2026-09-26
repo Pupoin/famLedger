@@ -106,8 +106,9 @@ def _clean_db():
 
     # Seed test users into the User table
     with Session(_test_engine) as s:
-        # Clear existing users first (in case previous test left some)
-        s.execute(text("DELETE FROM user"))
+        # Clear existing users and settings first
+        s.execute(text("DELETE FROM users"))
+        s.execute(text("DELETE FROM settings"))
         s.add(User(
             username=USER_A_LOGIN,
             display_name=USER_A,
@@ -142,7 +143,7 @@ def _clean_db():
         s.execute(text("DELETE FROM settings"))
         s.execute(text("DELETE FROM dismissedmerge"))
         s.execute(text("DELETE FROM userpreference"))
-        s.execute(text("DELETE FROM user"))
+        s.execute(text("DELETE FROM users"))
         s.commit()
 
 
