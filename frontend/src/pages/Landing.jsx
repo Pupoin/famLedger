@@ -81,7 +81,7 @@ export default function Landing() {
   }
 
   return (
-    <div className="space-y-5 pb-12 max-w-7xl mx-auto">
+    <div className="space-y-5 pb-12 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
       {/* ── 1. Top Breadcrumb & Controls (Exact Sure Breadcrumb) ── */}
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <div className="flex items-center gap-2">

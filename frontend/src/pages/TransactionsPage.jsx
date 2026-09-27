@@ -20,6 +20,9 @@ import { useCurrency } from '../CurrencyContext';
 export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const accountIdFilter = searchParams.get('account_id') || '';
+  const startDateFilter = searchParams.get('start_date') || searchParams.get('date') || '';
+  const endDateFilter = searchParams.get('end_date') || searchParams.get('date') || '';
+  const querySearch = searchParams.get('search') || '';
   const { fmt, privacyMode } = useCurrency();
 
   const [accounts, setAccounts] = useState([]);
@@ -30,7 +33,7 @@ export default function TransactionsPage() {
   const [nextCursor, setNextCursor] = useState(null);
 
   // Filters
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(querySearch);
   const [typeFilter, setTypeFilter] = useState('');
   const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' | 'upcoming'
 
@@ -62,6 +65,8 @@ export default function TransactionsPage() {
       const params = new URLSearchParams();
       params.append('limit', '50');
       if (accountIdFilter) params.append('account_id', accountIdFilter);
+      if (startDateFilter) params.append('start_date', startDateFilter);
+      if (endDateFilter) params.append('end_date', endDateFilter);
       if (search) params.append('search', search);
       if (typeFilter) params.append('transaction_type', typeFilter);
 
@@ -78,7 +83,7 @@ export default function TransactionsPage() {
       setLoading(false);
       setIsLoadingMore(false);
     }
-  }, [accountIdFilter, search, typeFilter]);
+  }, [accountIdFilter, startDateFilter, endDateFilter, search, typeFilter]);
 
   useEffect(() => {
     fetchTransactions(true);
@@ -228,7 +233,7 @@ export default function TransactionsPage() {
       </div>
 
       {/* ── 3. Tabs (Transactions / Upcoming) ── */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="inline-flex p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
           <button
             onClick={() => setActiveTab('transactions')}
@@ -238,7 +243,7 @@ export default function TransactionsPage() {
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
-            Transactions
+            交易流水
           </button>
           <button
             onClick={() => setActiveTab('upcoming')}
@@ -248,9 +253,60 @@ export default function TransactionsPage() {
                 : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
             }`}
           >
-            Upcoming
+            待入账 / 周期计划
           </button>
         </div>
+
+        {/* Active Filter Badges */}
+        {(startDateFilter || querySearch || accountIdFilter) && (
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-zinc-400">当前生效筛选:</span>
+            {startDateFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-medium border border-blue-200 dark:border-blue-800">
+                <span>📅 日期: {startDateFilter === endDateFilter ? startDateFilter : `${startDateFilter} 至 ${endDateFilter}`}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('start_date');
+                    p.delete('end_date');
+                    p.delete('date');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-blue-900 dark:hover:text-blue-100 font-bold ml-0.5"
+                  title="清除日期筛选"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {querySearch && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-medium border border-amber-200 dark:border-amber-800">
+                <span>🔍 商户/关键词: {querySearch}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('search');
+                    setSearchParams(p);
+                    setSearch('');
+                  }}
+                  className="hover:text-amber-900 dark:hover:text-amber-100 font-bold ml-0.5"
+                  title="清除搜索关键词"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setSearchParams({});
+                setSearch('');
+              }}
+              className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline ml-1"
+            >
+              清除全部筛选
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── 4. Card Filter Pills Bar (Sure Style) ── */}

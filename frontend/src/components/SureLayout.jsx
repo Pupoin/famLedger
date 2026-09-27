@@ -76,21 +76,22 @@ export default function SureLayout({ children }) {
 
   const getBreadcrumbs = () => {
     const p = location.pathname;
-    if (p === '/') return ['Home', 'Dashboard'];
-    if (p.startsWith('/transactions')) return ['Home', 'Transactions'];
-    if (p.startsWith('/analytics')) return ['Home', 'Reports'];
-    if (p.startsWith('/calendar')) return ['Home', 'Calendar'];
-    if (p.startsWith('/emails')) return ['Home', 'Emails'];
-    if (p.startsWith('/rules')) return ['Home', 'Rules'];
-    if (p.startsWith('/debts')) return ['Home', 'Debts'];
-    if (p.startsWith('/settings')) return ['Home', 'Settings'];
-    return ['Home', 'Overview'];
+    const home = t('nav.home', '主页');
+    if (p === '/') return [home, t('nav.dashboard', '仪表盘')];
+    if (p.startsWith('/transactions')) return [home, t('nav.transactions', '交易明细')];
+    if (p.startsWith('/analytics')) return [home, t('nav.analytics', '统计报表')];
+    if (p.startsWith('/calendar')) return [home, t('nav.calendar', '消费日历')];
+    if (p.startsWith('/emails')) return [home, t('nav.emails', '账单邮件箱')];
+    if (p.startsWith('/rules')) return [home, t('nav.rules', '规则引擎')];
+    if (p.startsWith('/debts')) return [home, t('nav.debts', '债务借贷')];
+    if (p.startsWith('/settings')) return [home, t('nav.settings', '系统设置')];
+    return [home, t('nav.overview', '总览')];
   };
 
   const breadcrumbs = getBreadcrumbs();
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col lg:flex-row antialiased font-sans">
+    <div className="min-h-screen bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col lg:flex-row antialiased font-sans w-full max-w-full overflow-x-hidden">
       {/* ────────────────────────────────────────────────────────── */}
       {/* 1. DESKTOP 84px SLIM RAIL NAVBAR (Exact Sure Design)     */}
       {/* ────────────────────────────────────────────────────────── */}
@@ -277,7 +278,7 @@ export default function SureLayout({ children }) {
       {/* ────────────────────────────────────────────────────────── */}
       <main
         id="main"
-        className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-20 lg:pb-8 ${
+        className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-20 lg:pb-8 w-full max-w-full overflow-x-hidden ${
           showAccountsSidebar && !isSettingsOrRules ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
         }`}
       >
@@ -345,11 +346,11 @@ export default function SureLayout({ children }) {
       </main>
 
       {/* ────────────────────────────────────────────────────────── */}
-      {/* 6. MOBILE BOTTOM NAVIGATION (Exact Sure 5-Tab Flat Bar)    */}
+      {/* 6. MOBILE BOTTOM NAVIGATION (Sure 4-Tab Bar: Home, New, Transactions, Reports) */}
       {/* ────────────────────────────────────────────────────────── */}
       <nav
         aria-label="移动端快速导航"
-        className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-t border-zinc-200/80 dark:border-zinc-800 z-40 px-2 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] flex items-center justify-around shadow-sm select-none"
+        className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-t border-zinc-200/80 dark:border-zinc-800 z-40 px-3 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] flex items-center justify-around shadow-sm select-none"
       >
         {/* Tab 1: Home */}
         <Link
@@ -364,28 +365,19 @@ export default function SureLayout({ children }) {
             <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
           )}
           <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">Home</span>
+          <span className="text-[10px] leading-tight">{t('nav.dashboard', '总览')}</span>
         </Link>
 
-        {/* Tab 2: Accounts (Opens Drawer) */}
-        <button
-          onClick={() => setMobileSidebarOpen(true)}
-          className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
-        >
-          <Wallet className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">Accounts</span>
-        </button>
-
-        {/* Tab 3: New Transaction */}
+        {/* Tab 2: New Transaction */}
         <Link
           to="/add"
           className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
         >
           <Plus className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">New</span>
+          <span className="text-[10px] leading-tight">{t('nav.quickAdd', '记一笔')}</span>
         </Link>
 
-        {/* Tab 4: Transactions */}
+        {/* Tab 3: Transactions */}
         <Link
           to="/transactions"
           className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
@@ -398,10 +390,10 @@ export default function SureLayout({ children }) {
             <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
           )}
           <CreditCard className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">Transactions</span>
+          <span className="text-[10px] leading-tight">{t('nav.transactions', '明细')}</span>
         </Link>
 
-        {/* Tab 5: Reports */}
+        {/* Tab 4: Reports */}
         <Link
           to="/analytics"
           className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
@@ -414,7 +406,7 @@ export default function SureLayout({ children }) {
             <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
           )}
           <BarChart3 className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">Reports</span>
+          <span className="text-[10px] leading-tight">{t('nav.analytics', '报表')}</span>
         </Link>
       </nav>
 
