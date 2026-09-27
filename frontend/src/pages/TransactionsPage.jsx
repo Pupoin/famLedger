@@ -27,6 +27,7 @@ export default function TransactionsPage() {
   const startDateFilter = searchParams.get('start_date') || searchParams.get('date') || '';
   const endDateFilter = searchParams.get('end_date') || searchParams.get('date') || '';
   const querySearch = searchParams.get('search') || '';
+  const categoryNameFilter = searchParams.get('category_name') || '';
 
   const { t } = useTranslation();
   const { fmt } = useCurrency();
@@ -82,6 +83,7 @@ export default function TransactionsPage() {
         if (accountIdFilter) params.append('account_id', accountIdFilter);
         if (startDateFilter) params.append('start_date', startDateFilter);
         if (endDateFilter) params.append('end_date', endDateFilter);
+        if (categoryNameFilter) params.append('category_name', categoryNameFilter);
         if (search) params.append('search', search);
         if (typeFilter) params.append('transaction_type', typeFilter);
 
@@ -104,7 +106,7 @@ export default function TransactionsPage() {
         setIsLoadingMore(false);
       }
     },
-    [accountIdFilter, startDateFilter, endDateFilter, search, typeFilter, nextCursor]
+    [accountIdFilter, startDateFilter, endDateFilter, categoryNameFilter, search, typeFilter, nextCursor]
   );
 
   useEffect(() => {
@@ -403,9 +405,24 @@ export default function TransactionsPage() {
         </div>
 
         {/* Active Filter Badges */}
-        {(startDateFilter || querySearch || accountIdFilter || typeFilter) && (
+        {(startDateFilter || querySearch || accountIdFilter || typeFilter || categoryNameFilter) && (
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-zinc-400">生效筛选:</span>
+            {categoryNameFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800">
+                <span>📂 分类: {categoryNameFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('category_name');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-emerald-900 dark:hover:text-emerald-100 font-bold ml-0.5"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
             {startDateFilter && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-medium border border-blue-200 dark:border-blue-800">
                 <span>📅 日期: {startDateFilter === endDateFilter ? startDateFilter : `${startDateFilter} 至 ${endDateFilter}`}</span>

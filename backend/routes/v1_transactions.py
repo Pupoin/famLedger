@@ -298,6 +298,7 @@ def list_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
     transaction_type: Optional[str] = Query(None),
+    category_name: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
@@ -307,8 +308,29 @@ def list_transactions(
     user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
     """
-    极速游标分页交易流水列表（支持 60 FPS 虚拟滚动渲染）。
+    极速游标分页交易流水列表（支持 60 FPS 虚拟滚动渲染与智能分类识别）。
     """
+    CATEGORY_DEFS = [
+        {"id": "cat_dining", "name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
+        {"id": "cat_groceries", "name": "超市便利", "icon": "🛒", "color": "#10b981", "kws": ["超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛", "山姆", "全家", "罗森"]},
+        {"id": "cat_utilities", "name": "生活缴费", "icon": "⚡", "color": "#ef4444", "kws": ["自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通", "电信", "水务", "缴费"]},
+        {"id": "cat_transport", "name": "交通出行", "icon": "🚗", "color": "#06b6d4", "kws": ["高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油", "停车", "出行", "中石化", "中石油"]},
+        {"id": "cat_shopping", "name": "购物消费", "icon": "🛍️", "color": "#eab308", "kws": ["京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸", "商行", "数码", "服饰", "唯品会"]},
+        {"id": "cat_transfer", "name": "个人/转账", "icon": "👤", "color": "#0ea5e9", "kws": ["微信转账", "转账", "赵自宽", "还款", "转账快捷", "提现"]},
+    ]
+
+    def resolve_cat(t):
+        if t.category_id:
+            c = session.get(Category, t.category_id)
+            if c:
+                return c.name, c.icon or "📦"
+        txt = f"{t.name or ''} {t.merchant_name or ''}".lower()
+        for cd in CATEGORY_DEFS:
+            for kw in cd["kws"]:
+                if kw.lower() in txt:
+                    return cd["name"], cd["icon"]
+        return "其他", "🍪"
+
     stmt = select(Transaction)
     
     if account_id:
@@ -332,11 +354,15 @@ def list_transactions(
         )
 
     # 排序采用 (transacted_at DESC, id DESC)
-    stmt = stmt.order_by(desc(Transaction.transacted_at), desc(Transaction.id)).limit(limit + 1)
-    results = session.exec(stmt).all()
+    stmt = stmt.order_by(desc(Transaction.transacted_at), desc(Transaction.id))
+    all_matched = session.exec(stmt).all()
 
-    has_more = len(results) > limit
-    items = results[:limit]
+    # If category_name provided, filter in memory using classifier
+    if category_name:
+        all_matched = [t for t in all_matched if resolve_cat(t)[0] == category_name]
+
+    has_more = len(all_matched) > limit
+    items = all_matched[:limit]
 
     accounts_map = {a.id: a for a in session.exec(select(Account)).all()}
     import re
@@ -347,6 +373,7 @@ def list_transactions(
         acc_name = acc.name if acc else "招商银行账户"
         m = re.search(r"\(([0-9Xx]{4})\)", acc_name)
         mask = m.group(1) if m else (acc_name[-4:] if len(acc_name) >= 4 else "0000")
+        cname, cicon = resolve_cat(t)
 
         output.append({
             "id": str(t.id),
@@ -362,6 +389,8 @@ def list_transactions(
             "name": t.name,
             "merchant_name": t.merchant_name,
             "category_id": str(t.category_id) if t.category_id else None,
+            "category_name": cname,
+            "category_icon": cicon,
             "transaction_type": t.transaction_type,
             "status": t.status,
             "transfer_id": str(t.transfer_id) if t.transfer_id else None,

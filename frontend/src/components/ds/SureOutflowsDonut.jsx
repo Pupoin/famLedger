@@ -1,27 +1,29 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 
 export default function SureOutflowsDonut({
   data,
   currencySymbol = '¥',
 }) {
+  const navigate = useNavigate();
   const [groupBy, setGroupBy] = useState('category'); // 'category' | 'account'
   const [activeCategory, setActiveCategory] = useState(null);
 
   const defaultCategories = [
-    { id: 'cat_other', name: '其他', amount: 1383.90, percentage: 48.6, color: '#f97316', icon: '🍪' },
-    { id: 'cat_transfer', name: '个人/转账', amount: 473.78, percentage: 16.6, color: '#0ea5e9', icon: '👤' },
-    { id: 'cat_shopping', name: '购物消费', amount: 302.59, percentage: 10.6, color: '#eab308', icon: '🛍️' },
-    { id: 'cat_groceries', name: '超市便利', amount: 294.52, percentage: 10.3, color: '#10b981', icon: '🛒' },
-    { id: 'cat_dining', name: '餐饮美食', amount: 202.32, percentage: 7.1, color: '#8b5cf6', icon: '🍴' },
-    { id: 'cat_utilities', name: '生活缴费', amount: 126.55, percentage: 4.4, color: '#ef4444', icon: '⚡' },
-    { id: 'cat_transport', name: '交通出行', amount: 62.11, percentage: 2.2, color: '#06b6d4', icon: '🚗' },
+    {"id": "cat_other", "name": "其他", "amount": 1628.10, "percentage": 42.5, "color": "#f97316", "icon": "🍪"},
+    {"id": "cat_dining", "name": "餐饮美食", "amount": 688.55, "percentage": 18.0, "color": "#8b5cf6", "icon": "🍴"},
+    {"id": "cat_transfer", "name": "个人/转账", "amount": 547.30, "percentage": 14.3, "color": "#0ea5e9", "icon": "👤"},
+    {"id": "cat_shopping", "name": "购物消费", "amount": 496.62, "percentage": 12.9, "color": "#eab308", "icon": "🛍️"},
+    {"id": "cat_groceries", "name": "超市便利", "amount": 296.02, "percentage": 7.7, "color": "#10b981", "icon": "🛒"},
+    {"id": "cat_utilities", "name": "生活缴费", "amount": 113.93, "percentage": 3.0, "color": "#ef4444", "icon": "⚡"},
+    {"id": "cat_transport", "name": "交通出行", "amount": 64.66, "percentage": 1.7, "color": "#06b6d4", "icon": "🚗"},
   ];
 
-  const total = data?.total ?? 2814.60;
+  const total = data?.total ?? 2947.65;
   const categories = data?.categories?.length ? data.categories : defaultCategories;
   const adjustments = data?.adjustments || [
-    { name: '待匹配退款调整', amount: -31.17, hint: '以下账户本期退款超过支出，已从总支出中扣除' }
+    { name: '待匹配退款调整', amount: -887.54, hint: '以下账户本期退款超过支出，已从总支出中扣除' }
   ];
 
   // SVG Donut calculation
@@ -41,6 +43,14 @@ export default function SureOutflowsDonut({
       strokeDashoffset,
     };
   });
+
+  const handleCategoryClick = (catName) => {
+    navigate(`/transactions?category_name=${encodeURIComponent(catName)}`);
+  };
+
+  const handleAdjustmentClick = () => {
+    navigate('/transactions?transaction_type=refund');
+  };
 
   return (
     <div className="space-y-4">
@@ -96,14 +106,17 @@ export default function SureOutflowsDonut({
                   r={radius}
                   fill="transparent"
                   stroke={seg.color}
-                  strokeWidth={isHovered ? strokeWidth + 3 : strokeWidth}
+                  strokeWidth={isHovered ? strokeWidth + 4 : strokeWidth}
                   strokeDasharray={seg.strokeDasharray}
                   strokeDashoffset={seg.strokeDashoffset}
                   strokeLinecap="round"
                   className="transition-all duration-200 cursor-pointer"
                   onMouseEnter={() => setActiveCategory(seg.id)}
                   onMouseLeave={() => setActiveCategory(null)}
-                />
+                  onClick={() => handleCategoryClick(seg.name)}
+                >
+                  <title>{`${seg.name}: ${currencySymbol}${seg.amount} (${seg.percentage}%) - 点击查看对应明细`}</title>
+                </circle>
               );
             })}
           </svg>
@@ -120,6 +133,7 @@ export default function SureOutflowsDonut({
                       {currencySymbol}{cur.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                     </span>
                     <span className="text-xs text-zinc-400 font-mono mt-0.5">{cur.percentage}%</span>
+                    <span className="text-[10px] text-zinc-400 mt-1">点击查看流水</span>
                   </>
                 );
               })()
@@ -154,20 +168,25 @@ export default function SureOutflowsDonut({
                   key={cat.id}
                   onMouseEnter={() => setActiveCategory(cat.id)}
                   onMouseLeave={() => setActiveCategory(null)}
-                  className={`flex items-center justify-between px-4 py-3 cursor-pointer transition-colors ${
-                    isHovered ? 'bg-zinc-50/80 dark:bg-zinc-800/50' : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30'
+                  onClick={() => handleCategoryClick(cat.name)}
+                  className={`flex items-center justify-between px-4 py-3 cursor-pointer transition-colors group ${
+                    isHovered ? 'bg-zinc-50/90 dark:bg-zinc-800/60' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-800/40'
                   }`}
+                  title={`点击查看 ${cat.name} 的交易明细`}
                 >
                   <div className="flex items-center gap-3">
                     <span
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0"
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0 transition-transform group-hover:scale-110"
                       style={{ backgroundColor: `${cat.color}15`, color: cat.color }}
                     >
                       {cat.icon}
                     </span>
-                    <span className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      {cat.name}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        {cat.name}
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-10 text-right">
@@ -188,8 +207,18 @@ export default function SureOutflowsDonut({
             <div className="pt-2 px-2 text-xs text-zinc-500 space-y-1.5">
               <p className="text-[11px] text-zinc-400">以下账户本期退款超过支出，已从总支出中扣除</p>
               {adjustments.map((adj, idx) => (
-                <div key={idx} className="flex items-center justify-between py-1 text-xs">
-                  <span className="text-zinc-600 dark:text-zinc-400">{adj.name}</span>
+                <div
+                  key={idx}
+                  onClick={handleAdjustmentClick}
+                  className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800/60 cursor-pointer transition-colors text-xs group"
+                  title="点击查看所有退款流水"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-600 dark:text-zinc-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 font-medium">
+                      {adj.name}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <span className="font-mono font-medium text-emerald-600 dark:text-emerald-400">
                     {currencySymbol}{adj.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                   </span>

@@ -61,7 +61,6 @@ export default function SureLayout({ children }) {
     { to: '/transactions', label: t('nav.transactions', '明细'), icon: CreditCard, badge: '163' },
     { to: '/analytics', label: t('nav.analytics', '报表'), icon: BarChart3 },
     { to: '/budget', label: t('nav.budget', '预算'), icon: Map },
-    { to: '/calendar', label: t('nav.calendar', '日历'), icon: CalendarDays },
     { to: '/emails', label: t('nav.emails', '邮件'), icon: Inbox, badge: '164' },
     { to: '/rules', label: t('nav.rules', '规则'), icon: SlidersHorizontal },
     { to: '/debts', label: t('nav.debts', '借贷'), icon: HandCoins },

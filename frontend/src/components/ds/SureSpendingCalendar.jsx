@@ -8,6 +8,7 @@ export default function SureSpendingCalendar({
   currencySymbol = '¥',
 }) {
   const navigate = useNavigate();
+  const scrollContainerRef = React.useRef(null);
   const [activeCell, setActiveCell] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayTransactions, setDayTransactions] = useState([]);
@@ -17,6 +18,13 @@ export default function SureSpendingCalendar({
   const startDateStr = data?.start_date || '2025年12月01日';
   const endDateStr = data?.end_date || '2026年09月27日';
   const weeks = data?.weeks || [];
+
+  // Auto-scroll to latest month (right edge) on initial render
+  React.useEffect(() => {
+    if (scrollContainerRef.current && weeks.length > 0) {
+      scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
+    }
+  }, [weeks]);
 
   const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
@@ -89,12 +97,15 @@ export default function SureSpendingCalendar({
       </div>
 
       {/* ── Heatmap Grid Container (Self-contained scroll, won't break page width) ── */}
-      <div className="w-full max-w-full overflow-x-auto pb-2 scrollbar-thin">
-        <div className="inline-flex gap-2 min-w-max">
-          {/* Weekday Labels (Left column) */}
-          <div className="grid grid-rows-7 gap-1 pt-6 w-9 shrink-0 text-xs text-zinc-400 font-medium select-none">
+      <div
+        ref={scrollContainerRef}
+        className="w-full max-w-full overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-zinc-700"
+      >
+        <div className="inline-flex gap-2 min-w-max items-start">
+          {/* Weekday Labels (Left column with sticky positioning on mobile) */}
+          <div className="grid grid-rows-7 gap-1 pt-6 w-9 shrink-0 text-xs text-zinc-400 font-medium select-none sticky left-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10 pr-1">
             {dayNames.map((name, i) => (
-              <span key={i} className="flex h-7 items-center justify-start">
+              <span key={i} className="flex h-7 items-center justify-start text-[11px]">
                 {name}
               </span>
             ))}
