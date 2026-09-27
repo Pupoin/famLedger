@@ -296,9 +296,16 @@ async def create_or_ingest_transaction(
 @router.get("/")
 def list_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
+    account_mask: Optional[str] = Query(None, description="按卡号后4位过滤"),
+    institution_name: Optional[str] = Query(None, description="按金融机构名称过滤"),
     category_id: Optional[uuid.UUID] = Query(None),
     transaction_type: Optional[str] = Query(None),
     category_name: Optional[str] = Query(None),
+    is_refund: Optional[bool] = Query(None, description="仅看退款相关交易"),
+    has_refund: Optional[bool] = Query(None, description="仅看已关联退款冲抵的消费"),
+    tag: Optional[str] = Query(None, description="按标签过滤"),
+    min_amount: Optional[Decimal] = Query(None, description="最小交易金额"),
+    max_amount: Optional[Decimal] = Query(None, description="最大交易金额"),
     search: Optional[str] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
@@ -308,7 +315,7 @@ def list_transactions(
     user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
     """
-    极速游标分页交易流水列表（支持 60 FPS 虚拟滚动渲染与智能分类识别）。
+    极速游标分页交易流水列表（支持全面多维复合筛选：卡号、金融机构、消费类型、分类、退款、标签、金额与日期）。
     """
     CATEGORY_DEFS = [
         {"id": "cat_dining", "name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
@@ -335,10 +342,57 @@ def list_transactions(
     
     if account_id:
         stmt = stmt.where(Transaction.account_id == account_id)
+    if institution_name:
+        inst_accs = session.exec(
+            select(Account).where(
+                or_(
+                    Account.institution_name.ilike(f"%{institution_name.strip()}%"),
+                    Account.name.ilike(f"%{institution_name.strip()}%"),
+                )
+            )
+        ).all()
+        if inst_accs:
+            stmt = stmt.where(Transaction.account_id.in_([a.id for a in inst_accs]))
+        else:
+            return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
+    if account_mask:
+        cleaned_mask = account_mask.strip().lstrip("*")
+        mask_accs = session.exec(
+            select(Account).where(
+                or_(
+                    Account.name.ilike(f"%{cleaned_mask}%"),
+                    Account.external_identifier.ilike(f"%{cleaned_mask}%"),
+                )
+            )
+        ).all()
+        if mask_accs:
+            stmt = stmt.where(Transaction.account_id.in_([a.id for a in mask_accs]))
+        else:
+            return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
     if category_id:
         stmt = stmt.where(Transaction.category_id == category_id)
     if transaction_type:
         stmt = stmt.where(Transaction.transaction_type == transaction_type)
+    if is_refund is True:
+        stmt = stmt.where(
+            or_(
+                Transaction.transaction_type == "refund",
+                Transaction.refund_of_transaction_id.is_not(None),
+                Transaction.name.ilike("%退款%"),
+            )
+        )
+    if has_refund is True:
+        alloc_orig_ids = [
+            r[0] for r in session.exec(select(RefundAllocation.original_transaction_id)).all()
+        ]
+        if alloc_orig_ids:
+            stmt = stmt.where(Transaction.id.in_(alloc_orig_ids))
+        else:
+            return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
+    if min_amount is not None:
+        stmt = stmt.where(func.abs(Transaction.amount) >= min_amount)
+    if max_amount is not None:
+        stmt = stmt.where(func.abs(Transaction.amount) <= max_amount)
     if start_date:
         stmt = stmt.where(Transaction.transacted_at >= start_date)
     if end_date:
@@ -361,6 +415,14 @@ def list_transactions(
     if category_name:
         all_matched = [t for t in all_matched if resolve_cat(t)[0] == category_name]
 
+    # If tag provided, filter in memory
+    if tag:
+        cleaned_tag = tag.strip().lower()
+        all_matched = [
+            t for t in all_matched
+            if any(cleaned_tag in str(x).lower() for x in (t.tags or [])) or (t.notes and cleaned_tag in t.notes.lower())
+        ]
+
     has_more = len(all_matched) > limit
     items = all_matched[:limit]
 
@@ -380,6 +442,7 @@ def list_transactions(
             "account_id": str(t.account_id),
             "account_name": acc_name,
             "account_mask": mask,
+            "institution_name": acc.institution_name if acc and acc.institution_name else "招商银行",
             "raw_email_id": str(t.raw_email_id) if t.raw_email_id else None,
             "external_id": t.external_id,
             "transacted_at": t.transacted_at.isoformat(),
@@ -396,6 +459,7 @@ def list_transactions(
             "transfer_id": str(t.transfer_id) if t.transfer_id else None,
             "refund_of_transaction_id": str(t.refund_of_transaction_id) if t.refund_of_transaction_id else None,
             "notes": t.notes,
+            "tags": t.tags or [],
         })
 
     next_cursor = output[-1]["id"] if has_more and output else None
@@ -405,6 +469,65 @@ def list_transactions(
         "has_more": has_more,
         "next_cursor": next_cursor,
         "count": len(output),
+    }
+
+
+@router.get("/filter-options")
+def get_filter_options(
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """
+    获取全局交易流水全维筛选选项元数据：卡号/账户列表、金融机构、消费类型、分类与标签。
+    """
+    accounts = session.exec(select(Account)).all()
+    accounts_data = []
+    institutions_set = set()
+    for a in accounts:
+        import re
+        m = re.search(r"\(([0-9Xx]{4})\)", a.name)
+        mask = m.group(1) if m else (a.name[-4:] if len(a.name) >= 4 else "0000")
+        inst = a.institution_name or "招商银行"
+        institutions_set.add(inst)
+        accounts_data.append({
+            "id": str(a.id),
+            "name": a.name,
+            "mask": mask,
+            "institution_name": inst,
+            "account_type": a.account_type,
+        })
+
+    # 提取所有标签
+    all_txns = session.exec(select(Transaction.tags)).all()
+    tags_set = set()
+    for tag_list in all_txns:
+        if tag_list and isinstance(tag_list, list):
+            for tg in tag_list:
+                if tg and isinstance(tg, str):
+                    tags_set.add(tg.strip())
+
+    # 默认分类元数据
+    categories = [
+        {"name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6"},
+        {"name": "超市便利", "icon": "🛒", "color": "#10b981"},
+        {"name": "生活缴费", "icon": "⚡", "color": "#ef4444"},
+        {"name": "交通出行", "icon": "🚗", "color": "#06b6d4"},
+        {"name": "购物消费", "icon": "🛍️", "color": "#eab308"},
+        {"name": "个人/转账", "icon": "👤", "color": "#0ea5e9"},
+        {"name": "其他", "icon": "🍪", "color": "#f97316"},
+    ]
+
+    return {
+        "accounts": accounts_data,
+        "institutions": sorted(list(institutions_set)),
+        "categories": categories,
+        "tags": sorted(list(tags_set)),
+        "transaction_types": [
+            {"value": "expense", "label": "支出"},
+            {"value": "income", "label": "收入"},
+            {"value": "transfer", "label": "内部转账"},
+            {"value": "refund", "label": "退款冲抵"},
+        ],
     }
 
 

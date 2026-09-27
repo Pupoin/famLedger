@@ -20,14 +20,23 @@ import { fetchWithAuth } from '../api/fetchWithAuth';
 import { useCurrency } from '../CurrencyContext';
 import { useToast } from '../ToastContext';
 import TransactionDrawer from '../components/TransactionDrawer';
+import TransactionFilterModal from '../components/TransactionFilterModal';
 
 export default function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const accountIdFilter = searchParams.get('account_id') || '';
+  const accountMaskFilter = searchParams.get('account_mask') || '';
+  const institutionFilter = searchParams.get('institution_name') || '';
   const startDateFilter = searchParams.get('start_date') || searchParams.get('date') || '';
   const endDateFilter = searchParams.get('end_date') || searchParams.get('date') || '';
   const querySearch = searchParams.get('search') || '';
   const categoryNameFilter = searchParams.get('category_name') || '';
+  const typeFilter = searchParams.get('transaction_type') || '';
+  const isRefundFilter = searchParams.get('is_refund') === 'true';
+  const hasRefundFilter = searchParams.get('has_refund') === 'true';
+  const tagFilter = searchParams.get('tag') || '';
+  const minAmountFilter = searchParams.get('min_amount') || '';
+  const maxAmountFilter = searchParams.get('max_amount') || '';
 
   const { t } = useTranslation();
   const { fmt } = useCurrency();
@@ -42,8 +51,14 @@ export default function TransactionsPage() {
 
   // Filters & Tabs
   const [search, setSearch] = useState(querySearch);
-  const [typeFilter, setTypeFilter] = useState('');
   const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' | 'upcoming'
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [filterOptions, setFilterOptions] = useState(null);
+
+  // Synchronize local search state when querySearch param changes
+  useEffect(() => {
+    setSearch(querySearch);
+  }, [querySearch]);
 
   // Selected Transaction for Drawer
   const [selectedTxnId, setSelectedTxnId] = useState(null);
@@ -68,6 +83,51 @@ export default function TransactionsPage() {
     loadAccounts();
   }, []);
 
+  // Load Filter Options
+  useEffect(() => {
+    async function loadFilterOptions() {
+      try {
+        const res = await fetchWithAuth('/api/v1/transactions/filter-options');
+        if (res.ok) {
+          const data = await res.json();
+          setFilterOptions(data);
+        }
+      } catch (e) {
+        console.error('Failed to load filter options', e);
+      }
+    }
+    loadFilterOptions();
+  }, []);
+
+  // Compute active filter count
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (accountIdFilter) count++;
+    if (accountMaskFilter) count++;
+    if (institutionFilter) count++;
+    if (categoryNameFilter) count++;
+    if (typeFilter) count++;
+    if (isRefundFilter) count++;
+    if (hasRefundFilter) count++;
+    if (tagFilter) count++;
+    if (minAmountFilter || maxAmountFilter) count++;
+    if (startDateFilter || endDateFilter) count++;
+    return count;
+  }, [
+    accountIdFilter,
+    accountMaskFilter,
+    institutionFilter,
+    categoryNameFilter,
+    typeFilter,
+    isRefundFilter,
+    hasRefundFilter,
+    tagFilter,
+    minAmountFilter,
+    maxAmountFilter,
+    startDateFilter,
+    endDateFilter,
+  ]);
+
   // Load Transactions
   const fetchTransactions = useCallback(
     async (reset = false) => {
@@ -81,11 +141,18 @@ export default function TransactionsPage() {
         const params = new URLSearchParams();
         params.append('limit', '100');
         if (accountIdFilter) params.append('account_id', accountIdFilter);
+        if (accountMaskFilter) params.append('account_mask', accountMaskFilter);
+        if (institutionFilter) params.append('institution_name', institutionFilter);
         if (startDateFilter) params.append('start_date', startDateFilter);
         if (endDateFilter) params.append('end_date', endDateFilter);
         if (categoryNameFilter) params.append('category_name', categoryNameFilter);
-        if (search) params.append('search', search);
         if (typeFilter) params.append('transaction_type', typeFilter);
+        if (isRefundFilter) params.append('is_refund', 'true');
+        if (hasRefundFilter) params.append('has_refund', 'true');
+        if (tagFilter) params.append('tag', tagFilter);
+        if (minAmountFilter) params.append('min_amount', minAmountFilter);
+        if (maxAmountFilter) params.append('max_amount', maxAmountFilter);
+        if (querySearch) params.append('search', querySearch);
 
         if (!reset && nextCursor) {
           params.append('cursor', nextCursor);
@@ -106,16 +173,101 @@ export default function TransactionsPage() {
         setIsLoadingMore(false);
       }
     },
-    [accountIdFilter, startDateFilter, endDateFilter, categoryNameFilter, search, typeFilter, nextCursor]
+    [
+      accountIdFilter,
+      accountMaskFilter,
+      institutionFilter,
+      startDateFilter,
+      endDateFilter,
+      categoryNameFilter,
+      typeFilter,
+      isRefundFilter,
+      hasRefundFilter,
+      tagFilter,
+      minAmountFilter,
+      maxAmountFilter,
+      querySearch,
+      nextCursor,
+    ]
   );
 
   useEffect(() => {
     fetchTransactions(true);
-  }, [accountIdFilter, startDateFilter, endDateFilter, typeFilter]);
+  }, [
+    accountIdFilter,
+    accountMaskFilter,
+    institutionFilter,
+    startDateFilter,
+    endDateFilter,
+    categoryNameFilter,
+    typeFilter,
+    isRefundFilter,
+    hasRefundFilter,
+    tagFilter,
+    minAmountFilter,
+    maxAmountFilter,
+    querySearch,
+  ]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchTransactions(true);
+    const nextParams = new URLSearchParams(searchParams);
+    if (search.trim()) {
+      nextParams.set('search', search.trim());
+    } else {
+      nextParams.delete('search');
+    }
+    setSearchParams(nextParams);
+  };
+
+  const handleApplyFilterModal = (draft) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (draft.account_id) nextParams.set('account_id', draft.account_id);
+    else nextParams.delete('account_id');
+
+    if (draft.account_mask) nextParams.set('account_mask', draft.account_mask);
+    else nextParams.delete('account_mask');
+
+    if (draft.institution_name) nextParams.set('institution_name', draft.institution_name);
+    else nextParams.delete('institution_name');
+
+    if (draft.transaction_type) nextParams.set('transaction_type', draft.transaction_type);
+    else nextParams.delete('transaction_type');
+
+    if (draft.category_name) nextParams.set('category_name', draft.category_name);
+    else nextParams.delete('category_name');
+
+    if (draft.is_refund) nextParams.set('is_refund', 'true');
+    else nextParams.delete('is_refund');
+
+    if (draft.has_refund) nextParams.set('has_refund', 'true');
+    else nextParams.delete('has_refund');
+
+    if (draft.tag) nextParams.set('tag', draft.tag);
+    else nextParams.delete('tag');
+
+    if (draft.min_amount) nextParams.set('min_amount', draft.min_amount);
+    else nextParams.delete('min_amount');
+
+    if (draft.max_amount) nextParams.set('max_amount', draft.max_amount);
+    else nextParams.delete('max_amount');
+
+    if (draft.start_date) nextParams.set('start_date', draft.start_date);
+    else nextParams.delete('start_date');
+
+    if (draft.end_date) nextParams.set('end_date', draft.end_date);
+    else nextParams.delete('end_date');
+
+    nextParams.delete('date');
+
+    setSearchParams(nextParams);
+  };
+
+  const handleResetFilters = () => {
+    const nextParams = new URLSearchParams();
+    if (querySearch) nextParams.set('search', querySearch);
+    setSearchParams(nextParams);
   };
 
   // Group transactions by date (Exact 5.png layout!)
@@ -405,9 +557,73 @@ export default function TransactionsPage() {
         </div>
 
         {/* Active Filter Badges */}
-        {(startDateFilter || querySearch || accountIdFilter || typeFilter || categoryNameFilter) && (
+        {(startDateFilter ||
+          querySearch ||
+          accountIdFilter ||
+          accountMaskFilter ||
+          institutionFilter ||
+          typeFilter ||
+          categoryNameFilter ||
+          isRefundFilter ||
+          hasRefundFilter ||
+          tagFilter ||
+          minAmountFilter ||
+          maxAmountFilter) && (
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-zinc-400">生效筛选:</span>
+
+            {/* 机构 */}
+            {institutionFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-medium border border-sky-200 dark:border-sky-800">
+                <span>🏦 机构: {institutionFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('institution_name');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-sky-900 dark:hover:text-sky-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 卡号 */}
+            {accountMaskFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-medium border border-indigo-200 dark:border-indigo-800">
+                <span>💳 卡号: *{accountMaskFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('account_mask');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-indigo-900 dark:hover:text-indigo-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 账户 */}
+            {accountIdFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium border border-zinc-200 dark:border-zinc-700">
+                <span>👤 账户: {currentAccount?.name || accountIdFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('account_id');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-zinc-900 dark:hover:text-zinc-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 分类 */}
             {categoryNameFilter && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800">
                 <span>📂 分类: {categoryNameFilter}</span>
@@ -417,15 +633,103 @@ export default function TransactionsPage() {
                     p.delete('category_name');
                     setSearchParams(p);
                   }}
-                  className="hover:text-emerald-900 dark:hover:text-emerald-100 font-bold ml-0.5"
+                  className="hover:text-emerald-900 dark:hover:text-emerald-100 font-bold ml-0.5 cursor-pointer"
                 >
                   ✕
                 </button>
               </span>
             )}
+
+            {/* 类型 */}
+            {typeFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-medium border border-purple-200 dark:border-purple-800">
+                <span>🏷️ 类型: {typeFilter === 'refund' ? '退款' : typeFilter === 'transfer' ? '转账' : typeFilter === 'expense' ? '支出' : typeFilter === 'income' ? '收入' : typeFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('transaction_type');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-purple-900 dark:hover:text-purple-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 仅退款入账 */}
+            {isRefundFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800">
+                <span>↺ 仅退款入账</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('is_refund');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-emerald-900 dark:hover:text-emerald-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 仅退款冲抵原消费 */}
+            {hasRefundFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-medium border border-amber-200 dark:border-amber-800">
+                <span>🛡️ 仅被退款冲抵原消费</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('has_refund');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-amber-900 dark:hover:text-amber-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 标签 */}
+            {tagFilter && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-medium border border-rose-200 dark:border-rose-800">
+                <span>🏷 #{tagFilter}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('tag');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-rose-900 dark:hover:text-rose-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 金额区间 */}
+            {(minAmountFilter || maxAmountFilter) && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium border border-zinc-200 dark:border-zinc-700">
+                <span>💰 ¥{minAmountFilter || '0'} ~ ¥{maxAmountFilter || '∞'}</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('min_amount');
+                    p.delete('max_amount');
+                    setSearchParams(p);
+                  }}
+                  className="hover:text-zinc-900 dark:hover:text-zinc-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+
+            {/* 日期区间 */}
             {startDateFilter && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-medium border border-blue-200 dark:border-blue-800">
-                <span>📅 日期: {startDateFilter === endDateFilter ? startDateFilter : `${startDateFilter} 至 ${endDateFilter}`}</span>
+                <span>📅 {startDateFilter === endDateFilter ? startDateFilter : `${startDateFilter} 至 ${endDateFilter}`}</span>
                 <button
                   onClick={() => {
                     const p = new URLSearchParams(searchParams);
@@ -434,25 +738,34 @@ export default function TransactionsPage() {
                     p.delete('date');
                     setSearchParams(p);
                   }}
-                  className="hover:text-blue-900 dark:hover:text-blue-100 font-bold ml-0.5"
+                  className="hover:text-blue-900 dark:hover:text-blue-100 font-bold ml-0.5 cursor-pointer"
                 >
                   ✕
                 </button>
               </span>
             )}
-            {typeFilter && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-medium border border-purple-200 dark:border-purple-800">
-                <span>🏷️ 类型: {typeFilter === 'refund' ? '退款冲抵' : typeFilter === 'transfer' ? '内部转账' : typeFilter}</span>
-                <button onClick={() => setTypeFilter('')} className="hover:text-purple-900 font-bold ml-0.5">✕</button>
+
+            {/* 搜索词 */}
+            {querySearch && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium border border-zinc-200 dark:border-zinc-700">
+                <span>🔍 "{querySearch}"</span>
+                <button
+                  onClick={() => {
+                    const p = new URLSearchParams(searchParams);
+                    p.delete('search');
+                    setSearchParams(p);
+                    setSearch('');
+                  }}
+                  className="hover:text-zinc-900 dark:hover:text-zinc-100 font-bold ml-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
               </span>
             )}
+
             <button
-              onClick={() => {
-                setSearchParams({});
-                setSearch('');
-                setTypeFilter('');
-              }}
-              className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline ml-1"
+              onClick={handleResetFilters}
+              className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline ml-1 cursor-pointer"
             >
               清除全部
             </button>
@@ -466,7 +779,7 @@ export default function TransactionsPage() {
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="搜索交易..."
+            placeholder="搜索交易名称、商户、卡号、分类..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-zinc-400 shadow-2xs"
@@ -474,21 +787,20 @@ export default function TransactionsPage() {
         </form>
 
         <button
-          onClick={() => {
-            // Cycle type filter: '' -> 'refund' -> 'transfer' -> 'expense' -> ''
-            if (!typeFilter) setTypeFilter('refund');
-            else if (typeFilter === 'refund') setTypeFilter('transfer');
-            else if (typeFilter === 'transfer') setTypeFilter('expense');
-            else setTypeFilter('');
-          }}
-          className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-colors shadow-2xs ${
-            typeFilter
-              ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent'
-              : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50'
+          onClick={() => setIsFilterModalOpen(true)}
+          className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+            activeFilterCount > 0
+              ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent ring-2 ring-zinc-900/10 dark:ring-white/20'
+              : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800'
           }`}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{typeFilter ? `筛选: ${typeFilter}` : '筛选'}</span>
+          <span>筛选</span>
+          {activeFilterCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-zinc-900 dark:bg-zinc-900 dark:text-white">
+              {activeFilterCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -697,6 +1009,30 @@ export default function TransactionsPage() {
           onTransactionUpdated={() => fetchTransactions(true)}
         />
       )}
+
+      {/* ── 9. Multi-Dimensional Filter Modal ── */}
+      <TransactionFilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        currentFilters={{
+          account_id: accountIdFilter,
+          account_mask: accountMaskFilter,
+          institution_name: institutionFilter,
+          transaction_type: typeFilter,
+          category_name: categoryNameFilter,
+          is_refund: isRefundFilter,
+          has_refund: hasRefundFilter,
+          tag: tagFilter,
+          min_amount: minAmountFilter,
+          max_amount: maxAmountFilter,
+          start_date: startDateFilter,
+          end_date: endDateFilter,
+        }}
+        onApply={handleApplyFilterModal}
+        onReset={handleResetFilters}
+        accounts={accounts}
+        filterOptions={filterOptions}
+      />
     </div>
   );
 }
