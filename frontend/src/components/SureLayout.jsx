@@ -281,8 +281,9 @@ export default function SureLayout({ children }) {
           showAccountsSidebar && !isSettingsOrRules ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
         }`}
       >
-        {/* Desktop Sticky Header with Breadcrumbs & Toggles (Exact Sure Topbar) */}
-        <div className="hidden lg:flex items-center justify-between px-8 py-3.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800 sticky top-0 z-20">
+        {/* Desktop Sticky Header with Breadcrumbs & Toggles (Exact Sure Topbar, hidden on dashboard like 1.png) */}
+        {location.pathname !== '/' && (
+          <div className="hidden lg:flex items-center justify-between px-8 py-3.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800 sticky top-0 z-20">
           {/* Left: Sidebar Toggle + Breadcrumb */}
           <div className="flex items-center gap-3">
             {!isSettingsOrRules && (
@@ -335,6 +336,7 @@ export default function SureLayout({ children }) {
             </button>
           </div>
         </div>
+        )}
 
         {/* Content Body Container */}
         <div className="grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
