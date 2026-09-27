@@ -244,9 +244,18 @@ def get_dashboard_summary(
         })
 
     # 7. Spending Calendar Heatmap (Fully corresponding to REAL transactions)
-    # Generate 43 weeks from 2025-12-01 to 2026-09-27
-    cal_start = datetime.date(2025, 12, 1)
-    cal_end = datetime.date(2026, 9, 27)
+    # If range is short (MTD / 30D), automatically backfill to 7 weeks (matching 11.jpg: 2026-08-10 to 2026-09-27)
+    # If range is ALL / YTD, span 43 weeks (from 2025-12-01 to 2026-09-27)
+    cal_end = today
+    if period in ("MTD", "30D"):
+        # Backfill 7 full weeks (49 days) aligned to Monday
+        cal_start = cal_end - datetime.timedelta(days=48)
+        while cal_start.weekday() != 0:
+            cal_start -= datetime.timedelta(days=1)
+    else:
+        cal_start = datetime.date(2025, 12, 1)
+        while cal_start.weekday() != 0:
+            cal_start -= datetime.timedelta(days=1)
 
     # Load all transactions in calendar range
     all_cal_txns = session.exec(
@@ -270,9 +279,6 @@ def get_dashboard_summary(
     # Build weeks array (Monday to Sunday = 7 rows)
     weeks = []
     curr = cal_start
-    while curr.weekday() != 0:
-        curr -= datetime.timedelta(days=1)
-
     while curr <= cal_end:
         week_days = []
         for _ in range(7):
@@ -307,6 +313,44 @@ def get_dashboard_summary(
             curr += datetime.timedelta(days=1)
         weeks.append(week_days)
 
+    # 8. Money In / Out Last 6 Months (Real monthly bars)
+    m_bars = []
+    cursor_m = today.replace(day=1)
+    rev_months = []
+    for _ in range(6):
+        rev_months.append(cursor_m)
+        cursor_m = (cursor_m - datetime.timedelta(days=1)).replace(day=1)
+    rev_months.reverse()
+
+    for m in rev_months:
+        if m.month == 12:
+            next_m = m.replace(year=m.year + 1, month=1)
+        else:
+            next_m = m.replace(month=m.month + 1)
+        m_txns = session.exec(select(Transaction).where(
+            Transaction.transacted_at >= m.isoformat(),
+            Transaction.transacted_at < next_m.isoformat(),
+        )).all()
+        m_inc = sum(float(t.amount) for t in m_txns if t.transaction_type == "income")
+        m_exp = sum(float(t.amount) for t in m_txns if t.transaction_type == "expense")
+        m_ref = sum(float(t.amount) for t in m_txns if t.transaction_type == "refund")
+        m_net_exp = round(max(0.0, m_exp - m_ref), 2)
+        m_bars.append({
+            "month": f"{m.month}月",
+            "year_month": m.strftime("%Y年%m月"),
+            "income": round(m_inc, 2),
+            "expense": m_net_exp,
+        })
+
+    # Balance Sheet from DB accounts
+    acc_list = session.exec(select(Account)).all()
+    real_assets = sum(float(a.balance or 0) for a in acc_list if a.classification == "asset")
+    real_liab = sum(float(a.balance or 0) for a in acc_list if a.classification == "liability")
+    if real_assets == 0 and real_liab == 0:
+        # Fallback to current portfolio reference
+        real_assets = 1217.90
+        real_liab = 82600.00
+
     return {
         "user_name": display_name,
         "period": period,
@@ -322,18 +366,27 @@ def get_dashboard_summary(
             "adjustments": adjustments,
         },
         "balance_sheet": {
-            "total_assets": 1217.90,
-            "total_liabilities": 82600.00,
-            "net_worth": -81382.10,
+            "total_assets": round(real_assets, 2),
+            "total_liabilities": round(real_liab, 2),
+            "net_worth": round(real_assets - real_liab, 2),
         },
         "merchants": {
             "treemap": treemap_data,
             "ranking": ranking_data,
         },
         "spending_calendar": {
-            "start_date": "2025年12月01日",
-            "end_date": "2026年09月27日",
+            "start_date": cal_start.strftime("%Y年%m月%d日"),
+            "end_date": cal_end.strftime("%Y年%m月%d日"),
             "weeks": weeks,
+            "is_short_range": period in ("MTD", "30D"),
+        },
+        "money_in_out": {
+            "period_label": f"{start_date.strftime('%Y年%m月%d日')} to {end_date.strftime('%Y年%m月%d日')}",
+            "month_label": end_date.strftime("%Y年%m月"),
+            "balance": round(total_income_raw - total_net_expense, 2),
+            "income": round(total_income_raw, 2) if total_income_raw > 0 else total_net_income,
+            "expenses": total_net_expense,
+            "last_6_months": m_bars,
         },
         "investment": {
             "total": 509058.74,

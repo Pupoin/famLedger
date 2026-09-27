@@ -15,41 +15,42 @@ export default function SureSpendingCalendar({
   const [loadingDayTxns, setLoadingDayTxns] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const startDateStr = data?.start_date || '2025年12月01日';
+  const startDateStr = data?.start_date || '2026年08月10日';
   const endDateStr = data?.end_date || '2026年09月27日';
   const weeks = data?.weeks || [];
+  const isShortRange = weeks.length <= 10;
 
-  // Auto-scroll to latest month (right edge) on initial render
+  // Auto-scroll to latest month (right edge) on initial render if wide range
   React.useEffect(() => {
-    if (scrollContainerRef.current && weeks.length > 0) {
+    if (scrollContainerRef.current && weeks.length > 10) {
       scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
     }
   }, [weeks]);
 
   const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
-  // Color mappings
+  // Color mappings (Matching 11.jpg: dark/red shades for expenses, dark green for refunds)
   const getCellColor = (day) => {
     if (day.outside) {
-      return 'bg-zinc-100/40 dark:bg-zinc-800/20 border-zinc-200/40 dark:border-zinc-800/40';
+      return 'bg-zinc-100/30 dark:bg-zinc-900/20 border-zinc-200/20 dark:border-zinc-850/40 opacity-40';
     }
     if (day.level === 0 || day.amount === 0) {
-      return 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200/80 dark:border-zinc-700/60';
+      return 'bg-zinc-100/70 dark:bg-[#251d1d] border-zinc-200/70 dark:border-[#3a2c2c]';
     }
     if (day.is_refund || day.amount < 0) {
-      return 'bg-emerald-400 dark:bg-emerald-500 border-emerald-500 text-white';
+      return 'bg-emerald-600 dark:bg-[#166534] border-emerald-500/80 dark:border-[#22c55e] text-white';
     }
-    // Red levels
+    // Red levels matching 11.jpg
     switch (day.level) {
       case 1:
-        return 'bg-red-200/90 dark:bg-red-900/60 border-red-300 dark:border-red-800';
+        return 'bg-red-400/80 dark:bg-[#5b2121] border-red-400/80 dark:border-[#732a2a]';
       case 2:
-        return 'bg-red-300 dark:bg-red-700/70 border-red-400 dark:border-red-600';
+        return 'bg-red-500/90 dark:bg-[#882b2b] border-red-500/80 dark:border-[#a33434]';
       case 3:
-        return 'bg-red-400 dark:bg-red-600 border-red-500';
+        return 'bg-red-600 dark:bg-[#c53737] border-red-600 dark:border-[#db4242]';
       case 4:
       default:
-        return 'bg-red-500 dark:bg-red-500 border-red-600';
+        return 'bg-red-500 dark:bg-[#ef4444] border-red-400 dark:border-[#f87171]';
     }
   };
 
@@ -57,11 +58,12 @@ export default function SureSpendingCalendar({
     if (!weeks[weekIndex] || !weeks[weekIndex][0]) return '';
     const dateStr = weeks[weekIndex][0].date;
     const month = parseInt(dateStr.slice(5, 7), 10);
-    // Only show if first week or first week of month
-    if (weekIndex === 0) return `${month}月`;
-    const prevDateStr = weeks[weekIndex - 1][0].date;
-    const prevMonth = parseInt(prevDateStr.slice(5, 7), 10);
-    if (month !== prevMonth) return `${month}月`;
+    if (!isShortRange && weekIndex === 0) return `${month}月`;
+    if (weekIndex > 0) {
+      const prevDateStr = weeks[weekIndex - 1][0].date;
+      const prevMonth = parseInt(prevDateStr.slice(5, 7), 10);
+      if (month !== prevMonth) return `${month}月`;
+    }
     return '';
   };
 
@@ -85,45 +87,52 @@ export default function SureSpendingCalendar({
   };
 
   return (
-    <div className="space-y-3 w-full max-w-full overflow-hidden">
-      {/* ── Header details ── */}
+    <div className="space-y-3 w-full max-w-full overflow-hidden select-none">
+      {/* ── Header details (Exact 11.jpg text) ── */}
       <div className="flex flex-col gap-0.5">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">
           所选范围较短时自动向前补充历史消费并铺满可用宽度
         </p>
-        <p className="text-xs font-mono text-zinc-400">
+        <p className="text-xs font-mono text-zinc-400 dark:text-zinc-500">
           {startDateStr} – {endDateStr}
         </p>
       </div>
 
-      {/* ── Heatmap Grid Container (Self-contained scroll, won't break page width) ── */}
+      {/* ── Heatmap Grid Container: Full width fill if short range (11.jpg), Scrollable if wide range ── */}
       <div
         ref={scrollContainerRef}
-        className="w-full max-w-full overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-zinc-700"
+        className={`w-full max-w-full pt-1 pb-2 ${
+          isShortRange ? 'overflow-visible' : 'overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700'
+        }`}
       >
-        <div className="inline-flex gap-2 min-w-max items-start">
-          {/* Weekday Labels (Left column with sticky positioning on mobile) */}
-          <div className="grid grid-rows-7 gap-1 pt-6 w-9 shrink-0 text-xs text-zinc-400 font-medium select-none sticky left-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10 pr-1">
+        <div className={`flex gap-1.5 sm:gap-2 ${isShortRange ? 'w-full' : 'min-w-max'} items-start`}>
+          {/* Weekday Labels (Left column, sticky if scrolling) */}
+          <div className="grid grid-rows-7 gap-1 pt-6 w-7 sm:w-8 shrink-0 text-xs text-zinc-400 dark:text-zinc-500 font-medium select-none sticky left-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10">
             {dayNames.map((name, i) => (
-              <span key={i} className="flex h-7 items-center justify-start text-[11px]">
+              <span key={i} className="flex aspect-square items-center justify-start text-[11px] sm:text-xs">
                 {name}
               </span>
             ))}
           </div>
 
-          {/* Weeks Columns */}
-          <div className="flex gap-1">
+          {/* Weeks Columns: If shortRange, flex-1 to fill the full available width! (Exact 11.jpg) */}
+          <div className={`flex gap-1 sm:gap-1.5 ${isShortRange ? 'flex-1' : ''}`}>
             {weeks.map((week, wIdx) => {
               const monthLabel = getMonthLabel(wIdx);
               return (
-                <div key={wIdx} className="space-y-1 w-7 shrink-0">
+                <div
+                  key={wIdx}
+                  className={`space-y-1.5 ${
+                    isShortRange ? 'flex-1 min-w-[28px]' : 'w-7 sm:w-8 shrink-0'
+                  }`}
+                >
                   {/* Month header */}
-                  <p className="h-5 text-xs text-zinc-400 font-medium truncate overflow-visible whitespace-nowrap">
+                  <p className="h-4 text-center sm:text-left text-[11px] sm:text-xs text-zinc-400 dark:text-zinc-500 font-medium truncate overflow-visible whitespace-nowrap">
                     {monthLabel}
                   </p>
 
                   {/* 7 Days in Week */}
-                  <div className="grid grid-rows-7 gap-1">
+                  <div className="grid grid-rows-7 gap-1 sm:gap-1.5">
                     {week.map((day, dIdx) => {
                       const colorClasses = getCellColor(day);
                       const isHovered = activeCell?.date === day.date;
@@ -136,11 +145,11 @@ export default function SureSpendingCalendar({
                           onMouseEnter={() => !day.outside && setActiveCell(day)}
                           onMouseLeave={() => setActiveCell(null)}
                           onClick={() => handleCellClick(day)}
-                          className={`w-7 h-7 rounded-md border transition-all duration-150 relative cursor-pointer ${colorClasses} ${
+                          className={`w-full aspect-square rounded-md sm:rounded-lg border transition-all duration-150 relative cursor-pointer ${colorClasses} ${
                             isSelected
-                              ? 'ring-2 ring-zinc-900 dark:ring-white scale-110 z-20 shadow-md'
+                              ? 'ring-2 ring-zinc-900 dark:ring-white scale-105 z-20 shadow-md'
                               : isHovered
-                              ? 'scale-110 z-10 shadow-sm ring-1 ring-zinc-700'
+                              ? 'scale-105 z-10 shadow-sm ring-1 ring-zinc-600'
                               : ''
                           }`}
                           title={`${day.date} · ${currencySymbol}${Math.abs(day.amount).toFixed(2)} (点击查看明细)`}
@@ -155,16 +164,16 @@ export default function SureSpendingCalendar({
         </div>
       </div>
 
-      {/* ── Bottom status bar ── */}
-      <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 px-3.5 py-2.5 text-xs text-zinc-500 flex items-center justify-between min-h-[38px] flex-wrap gap-2">
+      {/* ── Bottom instruction tip (Exact 11.jpg styled bar) ── */}
+      <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 px-3.5 py-2.5 text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between min-h-[38px] flex-wrap gap-2">
         {activeCell ? (
           <div className="flex items-center gap-2">
-            <span className="font-medium text-zinc-900 dark:text-zinc-100">{activeCell.date}</span>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{activeCell.date}</span>
             <span>·</span>
-            <span className={`font-mono font-bold ${activeCell.amount < 0 ? 'text-emerald-600' : 'text-zinc-900 dark:text-zinc-100'}`}>
+            <span className={`font-mono font-bold ${activeCell.amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
               {activeCell.amount < 0 ? '退款 ' : '支出 '}{currencySymbol}{Math.abs(activeCell.amount).toFixed(2)}
             </span>
-            <span className="text-zinc-400 text-[11px]">(点击格子查看当天明细)</span>
+            <span className="text-zinc-400 text-[10px]">(点击查看当日流水)</span>
           </div>
         ) : (
           <span>电脑端悬浮查看金额、点击进入明细；触屏端短按查看金额、长按进入明细。</span>
@@ -173,7 +182,7 @@ export default function SureSpendingCalendar({
         {selectedDay && (
           <button
             onClick={() => navigate(`/transactions?start_date=${selectedDay.date}&end_date=${selectedDay.date}`)}
-            className="inline-flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400 hover:underline text-xs"
+            className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline text-xs"
           >
             <span>进入 {selectedDay.date} 交易流水</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -181,9 +190,9 @@ export default function SureSpendingCalendar({
         )}
       </div>
 
-      {/* ── Day Transactions Modal / Popover ── */}
+      {/* ── Day Transactions Modal ── */}
       {modalOpen && selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="relative w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 max-h-[85vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
@@ -237,10 +246,10 @@ export default function SureSpendingCalendar({
                             {txn.merchant_name || txn.name}
                           </p>
                           <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
-                            {txn.transacted_at} · {txn.transaction_type}
+                            {txn.transacted_at} · {txn.category_name || txn.transaction_type}
                           </p>
                         </div>
-                        <span className={`text-xs sm:text-sm font-bold font-mono shrink-0 ${isExpense ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600'}`}>
+                        <span className={`text-xs sm:text-sm font-bold font-mono shrink-0 ${isExpense ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600 dark:text-emerald-400'}`}>
                           {isExpense ? '-' : '+'}{currencySymbol}{parseFloat(txn.amount).toFixed(2)}
                         </span>
                       </div>

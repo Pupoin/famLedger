@@ -221,27 +221,19 @@ export default function SureLayout({ children }) {
           />
         </Link>
 
-        {/* Right: Language, Privacy Eye & User Avatar */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={toggleLanguage}
-            title={currentLang.startsWith('zh') ? 'Switch to English' : '切换为简体中文'}
-            className="w-8 h-8 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-xs font-bold font-mono border border-zinc-200/80 dark:border-zinc-700"
-          >
-            {currentLang.startsWith('zh') ? 'EN' : '中'}
-          </button>
-
+        {/* Right: Privacy Eye & User Avatar (Exact 10.jpg mobile header) */}
+        <div className="flex items-center gap-2">
           <button
             onClick={togglePrivacyMode}
             title={privacyMode ? '显示金额' : '隐藏敏感金额'}
-            className="w-8 h-8 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
+            className="w-9 h-9 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
           >
-            {privacyMode ? <EyeOff className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Eye className="w-4 h-4" />}
+            {privacyMode ? <EyeOff className="w-5 h-5 text-emerald-600 dark:text-emerald-400" /> : <Eye className="w-5 h-5" />}
           </button>
 
           <Link
             to="/settings"
-            className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-bold flex items-center justify-center"
+            className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-bold flex items-center justify-center ring-1 ring-zinc-300 dark:ring-zinc-600"
           >
             {(user?.displayName || user?.username || 'QQ').slice(0, 2).toUpperCase()}
           </Link>
@@ -280,7 +272,7 @@ export default function SureLayout({ children }) {
       {/* ────────────────────────────────────────────────────────── */}
       <main
         id="main"
-        className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-20 lg:pb-8 w-full max-w-full overflow-x-hidden ${
+        className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-8 w-full max-w-full overflow-x-hidden ${
           showAccountsSidebar && !isSettingsOrRules ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
         }`}
       >
@@ -346,71 +338,6 @@ export default function SureLayout({ children }) {
           {children}
         </div>
       </main>
-
-      {/* ────────────────────────────────────────────────────────── */}
-      {/* 6. MOBILE BOTTOM NAVIGATION (Sure 4-Tab Bar: Home, New, Transactions, Reports) */}
-      {/* ────────────────────────────────────────────────────────── */}
-      <nav
-        aria-label="移动端快速导航"
-        className="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-t border-zinc-200/80 dark:border-zinc-800 z-40 px-3 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] flex items-center justify-around shadow-sm select-none"
-      >
-        {/* Tab 1: Home */}
-        <Link
-          to="/"
-          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
-            location.pathname === '/'
-              ? 'text-zinc-900 dark:text-white font-semibold'
-              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
-          }`}
-        >
-          {location.pathname === '/' && (
-            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
-          )}
-          <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">{t('nav.dashboard', '总览')}</span>
-        </Link>
-
-        {/* Tab 2: New Transaction */}
-        <Link
-          to="/add"
-          className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">{t('nav.quickAdd', '记一笔')}</span>
-        </Link>
-
-        {/* Tab 3: Transactions */}
-        <Link
-          to="/transactions"
-          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
-            location.pathname.startsWith('/transactions')
-              ? 'text-zinc-900 dark:text-white font-semibold'
-              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
-          }`}
-        >
-          {location.pathname.startsWith('/transactions') && (
-            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
-          )}
-          <CreditCard className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">{t('nav.transactions', '明细')}</span>
-        </Link>
-
-        {/* Tab 4: Reports */}
-        <Link
-          to="/analytics"
-          className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-lg transition-colors ${
-            location.pathname.startsWith('/analytics')
-              ? 'text-zinc-900 dark:text-white font-semibold'
-              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
-          }`}
-        >
-          {location.pathname.startsWith('/analytics') && (
-            <span className="absolute -top-1.5 w-6 h-0.5 bg-zinc-900 dark:bg-white rounded-full" />
-          )}
-          <BarChart3 className="w-5 h-5" />
-          <span className="text-[10px] leading-tight">{t('nav.analytics', '报表')}</span>
-        </Link>
-      </nav>
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}

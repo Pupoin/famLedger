@@ -17,6 +17,7 @@ import SureCashflowSankey from '../components/ds/SureCashflowSankey';
 import SureOutflowsDonut from '../components/ds/SureOutflowsDonut';
 import SureMerchantSpending from '../components/ds/SureMerchantSpending';
 import SureSpendingCalendar from '../components/ds/SureSpendingCalendar';
+import SureMoneyInOut from '../components/ds/SureMoneyInOut';
 
 export default function Landing() {
   const { privacyMode, togglePrivacyMode } = useCurrency();
@@ -31,16 +32,16 @@ export default function Landing() {
   const [accountFilter, setAccountFilter] = useState('全部');
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
 
-  // Section collapse states (matching 1.png: balance_sheet, net_worth, money_in_out are collapsed by default)
+  // Section collapse states (matching 10.jpg and 11.jpg flow)
   const [collapsedSections, setCollapsedSections] = useState({
     cashflow: false,
     outflows: false,
-    balance_sheet: true,
-    net_worth: true,
-    merchant_spending: false,
-    money_in_out: true,
+    money_in_out: false,
     calendar: false,
     investment: false,
+    merchant_spending: false,
+    balance_sheet: true,
+    net_worth: true,
   });
 
   const toggleSection = (sectionKey) => {
@@ -81,9 +82,9 @@ export default function Landing() {
   }
 
   return (
-    <div className="space-y-5 pb-12 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
-      {/* ── 1. Top Breadcrumb & Controls (Exact Sure Breadcrumb) ── */}
-      <div className="flex items-center justify-between text-xs text-zinc-500">
+    <div className="space-y-4 pb-12 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
+      {/* ── 1. Top Breadcrumb & Controls (Exact Sure Breadcrumb, hidden on mobile per 10.jpg) ── */}
+      <div className="hidden lg:flex items-center justify-between text-xs text-zinc-500">
         <div className="flex items-center gap-2">
           <BookOpen className="w-3.5 h-3.5 text-zinc-400" />
           <span>主页</span>
@@ -114,8 +115,8 @@ export default function Landing() {
         </div>
       </div>
 
-      {/* ── 2. Page Welcome & Action Header ── */}
-      <div className="flex items-start justify-between">
+      {/* ── 2. Page Welcome & Action Header (Desktop Only, hidden on mobile per 10.jpg) ── */}
+      <div className="hidden lg:flex items-start justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
             {`欢迎回来，${userName}`}
@@ -291,7 +292,131 @@ export default function Landing() {
           )}
         </div>
 
-        {/* ── Section 3: 资产负债表 (Balance Sheet) ── */}
+        {/* ── Section 3: Money In / Out (Matching 11.jpg) ── */}
+        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+          <div className="flex items-center justify-between p-4">
+            <button
+              type="button"
+              onClick={() => toggleSection('money_in_out')}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              {collapsedSections.money_in_out ? (
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-zinc-400" />
+              )}
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                Money In / Out
+              </h2>
+            </button>
+          </div>
+
+          {!collapsedSections.money_in_out && (
+            <div className="p-4 pt-0">
+              <SureMoneyInOut
+                data={data?.money_in_out}
+                currencySymbol={currencySymbol}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ── Section 4: 消费日历热力图 (Spending Calendar, Matching 11.jpg) ── */}
+        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 pb-2">
+            <button
+              type="button"
+              onClick={() => toggleSection('calendar')}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              {collapsedSections.calendar ? (
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-zinc-400" />
+              )}
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                消费日历热力图
+              </h2>
+            </button>
+          </div>
+
+          {/* Body */}
+          {!collapsedSections.calendar && (
+            <div className="p-4 pt-0">
+              <SureSpendingCalendar
+                data={data?.spending_calendar}
+                currencySymbol={currencySymbol}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ── Section 5: 投资 (Investment, Matching 11.jpg) ── */}
+        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 pb-2">
+            <button
+              type="button"
+              onClick={() => toggleSection('investment')}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              {collapsedSections.investment ? (
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-zinc-400" />
+              )}
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                投资
+              </h2>
+            </button>
+          </div>
+
+          {/* Body */}
+          {!collapsedSections.investment && (
+            <div className="p-4 pt-2">
+              <span className="text-xs text-zinc-400 font-medium block">
+                投资
+              </span>
+              <span className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-zinc-900 dark:text-zinc-100 mt-1 block">
+                ¥509,058.74
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Section 6: 按商户统计的支出分布 (Merchant Spending) ── */}
+        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 pb-2">
+            <button
+              type="button"
+              onClick={() => toggleSection('merchant_spending')}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              {collapsedSections.merchant_spending ? (
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-zinc-400" />
+              )}
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                按商户统计的支出分布
+              </h2>
+            </button>
+          </div>
+
+          {/* Body */}
+          {!collapsedSections.merchant_spending && (
+            <div className="p-4 pt-0">
+              <SureMerchantSpending
+                data={data?.merchants}
+                currencySymbol={currencySymbol}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ── Section 7: 资产负债表 (Balance Sheet) ── */}
         <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           <div className="flex items-center justify-between p-4">
             <button
@@ -351,7 +476,7 @@ export default function Landing() {
           )}
         </div>
 
-        {/* ── Section 4: 净资产 (Net Worth) ── */}
+        {/* ── Section 8: 净资产 (Net Worth) ── */}
         <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           <div className="flex items-center justify-between p-4">
             <button
@@ -376,136 +501,6 @@ export default function Landing() {
                 -¥81,382.10
               </span>
               <p className="text-xs text-zinc-400 mt-1">过去 30 天无明显变动</p>
-            </div>
-          )}
-        </div>
-
-        {/* ── Section 5: 按商户统计的支出分布 (Merchant Spending) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 pb-2">
-            <button
-              type="button"
-              onClick={() => toggleSection('merchant_spending')}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {collapsedSections.merchant_spending ? (
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-400" />
-              )}
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                按商户统计的支出分布
-              </h2>
-            </button>
-          </div>
-
-          {/* Body */}
-          {!collapsedSections.merchant_spending && (
-            <div className="p-4 pt-0">
-              <SureMerchantSpending
-                data={data?.merchants}
-                currencySymbol={currencySymbol}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* ── Section 6: Money In / Out ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
-          <div className="flex items-center justify-between p-4">
-            <button
-              type="button"
-              onClick={() => toggleSection('money_in_out')}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {collapsedSections.money_in_out ? (
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-400" />
-              )}
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                Money In / Out
-              </h2>
-            </button>
-          </div>
-
-          {!collapsedSections.money_in_out && (
-            <div className="p-4 pt-0 text-sm text-zinc-500">
-              <div className="flex items-center gap-6">
-                <div>
-                  <span className="text-xs text-zinc-400 block">Money In</span>
-                  <span className="text-lg font-bold font-mono text-emerald-600 block mt-1">+¥548.03</span>
-                </div>
-                <div>
-                  <span className="text-xs text-zinc-400 block">Money Out</span>
-                  <span className="text-lg font-bold font-mono text-red-600 block mt-1">-¥2,814.60</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Section 7: 消费日历热力图 (Spending Calendar) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 pb-2">
-            <button
-              type="button"
-              onClick={() => toggleSection('calendar')}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {collapsedSections.calendar ? (
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-400" />
-              )}
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                消费日历热力图
-              </h2>
-            </button>
-          </div>
-
-          {/* Body */}
-          {!collapsedSections.calendar && (
-            <div className="p-4 pt-0">
-              <SureSpendingCalendar
-                data={data?.spending_calendar}
-                currencySymbol={currencySymbol}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* ── Section 8: 投资 (Investment) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 pb-2">
-            <button
-              type="button"
-              onClick={() => toggleSection('investment')}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              {collapsedSections.investment ? (
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-400" />
-              )}
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                投资
-              </h2>
-            </button>
-          </div>
-
-          {/* Body */}
-          {!collapsedSections.investment && (
-            <div className="p-4 pt-2">
-              <span className="text-xs text-zinc-400 font-medium block">
-                投资
-              </span>
-              <span className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-zinc-900 dark:text-zinc-100 mt-1 block">
-                ¥509,058.74
-              </span>
             </div>
           )}
         </div>

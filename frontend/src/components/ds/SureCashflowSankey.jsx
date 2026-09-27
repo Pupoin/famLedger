@@ -4,44 +4,56 @@ import { useNavigate } from 'react-router-dom';
 export default function SureCashflowSankey({
   data,
   currencySymbol = '¥',
-  height = 340,
+  height = 350,
 }) {
   const navigate = useNavigate();
-  const [hoveredNode, setHoveredNode] = useState(null);
   const [hoveredLink, setHoveredLink] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 640;
+    }
+    return false;
+  });
+
+  React.useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const defaultIncomes = [
-    { id: 'inc_salary', name: '工资收入', amount: 548.03, icon: '💰', color: '#eab308' }
+    { id: 'inc_salary', name: '工资收入', amount: 540.03, icon: '💰', color: '#eab308' }
   ];
-  const defaultPool = { name: 'Cash Flow', amount: 2947.65, color: '#10A861' };
+  const defaultPool = { name: 'Cash Flow', amount: 2814.60, color: '#10A861' };
   const defaultExpenses = [
-    { id: 'exp_other', name: '其他', amount: 1628.10, icon: '🍪', color: '#f97316' },
-    { id: 'exp_dining', name: '餐饮美食', amount: 688.55, icon: '🍴', color: '#8b5cf6' },
-    { id: 'exp_transfer', name: '个人/转账', amount: 547.30, icon: '👤', color: '#0ea5e9' },
-    { id: 'exp_shopping', name: '购物消费', amount: 496.62, icon: '🛍️', color: '#eab308' },
-    { id: 'exp_groceries', name: '超市便利', amount: 296.02, icon: '🛒', color: '#10b981' },
-    { id: 'exp_utilities', name: '生活缴费', amount: 113.93, icon: '⚡', color: '#ef4444' },
-    { id: 'exp_transport', name: '交通出行', amount: 64.66, icon: '🚗', color: '#06b6d4' },
+    { id: 'exp_other', name: '其他', amount: 1383.90, icon: '🍪', color: '#ef4444' },
+    { id: 'exp_utilities', name: '生活缴费', amount: 126.55, icon: '⚡', color: '#f97316' },
+    { id: 'exp_transfer', name: '个人/转账', amount: 473.78, icon: '👤', color: '#f59e0b' },
+    { id: 'exp_groceries', name: '超市便利', amount: 294.52, icon: '🛒', color: '#10b981' },
+    { id: 'exp_transport', name: '交通出行', amount: 62.11, icon: '🚗', color: '#06b6d4' },
+    { id: 'exp_shopping', name: '购物消费', amount: 302.59, icon: '🛍️', color: '#8b5cf6' },
   ];
 
   const incomes = data?.income_sources?.length ? data.income_sources : defaultIncomes;
   const pool = data?.pool || defaultPool;
   const expenses = data?.expense_destinations?.length ? data.expense_destinations : defaultExpenses;
 
-  // Svg geometry exactly matching 1.png
-  const svgWidth = 960;
-  const svgHeight = height;
+  // Svg geometry matching 10.jpg for mobile and 1.png for desktop
+  const svgWidth = isMobile ? 380 : 900;
+  const svgHeight = isMobile ? 440 : height;
 
-  // 1.png coordinates: Left income starts near edge, Center pool is around 60%, Right terminates near edge
-  const leftX = 24;
-  const poolX = 575; // Approx 60% like 1.png
-  const poolWidth = 8;
-  const rightX = 932;
-  const rightBarWidth = 6;
+  const leftX = isMobile ? 14 : 20;
+  const leftNodeW = isMobile ? 12 : 14;
+  const poolX = isMobile ? 180 : 460;
+  const poolWidth = isMobile ? 12 : 14;
+  const rightX = isMobile ? 354 : 865;
+  const rightNodeW = isMobile ? 12 : 14;
 
-  // Pool Height
-  const poolH = Math.max(160, Math.min(260, svgHeight - 60));
-  const poolY = (svgHeight - poolH) / 2 + 10;
+  // Calculate layout heights
+  const poolH = isMobile ? 300 : Math.max(180, Math.min(270, svgHeight - 60));
+  const poolY = isMobile ? 65 : (svgHeight - poolH) / 2 + 10;
 
   // Expense destinations distribution
   const totalExp = expenses.reduce((s, e) => s + e.amount, 0) || 1;
@@ -49,15 +61,17 @@ export default function SureCashflowSankey({
   let currentRightPoolY = poolY;
   const expItems = expenses.map((exp, idx) => {
     const fraction = exp.amount / totalExp;
-    const h = Math.max(6, fraction * poolH);
+    const h = Math.max(8, fraction * poolH);
     const poolStartY = currentRightPoolY;
     currentRightPoolY += h;
 
-    // Distribute evenly on the right side
+    // Distribute right destination nodes
     const totalSlots = expenses.length || 1;
-    const slotHeight = (svgHeight - 70) / totalSlots;
-    const targetY = 32 + idx * slotHeight;
-    const targetH = Math.max(5, (h / poolH) * 36);
+    const slotH = (svgHeight - (isMobile ? 50 : 60)) / totalSlots;
+    const targetY = (isMobile ? 20 : 24) + idx * slotH;
+    const targetH = isMobile
+      ? Math.max(16, Math.min(60, fraction * 150))
+      : Math.max(12, Math.min(56, fraction * 140));
 
     return {
       ...exp,
@@ -69,15 +83,16 @@ export default function SureCashflowSankey({
     };
   });
 
-  // Income sources distribution
+  // Income sources distribution (flow to top half of pool like 10.jpg)
   const totalInc = incomes.reduce((s, i) => s + i.amount, 0) || 1;
-  let currentLeftPoolY = poolY + 15;
+  let currentLeftPoolY = poolY;
   const incItems = incomes.map((inc, idx) => {
     const fraction = inc.amount / totalInc;
-    const h = Math.max(16, fraction * 55);
+    const h = Math.max(18, fraction * (poolH * 0.45));
     const poolStartY = currentLeftPoolY;
     currentLeftPoolY += h;
-    const sourceY = poolY + 25 + idx * 45;
+    const sourceY = isMobile ? 80 + idx * 56 : poolY + idx * 52;
+    const sourceH = isMobile ? 38 : Math.max(24, Math.min(48, fraction * 48));
 
     return {
       ...inc,
@@ -85,7 +100,7 @@ export default function SureCashflowSankey({
       poolStartY,
       poolH: h,
       sourceY,
-      sourceH: 22,
+      sourceH,
     };
   });
 
@@ -106,28 +121,31 @@ export default function SureCashflowSankey({
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
         className="w-full h-auto overflow-visible"
-        style={{ maxHeight: height }}
+        style={{
+          maxHeight: isMobile ? undefined : height,
+          minHeight: isMobile ? '380px' : undefined,
+        }}
       >
         <defs>
-          {/* Gradients for incomes */}
+          {/* Gradients for income flows */}
           {incItems.map((inc, i) => (
-            <linearGradient key={`grad-inc-${i}`} id={`sankey-grad-inc-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#eab308" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="#10A861" stopOpacity="0.65" />
+            <linearGradient key={`sankey-grad-inc-${i}`} id={`sankey-grad-inc-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#eab308" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#10A861" stopOpacity="0.55" />
             </linearGradient>
           ))}
-          {/* Gradients for expenses */}
+          {/* Gradients for expense flows (Exact smooth flows in 10.jpg) */}
           {expItems.map((exp, i) => (
-            <linearGradient key={`grad-exp-${i}`} id={`sankey-grad-exp-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#10A861" stopOpacity="0.25" />
-              <stop offset="100%" stopColor={exp.color || '#f97316'} stopOpacity="0.45" />
+            <linearGradient key={`sankey-grad-exp-${i}`} id={`sankey-grad-exp-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#10A861" stopOpacity="0.3" />
+              <stop offset="100%" stopColor={exp.color || '#ef4444'} stopOpacity="0.45" />
             </linearGradient>
           ))}
         </defs>
 
-        {/* ── 1. Income Flows (Left Edge -> Center Pool) ── */}
+        {/* ── 1. Income Flows (Left Node -> Center Pool) ── */}
         {incItems.map((inc, i) => {
-          const x0 = leftX + 4;
+          const x0 = leftX + leftNodeW;
           const y0_top = inc.sourceY;
           const y0_bot = inc.sourceY + inc.sourceH;
           const x1 = poolX;
@@ -158,29 +176,29 @@ export default function SureCashflowSankey({
                 <title>{`${inc.name}: ${currencySymbol}${inc.amount.toFixed(2)} (点击查看收入流水)`}</title>
               </path>
 
-              {/* Left income vertical bar */}
+              {/* Left rounded vertical block (Exact 10.jpg) */}
               <rect
                 x={leftX}
                 y={y0_top}
-                width={4}
+                width={leftNodeW}
                 height={inc.sourceH}
-                rx={1.5}
+                rx={isMobile ? 5 : 6}
                 fill="#eab308"
                 className="transition-all"
               />
 
-              {/* Left label: Icon + Name on top, Amount below (Matching 1.png) */}
+              {/* Income Label (Next to block) */}
               <text
-                x={leftX + 10}
-                y={y0_top + 10}
-                className="text-[12px] font-medium fill-zinc-800 dark:fill-zinc-200 transition-colors"
+                x={leftX + leftNodeW + 6}
+                y={y0_top + (isMobile ? 15 : 13)}
+                className="text-[12px] sm:text-[13px] font-semibold fill-zinc-800 dark:fill-zinc-200"
               >
                 {inc.icon || '💰'} {inc.name}
               </text>
               <text
-                x={leftX + 10}
-                y={y0_top + 22}
-                className="text-[10px] font-mono fill-zinc-400"
+                x={leftX + leftNodeW + 6}
+                y={y0_top + (isMobile ? 30 : 28)}
+                className="text-[10.5px] sm:text-[11px] font-mono font-medium fill-zinc-400"
               >
                 {currencySymbol}{inc.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
               </text>
@@ -188,7 +206,7 @@ export default function SureCashflowSankey({
           );
         })}
 
-        {/* ── 2. Expense Flows (Center Pool -> Right Destinations) ── */}
+        {/* ── 2. Expense Flows (Center Pool -> Right Individual Nodes, Exact 10.jpg) ── */}
         {expItems.map((exp, i) => {
           const x0 = poolX + poolWidth;
           const y0_top = exp.poolStartY;
@@ -206,7 +224,7 @@ export default function SureCashflowSankey({
             Z
           `;
 
-          const isHovered = hoveredLink === `exp-${i}` || hoveredNode === exp.id;
+          const isHovered = hoveredLink === `exp-${i}`;
 
           return (
             <g
@@ -222,15 +240,15 @@ export default function SureCashflowSankey({
                 onMouseEnter={() => setHoveredLink(`exp-${i}`)}
                 onMouseLeave={() => setHoveredLink(null)}
               >
-                <title>{`${exp.name}: ${currencySymbol}${exp.amount.toFixed(2)} (点击穿透查看消费明细)`}</title>
+                <title>{`${exp.name}: ${currencySymbol}${exp.amount.toFixed(2)} (点击查看消费明细)`}</title>
               </path>
 
-              {/* Destination label right-aligned before the red end pillar */}
+              {/* Destination label right-aligned before the colored block */}
               <text
-                x={rightX - 10}
-                y={y1_top + 2}
+                x={rightX - (isMobile ? 8 : 10)}
+                y={y1_top + (exp.targetH > 24 ? 12 : 6)}
                 textAnchor="end"
-                className={`text-[12px] font-medium transition-colors ${
+                className={`text-[12px] sm:text-[13px] font-semibold transition-colors ${
                   isHovered
                     ? 'fill-blue-600 dark:fill-blue-400 font-bold'
                     : 'fill-zinc-800 dark:fill-zinc-200'
@@ -239,68 +257,59 @@ export default function SureCashflowSankey({
                 {exp.icon || '🍪'} {exp.name}
               </text>
               <text
-                x={rightX - 10}
-                y={y1_top + 14}
+                x={rightX - (isMobile ? 8 : 10)}
+                y={y1_top + (exp.targetH > 24 ? 27 : 20)}
                 textAnchor="end"
-                className="text-[10px] font-mono fill-zinc-400"
+                className="text-[10.5px] sm:text-[11px] font-mono font-medium fill-zinc-400"
               >
                 {currencySymbol}{exp.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
               </text>
 
-              {/* Small color node right next to red bar */}
+              {/* Right individual rounded vertical block (Exact 10.jpg) */}
               <rect
-                x={rightX - 3}
-                y={y1_top - 2}
-                width={3}
-                height={Math.max(8, exp.targetH + 4)}
-                rx={1}
+                x={rightX}
+                y={y1_top}
+                width={rightNodeW}
+                height={exp.targetH}
+                rx={isMobile ? 4 : 5}
                 fill={exp.color || '#ef4444'}
+                className="transition-transform group-hover:scale-105"
               />
             </g>
           );
         })}
 
-        {/* ── 3. Central Cash Flow Pillar (Matching 1.png at ~60%) ── */}
+        {/* ── 3. Central Cash Flow Pillar (Matching 10.jpg) ── */}
         <g className="cursor-pointer" onClick={handlePoolClick}>
           <rect
             x={poolX}
             y={poolY}
             width={poolWidth}
             height={poolH}
-            rx={3}
+            rx={5}
             fill="#10A861"
             className="transition-transform hover:opacity-90"
           >
             <title>现金流中枢: 点击查看全部支出流水</title>
           </rect>
-          {/* Label next to pillar */}
+          {/* Label next to pillar (In 10.jpg mobile, Cash Flow is to the LEFT of the pillar at the bottom half!) */}
           <text
-            x={poolX + 12}
-            y={poolY + 22}
-            className="text-[12px] font-bold fill-zinc-900 dark:fill-zinc-100 select-none"
+            x={isMobile ? poolX - 8 : poolX + 18}
+            y={isMobile ? poolY + poolH * 0.58 : poolY + 40}
+            textAnchor={isMobile ? 'end' : 'start'}
+            className="text-[12px] sm:text-[13px] font-bold fill-zinc-900 dark:fill-zinc-100 select-none"
           >
             Cash Flow
           </text>
           <text
-            x={poolX + 12}
-            y={poolY + 35}
-            className="text-[11px] font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
+            x={isMobile ? poolX - 8 : poolX + 18}
+            y={isMobile ? poolY + poolH * 0.58 + 16 : poolY + 56}
+            textAnchor={isMobile ? 'end' : 'start'}
+            className="text-[11px] sm:text-[12px] font-mono font-semibold fill-zinc-600 dark:fill-zinc-200 select-none"
           >
             {currencySymbol}{pool.amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
           </text>
         </g>
-
-        {/* ── 4. Right Vertical End Pillar (Red, Exact 1.png Style) ── */}
-        <rect
-          x={rightX}
-          y={24}
-          width={rightBarWidth}
-          height={svgHeight - 48}
-          rx={3}
-          fill="#ef4444"
-          opacity={0.85}
-          className="select-none pointer-events-none"
-        />
       </svg>
     </div>
   );
