@@ -62,6 +62,7 @@ function lazyWithReload(importer) {
 const Analytics = lazyWithReload(() => import("./pages/Analytics"));
 const Calendar = lazyWithReload(() => import("./pages/Calendar"));
 const Insights = lazyWithReload(() => import("./pages/Insights"));
+const BudgetsPage = lazyWithReload(() => import("./pages/BudgetsPage"));
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -123,6 +124,15 @@ export default function App() {
             } />
             <Route path="/history" element={<TransactionsPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/budget" element={
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                </div>
+              }>
+                <BudgetsPage />
+              </Suspense>
+            } />
             <Route path="/rules" element={<RulesPage />} />
             <Route path="/debts" element={<DebtsPage />} />
             <Route path="/emails" element={<EmailsPage />} />

@@ -25,6 +25,7 @@ import {
   Wallet,
   ReceiptText,
   Languages,
+  Map,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../ThemeContext';
@@ -59,6 +60,7 @@ export default function SureLayout({ children }) {
     { to: '/', label: t('nav.dashboard', '总览'), icon: LayoutDashboard },
     { to: '/transactions', label: t('nav.transactions', '明细'), icon: CreditCard, badge: '163' },
     { to: '/analytics', label: t('nav.analytics', '报表'), icon: BarChart3 },
+    { to: '/budget', label: t('nav.budget', '预算'), icon: Map },
     { to: '/calendar', label: t('nav.calendar', '日历'), icon: CalendarDays },
     { to: '/emails', label: t('nav.emails', '邮件'), icon: Inbox, badge: '164' },
     { to: '/rules', label: t('nav.rules', '规则'), icon: SlidersHorizontal },
@@ -80,6 +82,7 @@ export default function SureLayout({ children }) {
     if (p === '/') return [home, t('nav.dashboard', '仪表盘')];
     if (p.startsWith('/transactions')) return [home, t('nav.transactions', '交易明细')];
     if (p.startsWith('/analytics')) return [home, t('nav.analytics', '统计报表')];
+    if (p.startsWith('/budget')) return [home, t('nav.budget', '预算管理')];
     if (p.startsWith('/calendar')) return [home, t('nav.calendar', '消费日历')];
     if (p.startsWith('/emails')) return [home, t('nav.emails', '账单邮件箱')];
     if (p.startsWith('/rules')) return [home, t('nav.rules', '规则引擎')];

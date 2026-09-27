@@ -463,3 +463,121 @@ def get_transaction_splits(
         }
         for s in splits
     ]
+
+
+@router.get("/{transaction_id}")
+def get_transaction_detail(
+    transaction_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """获取单笔交易的完整详情，包含转账对端详情、退款冲抵绑定及拆分明细。"""
+    from models import Category, Transfer, RefundAllocation
+
+    txn = session.get(Transaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="交易不存在")
+
+    account = session.get(Account, txn.account_id)
+    category = session.get(Category, txn.category_id) if txn.category_id else None
+
+    # 转账对端信息
+    paired_transfer = None
+    if txn.transfer_id:
+        tr = session.get(Transfer, txn.transfer_id)
+        if tr:
+            other_id = tr.inflow_transaction_id if txn.id == tr.outflow_transaction_id else tr.outflow_transaction_id
+            other_txn = session.get(Transaction, other_id)
+            if other_txn:
+                other_acc = session.get(Account, other_txn.account_id)
+                paired_transfer = {
+                    "transfer_id": str(tr.id),
+                    "status": tr.status,
+                    "is_outflow": txn.id == tr.outflow_transaction_id,
+                    "counterpart": {
+                        "id": str(other_txn.id),
+                        "name": other_txn.name,
+                        "merchant_name": other_txn.merchant_name,
+                        "amount": str(other_txn.amount.quantize(Decimal("0.01"))),
+                        "account_name": other_acc.name if other_acc else "外部账户",
+                        "transacted_at": other_txn.transacted_at.isoformat(),
+                    }
+                }
+
+    # 退款关联详情
+    refund_info = None
+    if txn.transaction_type == "refund":
+        orig_txn = session.get(Transaction, txn.refund_of_transaction_id) if txn.refund_of_transaction_id else None
+        orig_acc = session.get(Account, orig_txn.account_id) if orig_txn else None
+        allocs = session.exec(
+            select(RefundAllocation).where(RefundAllocation.refund_transaction_id == txn.id)
+        ).all()
+        refund_info = {
+            "is_linked": orig_txn is not None,
+            "original_transaction": {
+                "id": str(orig_txn.id),
+                "name": orig_txn.name,
+                "merchant_name": orig_txn.merchant_name,
+                "amount": str(orig_txn.amount.quantize(Decimal("0.01"))),
+                "account_name": orig_acc.name if orig_acc else "原账户",
+                "transacted_at": orig_txn.transacted_at.isoformat(),
+            } if orig_txn else None,
+            "allocated_amount": str(sum((a.allocated_amount for a in allocs), Decimal("0")).quantize(Decimal("0.01"))),
+        }
+    elif txn.transaction_type == "expense":
+        allocs = session.exec(
+            select(RefundAllocation).where(RefundAllocation.original_transaction_id == txn.id)
+        ).all()
+        if allocs:
+            refund_txns = []
+            for a in allocs:
+                r_txn = session.get(Transaction, a.refund_transaction_id)
+                if r_txn:
+                    refund_txns.append({
+                        "id": str(r_txn.id),
+                        "name": r_txn.name,
+                        "amount": str(r_txn.amount.quantize(Decimal("0.01"))),
+                        "allocated_amount": str(a.allocated_amount.quantize(Decimal("0.01"))),
+                        "transacted_at": r_txn.transacted_at.isoformat(),
+                    })
+            refund_info = {
+                "has_refunds": True,
+                "total_refunded": str(sum((a.allocated_amount for a in allocs), Decimal("0")).quantize(Decimal("0.01"))),
+                "refunds": refund_txns,
+            }
+
+    # 拆分项
+    splits = session.exec(
+        select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)
+    ).all()
+
+    return {
+        "id": str(txn.id),
+        "account_id": str(txn.account_id),
+        "account_name": account.name if account else "招商银行账户",
+        "transacted_at": txn.transacted_at.isoformat(),
+        "exact_time": txn.exact_time.isoformat() if txn.exact_time else None,
+        "amount": str(txn.amount.quantize(Decimal("0.01"))),
+        "currency": txn.currency,
+        "name": txn.name,
+        "merchant_name": txn.merchant_name,
+        "category_id": str(txn.category_id) if txn.category_id else None,
+        "category_name": category.name if category else "未分类",
+        "category_icon": category.icon if category else "📦",
+        "transaction_type": txn.transaction_type,
+        "status": txn.status,
+        "notes": txn.notes,
+        "raw_email_id": str(txn.raw_email_id) if txn.raw_email_id else None,
+        "paired_transfer": paired_transfer,
+        "refund_info": refund_info,
+        "splits": [
+            {
+                "id": str(s.id),
+                "category_id": str(s.category_id) if s.category_id else None,
+                "amount": str(s.amount.quantize(Decimal("0.01"))),
+                "notes": s.notes,
+            }
+            for s in splits
+        ],
+    }
+

@@ -173,3 +173,83 @@ def manual_pair_transfer(
     session.commit()
 
     return {"status": "ok", "transfer_id": str(transfer.id)}
+
+
+@router.get("/candidates")
+def get_transfer_candidates(
+    transaction_id: uuid.UUID = Query(..., description="源交易流水 ID"),
+    limit: int = Query(10, ge=1, le=50),
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """
+    智能查找与指定流水潜在匹配的转账对端候选交易。
+    若传入支出，则检索相近时间、金额相同的收入流水；
+    若传入收入，则检索相近时间、金额相同的支出流水。
+    """
+    from datetime import timedelta
+    from models import Account
+
+    txn = session.get(Transaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    target_amount = abs(txn.amount)
+    cutoff_start = txn.transacted_at - timedelta(days=7)
+    cutoff_end = txn.transacted_at + timedelta(days=7)
+
+    # 寻找对端
+    is_outflow = txn.transaction_type == "expense" or txn.amount < 0
+
+    stmt = select(Transaction).where(
+        Transaction.id != txn.id,
+        Transaction.account_id != txn.account_id,
+        Transaction.transacted_at >= cutoff_start,
+        Transaction.transacted_at <= cutoff_end,
+    )
+
+    if is_outflow:
+        stmt = stmt.where(
+            (Transaction.transaction_type == "income") | (Transaction.amount > 0)
+        )
+    else:
+        stmt = stmt.where(
+            (Transaction.transaction_type == "expense") | (Transaction.amount < 0)
+        )
+
+    # 排除已是 confirmed transfer 的
+    stmt = stmt.where(Transaction.transfer_id.is_(None))
+
+    rows = session.exec(stmt.order_by(desc(Transaction.transacted_at)).limit(50)).all()
+
+    accounts_map = {a.id: a.name for a in session.exec(select(Account)).all()}
+
+    candidates = []
+    for r in rows:
+        diff = abs(abs(r.amount) - target_amount)
+        # 精确或接近同额（误差不超过 0.05 或 5%）
+        if diff < Decimal("0.05") or (target_amount > 0 and diff / target_amount < Decimal("0.05")):
+            candidates.append({
+                "id": str(r.id),
+                "account_id": str(r.account_id),
+                "account_name": accounts_map.get(r.account_id, "外部账户"),
+                "name": r.name,
+                "merchant_name": r.merchant_name,
+                "amount": str(r.amount.quantize(Decimal("0.01"))),
+                "currency": r.currency,
+                "transacted_at": r.transacted_at.isoformat(),
+                "time_diff_days": abs((r.transacted_at - txn.transacted_at).days),
+            })
+            if len(candidates) >= limit:
+                break
+
+    return {
+        "source_transaction": {
+            "id": str(txn.id),
+            "amount": str(txn.amount.quantize(Decimal("0.01"))),
+            "is_outflow": is_outflow,
+            "account_name": accounts_map.get(txn.account_id, "当前账户"),
+        },
+        "candidates": candidates,
+        "count": len(candidates),
+    }
