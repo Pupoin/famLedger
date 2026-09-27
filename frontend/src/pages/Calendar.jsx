@@ -1,104 +1,110 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { getExpenses } from "../api/expenses";
-import { getIncome } from "../api/income";
-import { useCurrency } from "../CurrencyContext";
-import { useUsers } from "../ConfigContext";
-import { useAuth } from "../auth/AuthContext";
-import { useIncomeMode } from "../hooks/useIncomeMode";
-import { calcMyPortion } from "../utils/portion";
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+  TrendingDown,
+  Flame,
+  CreditCard,
+  ArrowUpRight,
+  Info,
+} from 'lucide-react';
+import { getExpenses } from '../api/expenses';
+import { useCurrency } from '../CurrencyContext';
+import { useDateFormat } from '../DateFormatContext';
+import { useToast } from '../ToastContext';
 
-const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-const MONTH_NAMES_SHORT = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const MIN_YEAR = 2000;
-const MAX_YEAR = 2099;
-
-const pad = (n) => String(n).padStart(2, "0");
+const pad = (n) => String(n).padStart(2, '0');
 
 export default function Calendar() {
   const navigate = useNavigate();
-  const { fmt } = useCurrency();
-  const { userA, userB, mode } = useUsers();
-  const { user } = useAuth();
-  const me = user?.displayName || userA;
-  const other = me === userA ? userB : userA;
-  const isPersonal = mode === "personal";
-  const { incomeEnabled } = useIncomeMode();
+  const { t } = useTranslation();
+  const { fmt, currency } = useCurrency();
+  const { formatDate } = useDateFormat();
   const today = new Date();
+
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [expenses, setExpenses] = useState([]);
-  const [incomeEntries, setIncomeEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerYear, setPickerYear] = useState(year);
-  const pickerRef = useRef(null);
+  const [hoveredDay, setHoveredDay] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchMonth() {
+    async function fetchMonthExpenses() {
       setLoading(true);
-      setError(null);
       try {
         const startDate = `${year}-${pad(month + 1)}-01`;
         const lastDay = new Date(year, month + 1, 0).getDate();
         const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
-        const promises = [
-          getExpenses({ start_date: startDate, end_date: endDate, sort: "asc" }),
-        ];
-        if (incomeEnabled) {
-          promises.push(getIncome({ start_date: startDate, end_date: endDate }));
-        }
-        const [expenseData, incomeData] = await Promise.all(promises);
+
+        const data = await getExpenses({ start_date: startDate, end_date: endDate, limit: 1000 });
         if (!cancelled) {
-          setExpenses(expenseData);
-          setIncomeEntries(incomeData || []);
+          setExpenses(data || []);
         }
-      } catch {
-        if (!cancelled) setError("Could not load expenses. Is the server running?");
+      } catch (err) {
+        console.error('Failed to load expenses', err);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-    fetchMonth();
-    return () => { cancelled = true; };
-  }, [year, month, incomeEnabled]);
+    fetchMonthExpenses();
+    return () => {
+      cancelled = true;
+    };
+  }, [year, month]);
 
-  // Aggregate daily income by date
-  const dailyIncome = {};
-  if (incomeEnabled) {
-    for (const entry of incomeEntries) {
-      dailyIncome[entry.date] = (dailyIncome[entry.date] || 0) + entry.amount;
-    }
-  }
+  // Aggregate daily expenses and find max daily spend for heatmap scaling
+  const { dailyData, monthTotal, maxDailySpend, activeDaysCount, peakDay } = useMemo(() => {
+    const map = {};
+    let total = 0;
+    let max = 0;
+    let peak = null;
 
-  // Aggregate daily portions (user's share) and shared totals
-  // Exclude Payment from calendar display; Reimbursement is included (negative amount reduces total)
-  const dailyTotals = {};
-  let monthTotal = 0;
-  let monthSharedTotal = 0;
-  let monthCount = 0;
-  for (const e of expenses) {
-    if (e.category === "Payment") continue;
-    const portion = calcMyPortion(e, me, other);
-    dailyTotals[e.date] = (dailyTotals[e.date] || 0) + portion;
-    monthTotal += portion;
-    if (e.split_method !== "Personal") monthSharedTotal += e.amount;
-    monthCount++;
-  }
+    (expenses || []).forEach((e) => {
+      if (e.category === 'Payment') return;
+      const d = e.date;
+      const amt = Math.abs(Number(e.amount) || 0);
 
-  // Calendar grid
-  const firstDayOfWeek = new Date(year, month, 1).getDay();
+      if (!map[d]) {
+        map[d] = { total: 0, count: 0, items: [] };
+      }
+      map[d].total += amt;
+      map[d].count += 1;
+      map[d].items.push(e);
+
+      total += amt;
+    });
+
+    Object.entries(map).forEach(([d, val]) => {
+      if (val.total > max) {
+        max = val.total;
+        peak = { date: d, total: val.total };
+      }
+    });
+
+    return {
+      dailyData: map,
+      monthTotal: total,
+      maxDailySpend: max || 1,
+      activeDaysCount: Object.keys(map).length,
+      peakDay: peak,
+    };
+  }, [expenses]);
+
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dailyAverage = daysInMonth > 0 ? monthTotal / daysInMonth : 0;
+
+  // Calendar matrix calculation
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
   const totalCells = Math.ceil((firstDayOfWeek + daysInMonth) / 7) * 7;
   const cells = [];
   for (let i = 0; i < totalCells; i++) {
@@ -106,241 +112,241 @@ export default function Calendar() {
     cells.push(day >= 1 && day <= daysInMonth ? day : null);
   }
 
+  // Navigation handlers
   const goToPrev = () => {
-    if (month === 0) { setYear(year - 1); setMonth(11); }
-    else setMonth(month - 1);
+    if (month === 0) {
+      setYear(year - 1);
+      setMonth(11);
+    } else {
+      setMonth(month - 1);
+    }
   };
+
   const goToNext = () => {
-    if (month === 11) { setYear(year + 1); setMonth(0); }
-    else setMonth(month + 1);
+    if (month === 11) {
+      setYear(year + 1);
+      setMonth(0);
+    } else {
+      setMonth(month + 1);
+    }
+  };
+
+  const goToToday = () => {
+    setYear(today.getFullYear());
+    setMonth(today.getMonth());
   };
 
   const isToday = (day) =>
     day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
 
-  const handleDayClick = (day) => {
-    const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
-    navigate("/history", { state: { start_date: dateStr, end_date: dateStr } });
-  };
-
-  // Close picker on outside click
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const handleClick = (e) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
-        setPickerOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [pickerOpen]);
-
-  const openPicker = () => {
-    setPickerYear(year);
-    setPickerOpen(true);
-  };
-
-  const selectMonth = (m) => {
-    setYear(pickerYear);
-    setMonth(m);
-    setPickerOpen(false);
-  };
-
-  // Compute heat intensity using a log scale for graceful shading.
-  // This prevents one large outlier from washing out all other days.
-  const dailyValues = Object.values(dailyTotals).filter((v) => v > 0);
-  const maxDaily = Math.max(0, ...dailyValues);
-  const minDaily = dailyValues.length > 0 ? Math.min(...dailyValues) : 0;
-  const useLogScale = maxDaily > 0 && maxDaily / Math.max(minDaily, 1) > 3;
-  const logMax = useLogScale ? Math.log(maxDaily + 1) : 0;
-  const logMin = useLogScale ? Math.log(minDaily + 1) : 0;
-  const getIntensity = (amount) => {
-    if (amount <= 0 || maxDaily <= 0) return 0;
-    if (useLogScale) {
-      const logVal = Math.log(amount + 1);
-      const normalized = logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 1;
-      return 0.15 + normalized * 0.85;
+  // Heatmap intensity level (0 to 4)
+  const getIntensityClass = (total) => {
+    if (!total || total <= 0) return 'bg-zinc-50/70 dark:bg-zinc-800/40 text-zinc-400 border-zinc-200/50 dark:border-zinc-800/50';
+    const ratio = total / maxDailySpend;
+    if (ratio < 0.2) {
+      return 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/40';
     }
-    return 0.15 + (amount / maxDaily) * 0.85;
+    if (ratio < 0.45) {
+      return 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-950 dark:text-emerald-200 border-emerald-300/70 dark:border-emerald-700/50 font-medium';
+    }
+    if (ratio < 0.75) {
+      return 'bg-emerald-200 dark:bg-emerald-800/60 text-emerald-950 dark:text-white border-emerald-400 dark:border-emerald-600 font-semibold';
+    }
+    return 'bg-emerald-300 dark:bg-emerald-600 text-emerald-950 dark:text-white border-emerald-500 font-bold shadow-xs';
   };
 
   return (
-    <div className="space-y-10">
-      {/* Header + Month Navigation */}
-      <section className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="max-w-6xl mx-auto pb-12 space-y-6">
+      {/* ── 1. Top Header & Month Picker (Sure Style) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="font-headline text-3xl font-bold tracking-tight text-on-surface">
-            Calendar
-          </h1>
-          <p className="text-on-surface-variant font-medium">
-            Daily spending at a glance.
-          </p>
-        </div>
-        <div className="relative" ref={pickerRef}>
-          <div className="bg-surface-container-high p-1.5 rounded-full flex items-center shadow-inner">
-            <button
-              onClick={goToPrev}
-              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-surface-container-highest transition-colors active:scale-95 duration-200"
-            >
-              <span className="material-symbols-outlined">chevron_left</span>
-            </button>
-            <button
-              onClick={openPicker}
-              className="px-6 font-headline font-bold text-lg text-on-surface min-w-[200px] text-center hover:bg-surface-container-highest rounded-full py-2 transition-colors flex items-center justify-center gap-2"
-            >
-              {MONTH_NAMES[month]} {year}
-              <span className="material-symbols-outlined text-[18px] text-on-surface-variant">
-                {pickerOpen ? "expand_less" : "expand_more"}
-              </span>
-            </button>
-            <button
-              onClick={goToNext}
-              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-surface-container-highest transition-colors active:scale-95 duration-200"
-            >
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
-          </div>
-
-          {/* Month/Year Picker Dropdown */}
-          {pickerOpen && (
-            <div className="absolute right-0 md:left-1/2 md:-translate-x-1/2 mt-3 w-[300px] bg-surface-container-lowest rounded-3xl shadow-xl shadow-on-surface/10 border border-outline-variant/20 p-5 z-50">
-              {/* Year selector */}
-              <div className="flex items-center justify-between mb-4">
-                <button
-                  onClick={() => setPickerYear((y) => Math.max(MIN_YEAR, y - 1))}
-                  className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-surface-container-high transition-colors active:scale-95 duration-200"
-                >
-                  <span className="material-symbols-outlined text-[20px]">chevron_left</span>
-                </button>
-                <span className="font-headline font-bold text-lg text-on-surface">{pickerYear}</span>
-                <button
-                  onClick={() => setPickerYear((y) => Math.min(MAX_YEAR, y + 1))}
-                  className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-surface-container-high transition-colors active:scale-95 duration-200"
-                >
-                  <span className="material-symbols-outlined text-[20px]">chevron_right</span>
-                </button>
-              </div>
-              {/* Month grid */}
-              <div className="grid grid-cols-3 gap-2">
-                {MONTH_NAMES_SHORT.map((name, i) => {
-                  const isSelected = i === month && pickerYear === year;
-                  const isCurrent = i === today.getMonth() && pickerYear === today.getFullYear();
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => selectMonth(i)}
-                      className={`py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95
-                        ${isSelected
-                          ? "bg-primary text-on-primary shadow-sm font-bold"
-                          : isCurrent
-                            ? "ring-2 ring-primary text-primary font-bold hover:bg-surface-container-high"
-                            : "text-on-surface hover:bg-surface-container-high"
-                        }
-                      `}
-                    >
-                      {name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Monthly Aggregate */}
-      <div className="bg-surface-container-lowest p-8 rounded-[2rem] flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden group">
-        <div className="relative z-10">
-          <span className="font-label text-xs uppercase tracking-[0.2em] text-on-surface-variant font-bold">
-            Your Expense
-          </span>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="font-headline text-5xl font-extrabold text-primary">
-              {fmt(monthTotal)}
+          <div className="flex items-center gap-2 text-xs text-zinc-500 mb-1">
+            <Link to="/" className="hover:text-zinc-900 dark:hover:text-white transition-colors">
+              Home
+            </Link>
+            <span>/</span>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+              {t('calendar.title', 'Calendar Heatmap')}
             </span>
           </div>
-          {!isPersonal && monthSharedTotal > 0 && (
-            <p className="mt-2 text-sm font-medium">
-              <span className="text-on-surface-variant">Total shared spend: </span>
-              <span className="text-secondary font-bold">{fmt(monthSharedTotal)}</span>
-            </p>
-          )}
-          <p className="mt-2 text-sm text-on-surface-variant font-medium">
-            {monthCount} expense{monthCount !== 1 ? "s" : ""} in {MONTH_NAMES[month]}
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+            {t('calendar.title', 'Spending Calendar Heatmap')}
+          </h1>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {t('calendar.subtitle', 'Daily spending intensity and cashflow heatmap grid')}
           </p>
         </div>
-        <div className="absolute -right-12 -bottom-12 w-48 h-48 bg-primary/5 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-500"></div>
+
+        {/* Sure Month Selector & Today button */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 rounded-xl p-1 shadow-2xs">
+            <button
+              onClick={goToPrev}
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              title="上一月"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <span className="px-3 text-xs font-bold font-mono text-zinc-900 dark:text-zinc-100 min-w-32 text-center">
+              {MONTH_NAMES[month]} {year}
+            </span>
+
+            <button
+              onClick={goToNext}
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              title="下一月"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <button
+            onClick={goToToday}
+            className="px-3 py-2 text-xs font-semibold rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors"
+          >
+            {t('calendar.today', 'Today')}
+          </button>
+        </div>
       </div>
 
-      {/* Calendar Grid */}
-      {error ? (
-        <div className="flex items-center justify-center h-64 text-error text-sm">{error}</div>
-      ) : loading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      {/* ── 2. Summary Metric Cards (Sure 4-Card Grid) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Metric 1: Month Total */}
+        <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+            {t('calendar.monthTotal', '当月总支出')}
+          </span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-1 block">
+            {fmt(monthTotal)}
+          </span>
         </div>
-      ) : (
-        <div className="bg-surface-container-lowest p-4 sm:p-6 rounded-[2rem]">
-          {/* Day-of-week headers */}
-          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2">
-            {DAYS_OF_WEEK.map((d) => (
-              <div key={d} className="text-center font-label text-xs uppercase tracking-[0.15em] text-on-surface-variant font-bold py-2">
-                {d}
-              </div>
-            ))}
-          </div>
-          {/* Day cells */}
-          <div className="grid grid-cols-7 gap-1 sm:gap-2">
-            {cells.map((day, i) => {
-              if (day === null) {
-                return <div key={i} className="min-h-[70px] sm:min-h-[90px]" />;
-              }
-              const dateKey = `${year}-${pad(month + 1)}-${pad(day)}`;
-              const amount = dailyTotals[dateKey] || 0;
-              const incomeAmt = dailyIncome[dateKey] || 0;
-              const intensity = getIntensity(amount);
+
+        {/* Metric 2: Daily Average */}
+        <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+            {t('calendar.dailyAvg', '日均消费')}
+          </span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-1 block">
+            {fmt(dailyAverage)}
+          </span>
+        </div>
+
+        {/* Metric 3: Peak Day */}
+        <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+            {t('calendar.peakDay', '单日消费峰值')}
+          </span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-rose-600 dark:text-rose-400 mt-1 block">
+            {peakDay ? fmt(peakDay.total) : '¥0.00'}
+          </span>
+          {peakDay && (
+            <span className="text-[10px] text-zinc-400 mt-0.5 block truncate">
+              {peakDay.date}
+            </span>
+          )}
+        </div>
+
+        {/* Metric 4: Active Days */}
+        <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+            {t('calendar.activeDays', '消费发生天数')}
+          </span>
+          <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 block">
+            {activeDaysCount} / {daysInMonth} 天
+          </span>
+        </div>
+      </div>
+
+      {/* ── 3. Calendar Heatmap Grid (Sure Clean Layout) ── */}
+      <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xs space-y-4">
+        {/* Days of Week Header */}
+        <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+          {DAYS_OF_WEEK.map((d) => (
+            <div key={d} className="py-1">
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Cells Grid */}
+        <div className="grid grid-cols-7 gap-2">
+          {cells.map((day, idx) => {
+            if (!day) {
               return (
-                <button
-                  key={i}
-                  onClick={() => handleDayClick(day)}
-                  className={`min-h-[70px] sm:min-h-[90px] rounded-xl sm:rounded-2xl p-2 sm:p-3 flex flex-col justify-between text-left transition-colors duration-200 cursor-pointer relative overflow-hidden
-                    ${isToday(day) ? "ring-2 ring-primary" : ""}
-                    ${amount > 0 ? "hover:ring-2 hover:ring-primary/50" : "hover:bg-surface-container-high"}
-                    bg-surface-container
-                  `}
-                >
-                  {amount > 0 && (
-                    <div
-                      className="absolute inset-0 bg-primary rounded-xl sm:rounded-2xl pointer-events-none"
-                      style={{ opacity: 0.05 + intensity * 0.2 }}
-                    />
-                  )}
-                  <div className="relative flex items-start justify-between">
-                    <span className={`text-xs sm:text-sm font-bold ${isToday(day) ? "text-primary" : "text-on-surface"}`}>
-                      {day}
-                    </span>
-                    {incomeAmt > 0 && (
-                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-tertiary text-on-tertiary text-[9px] font-bold leading-none shrink-0">
-                        +
-                      </span>
-                    )}
-                  </div>
-                  {amount > 0 && (
-                    <span className="relative text-primary font-bold text-[11px] sm:text-sm mt-auto">
-                      {fmt(amount)}
-                    </span>
-                  )}
-                  {incomeAmt > 0 && (
-                    <span className="relative text-tertiary font-bold text-[10px] sm:text-xs">
-                      +{fmt(incomeAmt)}
-                    </span>
-                  )}
-                </button>
+                <div
+                  key={`empty-${idx}`}
+                  className="h-20 sm:h-24 rounded-xl border border-dashed border-zinc-100 dark:border-zinc-800/40 bg-zinc-50/20 dark:bg-transparent"
+                />
               );
-            })}
+            }
+
+            const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+            const info = dailyData[dateStr];
+            const hasSpend = info && info.total > 0;
+            const currentDay = isToday(day);
+
+            return (
+              <div
+                key={dateStr}
+                onClick={() => navigate(`/transactions?search=${dateStr}`)}
+                onMouseEnter={() => info && setHoveredDay({ date: dateStr, ...info })}
+                onMouseLeave={() => setHoveredDay(null)}
+                className={`relative h-20 sm:h-24 p-2 rounded-xl border transition-all duration-150 flex flex-col justify-between cursor-pointer group hover:scale-[1.02] hover:shadow-md ${getIntensityClass(
+                  info?.total
+                )} ${currentDay ? 'ring-2 ring-zinc-900 dark:ring-white ring-offset-1' : ''}`}
+              >
+                {/* Top: Day Number & Badge */}
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`text-xs font-bold font-mono ${
+                      currentDay
+                        ? 'px-1.5 py-0.5 rounded bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-[10px]'
+                        : ''
+                    }`}
+                  >
+                    {day}
+                  </span>
+                  {info?.count > 0 && (
+                    <span className="text-[10px] font-mono px-1 rounded-full bg-black/10 dark:bg-white/10">
+                      {info.count}笔
+                    </span>
+                  )}
+                </div>
+
+                {/* Center / Bottom: Amount */}
+                <div className="text-right">
+                  {hasSpend ? (
+                    <span className="text-xs sm:text-sm font-bold font-mono tracking-tight block">
+                      {fmt(info.total)}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-zinc-300 dark:text-zinc-600 block">-</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── 4. Bottom Legend (Heatmap Intensity) ── */}
+        <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-500">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Info className="w-3.5 h-3.5 text-zinc-400" />
+            <span>点击任意日期格子可直接下钻查看该日全部交易明细</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span>Less</span>
+            <div className="w-3.5 h-3.5 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700" />
+            <div className="w-3.5 h-3.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200" />
+            <div className="w-3.5 h-3.5 rounded bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300" />
+            <div className="w-3.5 h-3.5 rounded bg-emerald-200 dark:bg-emerald-800/60 border border-emerald-400" />
+            <div className="w-3.5 h-3.5 rounded bg-emerald-300 dark:bg-emerald-600 border border-emerald-500" />
+            <span>More</span>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

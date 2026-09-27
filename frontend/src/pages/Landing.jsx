@@ -20,6 +20,8 @@ import { useCurrency } from '../CurrencyContext';
 import { useDateFormat } from '../DateFormatContext';
 import { useAuth } from '../auth/AuthContext';
 import { SureAreaChart, SureDonutChart } from '../components/ds/SureCharts';
+import SureSankeyChart from '../components/ds/SureSankeyChart';
+import { fetchWithAuth } from '../api/fetchWithAuth';
 
 export default function Landing() {
   const { userA, mode } = useUsers();
@@ -31,21 +33,25 @@ export default function Landing() {
   const [monthlySummary, setMonthlySummary] = useState([]);
   const [recentExpenses, setRecentExpenses] = useState([]);
   const [myExpense, setMyExpense] = useState(null);
+  const [accounts, setAccounts] = useState([]);
+  const [cashflowMode, setCashflowMode] = useState('trend'); // 'trend' | 'sankey'
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
         setLoading(true);
-        const [sumRes, expRes, myRes] = await Promise.allSettled([
+        const [sumRes, expRes, myRes, accRes] = await Promise.allSettled([
           getMonthlySummary(),
-          getExpenses({ limit: 6, sort: 'desc' }),
+          getExpenses({ limit: 10, sort: 'desc' }),
           getMyExpenseSummary(),
+          fetchWithAuth('/api/v1/accounts').then((r) => (r.ok ? r.json() : [])),
         ]);
 
         if (sumRes.status === 'fulfilled') setMonthlySummary(sumRes.value || []);
         if (expRes.status === 'fulfilled') setRecentExpenses(expRes.value || []);
         if (myRes.status === 'fulfilled') setMyExpense(myRes.value || null);
+        if (accRes.status === 'fulfilled') setAccounts(accRes.value?.accounts || accRes.value || []);
       } catch (err) {
         console.error('Failed to load dashboard data', err);
       } finally {
@@ -140,20 +146,56 @@ export default function Landing() {
 
       {/* ── 3. Sure Cashflow & Net Worth Widgets ── */}
       <div className="grid grid-cols-1 gap-6">
-        {/* Widget 1: Cashflow Card */}
+        {/* Widget 1: Cashflow Card (Trend + Sankey Support) */}
         <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-1.5 cursor-pointer">
-              <ChevronDown className="w-4 h-4 text-zinc-400" />
-              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Cashflow
-              </h2>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 cursor-pointer">
+                <ChevronDown className="w-4 h-4 text-zinc-400" />
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  Cashflow
+                </h2>
+              </div>
+
+              {/* Segmented Switch: Trend vs Sankey */}
+              <div className="inline-flex p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-[11px] font-medium">
+                <button
+                  onClick={() => setCashflowMode('trend')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    cashflowMode === 'trend'
+                      ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white font-semibold shadow-2xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  Trend
+                </button>
+                <button
+                  onClick={() => setCashflowMode('sankey')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    cashflowMode === 'sankey'
+                      ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white font-semibold shadow-2xs'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  Sankey (桑基图)
+                </button>
+              </div>
             </div>
+
             <GripVertical className="w-4 h-4 text-zinc-300 dark:text-zinc-600" />
           </div>
 
           <div className="pt-2">
-            <SureAreaChart data={trendData} currencySymbol={currencySymbol} height={260} />
+            {cashflowMode === 'trend' ? (
+              <SureAreaChart data={trendData} currencySymbol={currencySymbol} height={260} />
+            ) : (
+              <SureSankeyChart
+                accounts={accounts}
+                monthlySummary={monthlySummary}
+                currencySymbol={currencySymbol}
+                height={280}
+              />
+            )}
           </div>
         </div>
 

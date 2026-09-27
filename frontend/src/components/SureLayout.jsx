@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
   CreditCard,
@@ -23,6 +24,7 @@ import {
   PanelLeft,
   Wallet,
   ReceiptText,
+  Languages,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../ThemeContext';
@@ -34,24 +36,34 @@ import Avatar from './Avatar';
 import AccountsPanel from './AccountsPanel';
 import config from '../config';
 
-// 84px Rail navigation items (Sure desktop vertical style)
-const railNavItems = [
-  { to: '/', label: '总览', icon: LayoutDashboard },
-  { to: '/transactions', label: '明细', icon: CreditCard, badge: '163' },
-  { to: '/analytics', label: '报表', icon: BarChart3 },
-  { to: '/calendar', label: '日历', icon: CalendarDays },
-  { to: '/emails', label: '邮件', icon: Inbox, badge: '164' },
-  { to: '/rules', label: '规则', icon: SlidersHorizontal },
-  { to: '/debts', label: '借贷', icon: HandCoins },
-];
-
 export default function SureLayout({ children }) {
   const location = useLocation();
+  const { t, i18n } = useTranslation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { currency, setCurrency, currencies, privacyMode, togglePrivacyMode } = useCurrency();
   const { mode } = useUsers();
   const { showToast } = useToast();
+
+  const currentLang = i18n.language || 'zh';
+
+  const toggleLanguage = () => {
+    const nextLang = currentLang.startsWith('zh') ? 'en' : 'zh';
+    i18n.changeLanguage(nextLang);
+    localStorage.setItem('famledger_lang', nextLang);
+    showToast(nextLang === 'zh' ? '已切换至简体中文' : 'Switched to English', 'info');
+  };
+
+  // 84px Rail navigation items (Sure desktop vertical style)
+  const railNavItems = [
+    { to: '/', label: t('nav.dashboard', '总览'), icon: LayoutDashboard },
+    { to: '/transactions', label: t('nav.transactions', '明细'), icon: CreditCard, badge: '163' },
+    { to: '/analytics', label: t('nav.analytics', '报表'), icon: BarChart3 },
+    { to: '/calendar', label: t('nav.calendar', '日历'), icon: CalendarDays },
+    { to: '/emails', label: t('nav.emails', '邮件'), icon: Inbox, badge: '164' },
+    { to: '/rules', label: t('nav.rules', '规则'), icon: SlidersHorizontal },
+    { to: '/debts', label: t('nav.debts', '借贷'), icon: HandCoins },
+  ];
 
   // Desktop left accounts sidebar visibility (Sure defaults to open!)
   const [showAccountsSidebar, setShowAccountsSidebar] = useState(true);
@@ -60,6 +72,8 @@ export default function SureLayout({ children }) {
   const [showHelp, setShowHelp] = useState(false);
 
   // Breadcrumb resolver
+  const isSettingsOrRules = location.pathname.startsWith('/settings') || location.pathname.startsWith('/rules');
+
   const getBreadcrumbs = () => {
     const p = location.pathname;
     if (p === '/') return ['Home', 'Dashboard'];
@@ -128,6 +142,15 @@ export default function SureLayout({ children }) {
 
         {/* Bottom: Utilities & User Avatar */}
         <div className="w-full flex flex-col items-center gap-2.5 px-2">
+          {/* Language switcher */}
+          <button
+            onClick={toggleLanguage}
+            title={currentLang.startsWith('zh') ? 'Switch to English' : '切换为简体中文'}
+            className="w-9 h-9 rounded-lg text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors text-xs font-bold font-mono border border-zinc-200/80 dark:border-zinc-700"
+          >
+            {currentLang.startsWith('zh') ? 'EN' : '中'}
+          </button>
+
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
@@ -160,15 +183,17 @@ export default function SureLayout({ children }) {
       {/* ────────────────────────────────────────────────────────── */}
       {/* 2. DESKTOP ACCOUNTS SIDEBAR (Sure 280px Persistent Sidebar) */}
       {/* ────────────────────────────────────────────────────────── */}
-      <aside
-        className={`hidden lg:flex fixed inset-y-0 left-[84px] bg-white dark:bg-zinc-900 border-r border-zinc-200/80 dark:border-zinc-800 flex-col z-30 transition-all duration-200 ease-in-out select-none ${
-          showAccountsSidebar ? 'w-72 opacity-100' : 'w-0 opacity-0 pointer-events-none overflow-hidden'
-        }`}
-      >
-        <div className="w-72 h-full flex flex-col">
-          <AccountsPanel />
-        </div>
-      </aside>
+      {!isSettingsOrRules && (
+        <aside
+          className={`hidden lg:flex fixed inset-y-0 left-[84px] bg-white dark:bg-zinc-900 border-r border-zinc-200/80 dark:border-zinc-800 flex-col z-30 transition-all duration-200 ease-in-out select-none ${
+            showAccountsSidebar ? 'w-72 opacity-100' : 'w-0 opacity-0 pointer-events-none overflow-hidden'
+          }`}
+        >
+          <div className="w-72 h-full flex flex-col">
+            <AccountsPanel />
+          </div>
+        </aside>
+      )}
 
       {/* ────────────────────────────────────────────────────────── */}
       {/* 3. MOBILE HEADER (Exact Sure Mobile Topbar)               */}
@@ -193,12 +218,20 @@ export default function SureLayout({ children }) {
           />
         </Link>
 
-        {/* Right: Privacy Eye & User Avatar */}
+        {/* Right: Language, Privacy Eye & User Avatar */}
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={toggleLanguage}
+            title={currentLang.startsWith('zh') ? 'Switch to English' : '切换为简体中文'}
+            className="w-8 h-8 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center text-xs font-bold font-mono border border-zinc-200/80 dark:border-zinc-700"
+          >
+            {currentLang.startsWith('zh') ? 'EN' : '中'}
+          </button>
+
           <button
             onClick={togglePrivacyMode}
             title={privacyMode ? '显示金额' : '隐藏敏感金额'}
-            className="w-9 h-9 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-lg text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors"
           >
             {privacyMode ? <EyeOff className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Eye className="w-4 h-4" />}
           </button>
@@ -245,20 +278,22 @@ export default function SureLayout({ children }) {
       <main
         id="main"
         className={`grow min-h-screen flex flex-col transition-all duration-200 pt-14 lg:pt-0 pb-20 lg:pb-8 ${
-          showAccountsSidebar ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
+          showAccountsSidebar && !isSettingsOrRules ? 'lg:pl-[368px]' : 'lg:pl-[84px]'
         }`}
       >
         {/* Desktop Sticky Header with Breadcrumbs & Toggles (Exact Sure Topbar) */}
         <div className="hidden lg:flex items-center justify-between px-8 py-3.5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200/80 dark:border-zinc-800 sticky top-0 z-20">
           {/* Left: Sidebar Toggle + Breadcrumb */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowAccountsSidebar(!showAccountsSidebar)}
-              title={showAccountsSidebar ? '收起账户侧栏' : '展开账户侧栏'}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-            >
-              <PanelLeft className="w-4 h-4" />
-            </button>
+            {!isSettingsOrRules && (
+              <button
+                onClick={() => setShowAccountsSidebar(!showAccountsSidebar)}
+                title={showAccountsSidebar ? '收起账户侧栏' : '展开账户侧栏'}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
+            )}
 
             <nav aria-label="面包屑导航" className="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
               {breadcrumbs.map((b, idx) => (

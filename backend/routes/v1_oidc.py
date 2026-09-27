@@ -37,6 +37,42 @@ class SSOProviderCreate(BaseModel):
     settings: Optional[Dict[str, Any]] = None
 
 
+@router.get("/admin/providers")
+def list_admin_sso_providers(
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """管理员管理端接口：获取系统配置的全部 SSO / OIDC 提供商明细。"""
+    providers = session.exec(select(SSOProvider)).all()
+    items = []
+    for p in providers:
+        items.append({
+            "name": p.name,
+            "label": p.label,
+            "issuer": p.issuer,
+            "client_id": p.client_id,
+            "enabled": p.enabled,
+            "settings": p.settings or {},
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        })
+    return {"providers": items}
+
+
+@router.delete("/providers/{provider_name}")
+def delete_sso_provider(
+    provider_name: str,
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """管理员删除指定的 SSO / OIDC 提供商。"""
+    p = session.exec(select(SSOProvider).where(SSOProvider.name == provider_name)).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="SSO provider not found")
+    session.delete(p)
+    session.commit()
+    return {"status": "deleted", "name": provider_name}
+
+
 @router.get("/providers")
 def list_sso_providers(session: Session = Depends(get_session)):
     """获取所有启用的第三方 OIDC / SSO 登录提供商列表（公开接口供登录页展示图标与按钮）。"""
