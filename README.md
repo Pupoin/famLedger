@@ -1,126 +1,259 @@
-# famLedger - 现代家庭财富与财务协作系统
+# famLedger
 
-<p align="center">
-  <strong>隐私优先 · 账户流水与双向转账 · 全景桑基现金流 · 自动化规则清洗 · 多成员细粒度授权</strong>
-</p>
+**Self-hosted household finance · 自托管家庭财务管理**
 
----
+[English](#english) | [简体中文](#chinese)
 
-## 📖 项目简介
+<a id="english"></a>
 
-**famLedger** 是一款为现代家庭与多成员团队量身定制的私有化部署财富管理与财务协作系统。系统采用 **本地优先 (Local-First)** 架构，在保障绝对数据主权与隐私安全的前提下，提供媲美现代商业金融产品的交互体验与专业严谨的财务核算能力。
+## English
 
-无论是个人记账、夫妻共同开销核算、家庭多资产账户统一监控，还是亲友往来借贷与账单自动化清洗，famLedger 均能提供严密、直观、优雅的解决方案。
+famLedger manages personal and household finances through account activity, multi-currency transactions, shared accounts, and scheduled payments. The React interface supports English and Simplified Chinese on desktop and mobile.
 
----
+### Features
 
-## ✨ 核心特性
+- **Accounts and balances:** bank accounts, cash, investments, credit cards, and loans. Balances are calculated from recorded account activity, including opening balances and reconciliation adjustments.
+- **Multi-currency booking:** preserve original transaction amounts and currencies, record fixed account settlements, and convert reports into the user's display currency using historical exchange rates cached in the database. Transactions awaiting an exchange rate remain pending until they can be booked.
+- **Transfers and refunds:** paired internal transfers, credit-card repayments, full and partial refunds, refunds allocated across multiple expenses, transaction splits, and tags.
+- **Reports and budgets:** net worth, income and spending reports, cashflow Sankey diagrams, spending calendars, merchant charts, and category budgets. The privacy toggle hides monetary values in charts.
+- **Payment plans:** editable scheduled transfers and loan repayments, automatic or confirmed execution, rate changes, repayment phases, dated interest-free and interest-only periods, and prepayments.
+- **Household collaboration:** invitations, account ownership, read-only, read-write, and full-control sharing. Primary and supplementary credit cards can belong to different household members, with sharing required for the primary card owner to view the supplementary card.
+- **Rules and automation:** nested conditions, categorization, merchant normalization, tags, and rule previews. Optional Microsoft Graph email-bill ingestion runs as a separate service.
+- **Authentication and preferences:** local login, configurable OIDC sign-in, revocable API keys stored as hashes, language and display-currency preferences, and light, dark, or automatic themes.
 
-### 1. 资产全景与账户流水与双向转账
-- **多账户多币种管理**：支持储蓄卡、信用卡、投资证券、基金理财、公积金、现金及负债账户统一分类汇总。
-- **真实账户净值与资产负债表**：动态计算总资产、总负债与实时净资产走势，杜绝资产浮夸。
-- **纯粹财务口径**：内部转账、信用卡还款、借贷出资与回款严格与外部真实消费/收入解耦，彻底避免收支被重复虚增。
-- **单笔交易明细拆分**：支持单笔流水多类目、多标签混合拆分记账。
+### Technology
 
-### 2. 全景桑基图 (Cashflow Sankey)
-- 遵循严谨的“**真实外部收入 → 资金流动池 (Cashflow Pool) → 消费与资产净流向**”可视化模型。
-- 自动平抑跨期退款、实时抵扣负项，真实还原全月/全季度的现金流转全貌。
+| Layer | Technology |
+| --- | --- |
+| Interface | React 18, Vite 6, Tailwind CSS, i18next |
+| Charts and icons | Recharts, Lucide React |
+| API | Python, FastAPI, Pydantic |
+| Database | SQLModel, SQLAlchemy, SQLite or PostgreSQL; Docker Compose uses PostgreSQL 18 |
+| Authentication | bcrypt password hashing, signed sessions, hashed API keys, OIDC |
+| Tests | pytest, Vitest |
 
-### 3. 自动化规则清洗引擎 (Rules Engine)
-- **复合条件树**：支持 `AND` / `OR` / `NOT` 嵌套条件匹配，支持商户名、摘要、金额范围、账户、币种等组合筛选。
-- **灵活管道动作**：自动补齐分类、自动挂载标签、标准化商户名称、标记排除统计或自动转账识别。
-- **Dry-Run 预演仿真**：在历史流水样本上无痕模拟规则命中率与修改集，确认无误后支持一键历史全量回溯应用。
+### Local development
 
-### 4. 亲友借贷与信贷台账 (Debts & Loans)
-- **亲友往来 (IOU)**：清晰记录“谁欠我”与“我欠谁”，支持分期还款记录与结清归档。
-- **商业贷款监控**：房贷、车贷、消费贷等负债本金、利率、月供周期性追踪与余额还款销账。
-
-### 5. 多家庭与成员细粒度授权 (Granular RBAC)
-- **家庭边界隔离**：多家庭组织间的数据与权限隔离，杜绝跨家庭数据串户。
-- **账户级权限分配**：支持账户所有者将特定账户共享给指定家庭成员，并精细授予**“只读 (Read-Only)”**或**“读写 (Read-Write)”**及**“完全控制 (Full Control)”**权限，服务端接口全程强制校验防止越权 (IDOR)。
-
-### 6. 企业级认证与自动化 API Key
-- **双轨认证架构**：支持用户端会话 Cookie 与自动化 API Key 双轨并行。
-- **安全 API Key 管理**：前缀安全脱敏展示、SHA-256 安全哈希存库、单次明文生成与一键撤销。
-- **OIDC / SSO 单点登录集成**：原生兼容 Authelia、Keycloak、Authentik 等标准 OAuth2/OIDC 身份提供商，支持管理员动态配置与 JIT 自动建号。
-
----
-
-## 🛠️ 技术栈
-
-| 模块 | 技术选型 | 说明 |
-| :--- | :--- | :--- |
-| **前端应用** | React 18, Vite 6, Tailwind CSS | 响应式现代化设计，支持桌面宽屏与移动端原生交互适配 |
-| **图标与图表** | Lucide React, Recharts | 高清扁平化图表与动态交互 |
-| **国际化与主题** | i18next, Tailwind Dark Mode | 中英双语支持，深色/浅色主题秒级无缝切换 |
-| **后端服务** | Python 3.10+, FastAPI | 高性能异步 RESTful API 服务，依赖注入与严格参数校验 |
-| **持久层与 ORM** | SQLModel, SQLAlchemy 2.0, SQLite / PostgreSQL 18 | 强类型数据模型，事务隔离、固定金额入账与日汇率缓存 |
-| **认证与安全** | Bcrypt, HMAC-SHA256, URL-Safe Base64 | 强密码散列、会话签名防篡改与 API Key 哈希验证 |
-
----
-
-## 🚀 快速启动
-
-### 方式一：本地开发环境运行
-
-在项目根目录安装依赖，并在 `backend/.env` 中配置 `SECRET_KEY`：
+Requirements: Python 3.10+, Node.js 22.12+, and npm. Run these commands from the repository root:
 
 ```bash
+git clone git@github.com:Pupoin/famLedger.git
+cd famLedger
+
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 npm --prefix frontend ci
+
+cp backend/config.example.py backend/config.py
+cp backend/.env.example backend/.env
 ```
 
-同时启动前后端，网页使用 `http://localhost:8888`，API 由前端代理到后端的 8889 端口。前端开启 Vite 热更新，后端开启 Uvicorn 自动重载。开发模式不会自动备份数据库。
+Generate a secret, then replace the `SECRET_KEY` placeholder in `backend/.env` with the generated value:
 
 ```bash
-# 启动
-.venv/bin/python scripts/dev.py start
-
-# 重启 / 停止
-.venv/bin/python scripts/dev.py restart
-.venv/bin/python scripts/dev.py stop
-
-# 生产环境编译构建
-npm --prefix frontend run build
+.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-运行日志和进程记录位于 `.cache/development/`。
+Start, restart, or stop both development servers:
 
----
+```bash
+.venv/bin/python scripts/dev.py start
+.venv/bin/python scripts/dev.py restart
+.venv/bin/python scripts/dev.py stop
+```
 
-## 🐳 Docker 部署
+- Website: <http://localhost:8888>
+- Backend: <http://localhost:8889>; the frontend proxies API requests to this port.
+- API documentation: <http://localhost:8889/docs>
+- Vite hot updates and backend automatic reload are enabled. Logs and process records are stored in `.cache/development/`.
+- SQLite is used by default, with the database at `backend/famledger.db`. Tables are initialized at startup. The first registered user becomes the system administrator; default categories are initialized when the household's category list is first requested.
+- Development mode does not create automatic database backups.
+
+Build the frontend with `npm --prefix frontend run build`.
+
+### Docker deployment
+
+Docker Compose uses PostgreSQL 18 and serves the compiled frontend and API from the same application container.
 
 ```bash
 cp .env.docker.example .env.docker
-# 填写 SECRET_KEY 与 POSTGRES_PASSWORD，再启动
-docker compose --env-file .env.docker up -d --build
+# Set independent random values for SECRET_KEY and POSTGRES_PASSWORD.
+# For direct HTTP access, set COOKIE_SECURE=false; use true with HTTPS.
+docker compose --env-file .env.docker up -d --build famledger
 ```
 
-默认使用 PostgreSQL 18，页面端口为 8000。单独运行应用镜像也支持 SQLite：设置 `DATABASE_URL=sqlite:////app/data/famledger.db` 并持久化 `/app/data`，不依赖 PostgreSQL 服务。直接使用 HTTP 时需设置 `COOKIE_SECURE=false`；HTTPS 部署使用 `true`。
+Open <http://localhost:8000>. Change `FAMLEDGER_PORT` in `.env.docker` to use another port. The command starts the application and its database dependency; bill ingestion is optional and requires separate configuration described in the [bill service guide](./services/bill/README.md).
 
-## 📁 开发与接口文档
+SQLite can also run in a standalone application container:
 
-- [文档索引](./docs/README.md)
-- [现金流与桑基图计算口径](./docs/CASHFLOW_SANKEY_SPEC.md)
-- [POST 接口与外部流水 ID](./postapi.md)
-- [账单服务](./services/bill/README.md)
+```bash
+docker build -t famledger:local .
+export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+docker run -d --name famledger-sqlite \
+  -p 8000:8000 \
+  -e SECRET_KEY \
+  -e ENV=production \
+  -e COOKIE_SECURE=false \
+  -e DATABASE_URL=sqlite:////app/data/famledger.db \
+  -v famledger-sqlite-data:/app/data \
+  famledger:local
+```
 
-## ✅ 测试
+Persist the database and `/app/data` across container replacements. Production mode creates rotating backups; PostgreSQL deployments also need their database volume preserved.
+
+### Tests
 
 ```bash
 .venv/bin/python -m pytest backend/tests -q
 npm --prefix frontend test -- --run
 npm --prefix frontend run build
+
+# Run bill tests separately to avoid a collision between backend module names.
+.venv/bin/python -m pip install -r services/bill/backend/requirements.txt
+(cd services/bill && ../../.venv/bin/python -m pytest tests -q)
 ```
 
-PostgreSQL 集成测试使用独立的 `fix104_verify` 测试库，配置 `FAMLEDGER_TEST_PG_URL` 后运行 `backend/tests/test_fix104_postgres.py`；未配置时明确跳过。
+PostgreSQL tests are optional in a local run and are skipped unless their isolated test databases are configured:
+
+- Main application: set `FAMLEDGER_TEST_PG_URL` to a database named `fix104_verify`, then run `backend/tests/test_fix104_postgres.py`. The real dump/restore test additionally requires the dedicated `famledger-fix104-pg-verification` container and `FAMLEDGER_TEST_PG_CONTAINER` / `FAMLEDGER_TEST_PG_MOUNT`; setup details are in that test file.
+- Bill service: set `BILL_TEST_POSTGRES_DSN` to a separate database whose name ends in `_test`.
+
+### Data and configuration
+
+Ledger data resides in the configured SQLite or PostgreSQL database. Exchange-rate retrieval contacts an external provider; OIDC and email ingestion contact their configured services. Passwords and API keys are stored as hashes, and newly generated API keys are shown in plaintext only once. Keep environment secrets, databases, token caches, uploads, audit logs, and backups out of Git.
+
+### Documentation
+
+The following implementation guides are currently written in Chinese:
+
+- [Documentation index](./docs/README.md)
+- [Cashflow and Sankey calculation rules](./docs/CASHFLOW_SANKEY_SPEC.md)
+- [POST APIs and external transaction IDs](./postapi.md)
+- [Email bill service](./services/bill/README.md)
 
 ---
 
-## 🔒 隐私与安全声明
+<a id="chinese"></a>
 
-famLedger 坚持以隐私安全为第一要务：
-1. **零外部数据上报**：没有第三方跟踪脚本，不收集任何用户使用行为与账目数据。
-2. **本地文件存储**：账户流水与配置存储于自托管的 SQLite 或 PostgreSQL 数据库中。密码与 API Key 保存哈希，原始 API Key 仅在生成时展示。
-3. **备份防灾**：内置本地自动旋转备份机制，确保在意外断电或数据损坏时随时可快速还原。
+## 简体中文
+
+famLedger 通过账户活动、多币种流水、共享账户和定期支付计划管理个人与家庭财务。React 界面支持英语和简体中文，适配电脑与手机。
+
+### 功能
+
+- **账户与余额**：管理银行账户、现金、投资、信用卡和贷款。余额由已记录的账户活动计算，包含期初余额和对账调整。
+- **多币种入账**：保留交易原始金额和币种，固定账户结算金额；报表通过数据库缓存的历史汇率换算为用户设置的展示币种。缺少汇率的交易先进入待换汇队列，取得汇率后再入账。
+- **转账与退款**：支持成对的内部转账、信用卡还款、全额或部分退款、多笔消费的退款分配、交易拆分和标签。
+- **报表与预算**：包含净资产、收支报表、现金流桑基图、消费日历、商户图表和分类预算。隐私开关会隐藏图表中的金额。
+- **支付计划**：可编辑定期转账和贷款还款计划，支持自动执行或确认后执行、分阶段利率与还款方式、按时间段设置免息和仅还利息，以及提前还款。
+- **家庭协作**：支持邀请、账户所有权，以及只读、读写、完全控制三档共享权限。信用卡主副卡可分属不同家庭成员；副卡需共享给主卡所有者，保证其能够查看副卡流水。
+- **规则与自动化**：支持嵌套条件、分类、商户名称规范化、标签和规则预览。可选的 Microsoft Graph 邮件账单抓取由独立服务运行。
+- **认证与偏好**：支持本地登录、可配置的 OIDC 登录、哈希存储且可撤销的 API Key、语言与展示币种设置，以及浅色、深色、自动主题。
+
+### 技术栈
+
+| 模块 | 技术 |
+| --- | --- |
+| 界面 | React 18、Vite 6、Tailwind CSS、i18next |
+| 图表与图标 | Recharts、Lucide React |
+| API | Python、FastAPI、Pydantic |
+| 数据库 | SQLModel、SQLAlchemy、SQLite 或 PostgreSQL；Docker Compose 使用 PostgreSQL 18 |
+| 认证 | bcrypt 密码哈希、签名会话、API Key 哈希、OIDC |
+| 测试 | pytest、Vitest |
+
+### 本地开发
+
+需要 Python 3.10+、Node.js 22.12+ 和 npm。在项目根目录运行：
+
+```bash
+git clone git@github.com:Pupoin/famLedger.git
+cd famLedger
+
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+npm --prefix frontend ci
+
+cp backend/config.example.py backend/config.py
+cp backend/.env.example backend/.env
+```
+
+生成随机密钥，将输出填入 `backend/.env`，替换 `SECRET_KEY` 的占位值：
+
+```bash
+.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+同时启动、重启或停止前后端：
+
+```bash
+.venv/bin/python scripts/dev.py start
+.venv/bin/python scripts/dev.py restart
+.venv/bin/python scripts/dev.py stop
+```
+
+- 页面：<http://localhost:8888>
+- 后端：<http://localhost:8889>；前端将 API 请求代理至该端口。
+- API 文档：<http://localhost:8889/docs>
+- 前端开启 Vite 热更新，后端开启自动重载。日志和进程记录位于 `.cache/development/`。
+- 默认使用 SQLite，数据库位于 `backend/famledger.db`，启动时初始化数据表。第一个注册用户成为系统管理员；首次请求家庭分类列表时自动生成默认分类。
+- 开发模式不自动备份数据库。
+
+前端构建命令为 `npm --prefix frontend run build`。
+
+### Docker 部署
+
+Docker Compose 使用 PostgreSQL 18，编译后的前端页面和 API 由同一个应用容器提供。
+
+```bash
+cp .env.docker.example .env.docker
+# 为 SECRET_KEY 和 POSTGRES_PASSWORD 分别设置独立的随机值。
+# 直接通过 HTTP 访问时设置 COOKIE_SECURE=false；HTTPS 下使用 true。
+docker compose --env-file .env.docker up -d --build famledger
+```
+
+访问 <http://localhost:8000>。可以在 `.env.docker` 中修改 `FAMLEDGER_PORT`。上述命令启动应用及其数据库依赖；邮件账单抓取是可选功能，需要按[账单服务文档](./services/bill/README.md)单独配置。
+
+也可以使用独立应用容器运行 SQLite：
+
+```bash
+docker build -t famledger:local .
+export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+docker run -d --name famledger-sqlite \
+  -p 8000:8000 \
+  -e SECRET_KEY \
+  -e ENV=production \
+  -e COOKIE_SECURE=false \
+  -e DATABASE_URL=sqlite:////app/data/famledger.db \
+  -v famledger-sqlite-data:/app/data \
+  famledger:local
+```
+
+更换容器时需保留数据库和 `/app/data`。生产模式会生成轮转备份；使用 PostgreSQL 时还需持久化数据库服务的数据卷。
+
+### 测试
+
+```bash
+.venv/bin/python -m pytest backend/tests -q
+npm --prefix frontend test -- --run
+npm --prefix frontend run build
+
+# 独立运行账单测试，避免两个 backend 模块名称冲突。
+.venv/bin/python -m pip install -r services/bill/backend/requirements.txt
+(cd services/bill && ../../.venv/bin/python -m pytest tests -q)
+```
+
+本地运行时，PostgreSQL 测试需要额外配置独立测试库，否则会明确跳过：
+
+- 主应用：设置 `FAMLEDGER_TEST_PG_URL`，数据库名必须为 `fix104_verify`，再运行 `backend/tests/test_fix104_postgres.py`。真实备份恢复测试还需专用容器 `famledger-fix104-pg-verification`，以及 `FAMLEDGER_TEST_PG_CONTAINER`、`FAMLEDGER_TEST_PG_MOUNT`；具体设置见测试文件。
+- 账单服务：设置 `BILL_TEST_POSTGRES_DSN`，连接独立数据库，库名必须以 `_test` 结尾。
+
+### 数据与配置
+
+账本数据保存在配置的 SQLite 或 PostgreSQL 数据库中。获取汇率时会访问外部汇率服务；OIDC 和邮件抓取会访问对应的已配置服务。密码和 API Key 保存哈希，新生成的 API Key 仅展示一次明文。环境密钥、数据库、令牌缓存、上传文件、审计日志和备份不应提交到 Git。
+
+### 文档
+
+- [文档索引](./docs/README.md)
+- [现金流与桑基图计算口径](./docs/CASHFLOW_SANKEY_SPEC.md)
+- [POST 接口与外部流水 ID](./postapi.md)
+- [邮件账单服务](./services/bill/README.md)
