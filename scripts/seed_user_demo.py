@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append exactly 1,000 linked demo transactions for one existing user.
+"""Append a configurable number of linked demo transactions for one existing user.
 
 Existing data and preferences are preserved. Quotes are genuine historical
 quotes; invented transactions and bank settlements are explicitly marked.
@@ -86,15 +86,22 @@ def historical_quotes(days):
     return saved
 
 
-def generate(username, end_day):
+def generate(username, end_day, days=90, count=1000):
     if engine.dialect.name != "sqlite" or not Path(engine.url.database).resolve().is_relative_to(ROOT):
         raise RuntimeError("This development seeder only operates on the database inside this project")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", username):
         raise ValueError("Invalid username")
-    start = end_day - timedelta(days=89)
+    if not 30 <= days <= 730 or not 200 <= count <= 100000:
+        raise ValueError("Use 30-730 days and 200-100000 transactions")
+    start = end_day - timedelta(days=days - 1)
+    income_count, refund_count = count // 20, count * 8 // 100
+    pair_count, adjustment_count = count // 10, count // 50
+    expense_count = count - 8 - income_count - refund_count - 2 * pair_count - adjustment_count
+    merged_refund_count = max(1, refund_count // 8)
+    split_count = min(count // 25, expense_count - refund_count - merged_refund_count)
     if end_day > datetime.now(LOCAL_TZ).date() - timedelta(days=1):
         raise ValueError("Use completed historical days, without future transactions")
-    batch = f"demo-{username}-90d-{end_day.isoformat()}-v1"
+    batch = f"demo-{username}-{days}d-{end_day.isoformat()}-{count}-v2"
     with Session(engine) as session:
         user = session.exec(select(User).where(User.username == username)).one_or_none()
         if not user or not user.is_active or not user.family_id:
@@ -102,16 +109,16 @@ def generate(username, end_day):
         family = session.get(Family, user.family_id)
         if not family or family.status != "active":
             raise RuntimeError("The target family must be active")
-        account_ids = session.exec(select(Account.id).where(Account.owner_id == user.id)).all()
+        account_ids = session.exec(select(Account.id).where(Account.family_id == user.family_id)).all()
         existing = session.exec(select(func.count()).select_from(Transaction).where(
             Transaction.account_id.in_(account_ids), Transaction.external_id.startswith(batch + ":"))).one()
         if existing:
-            if existing != 1000:
+            if existing != count:
                 raise RuntimeError(f"Existing incomplete batch has {existing} rows; no data was deleted")
-            print(f"Batch already contains 1000 rows: {batch}; no duplicate import", flush=True)
+            print(f"Batch already contains {count} rows: {batch}; no duplicate import", flush=True)
             return None
 
-    quotes = historical_quotes([start + timedelta(days=i) for i in range(90)])
+    quotes = historical_quotes([start + timedelta(days=i) for i in range(days)])
     rng = random.Random(20261003)
     scenarios = Counter()
     created = []
@@ -210,8 +217,8 @@ def generate(username, end_day):
             ("伦敦博物馆商店", "娱乐休闲", "GBP", 10, 90), ("悉尼超市", "超市便利", "AUD", 18, 160),
         ]
         expenses = []
-        for i in range(642):
-            day = start + timedelta(days=i * 90 // 642)
+        for i in range(expense_count):
+            day = start + timedelta(days=i * days // expense_count)
             name, category, native, low, high = rng.choice(merchants)
             keys = ["bank", "wallet", "credit", "subcard"] if native == "CNY" else ["usd", "usd_credit", "subcard", "credit", "eur"]
             value = Decimal(rng.randint(low * 100, high * 100)) / 100
@@ -224,8 +231,8 @@ def generate(username, end_day):
                 row.tags = [*row.tags, tag_ids["公费报销"]]
             expenses.append(row)
 
-        for i in range(50):
-            day = start + timedelta(days=(i * 13 + 4) % 90)
+        for i in range(income_count):
+            day = start + timedelta(days=(i * 13 + 4) % days)
             category = income_names[i % len(income_names)]
             key = rng.choice(["bank", "usd", "eur"])
             value = rng.randint(18000, 32000) if category == "工资薪酬" else rng.randint(100, 3500)
@@ -234,8 +241,8 @@ def generate(username, end_day):
         refundable = [t for t in expenses if t.transacted_at <= end_day - timedelta(days=15)]
         rng.shuffle(refundable)
         used = set()
-        for i in range(80):
-            if i >= 70:
+        for i in range(refund_count):
+            if i >= refund_count - merged_refund_count:
                 groups = defaultdict(list)
                 for t in refundable:
                     if t.id not in used:
@@ -245,8 +252,8 @@ def generate(username, end_day):
                 scenario = "多笔消费合并退款"
             else:
                 originals = [next(t for t in refundable if t.id not in used)]
-                quantities = [money(originals[0].original_amount * (Decimal(1) if i < 40 else Decimal("0.35")))]
-                scenario = "全额退款" if i < 40 else "部分退款"
+                quantities = [money(originals[0].original_amount * (Decimal(1) if i < refund_count // 2 else Decimal("0.35")))]
+                scenario = "全额退款" if i < refund_count // 2 else "部分退款"
             used.update(t.id for t in originals)
             original = originals[0]
             day = max(t.transacted_at for t in originals) + timedelta(days=rng.randint(2, 12))
@@ -258,9 +265,9 @@ def generate(username, end_day):
             for prior, quantity in zip(originals, quantities):
                 allocate(session, user, refund, prior, quantity=quantity)
 
-        for i in range(100):
-            day = start + timedelta(days=(i * 7 + 10) % 90)
-            repayment = i >= 60
+        for i in range(pair_count):
+            day = start + timedelta(days=(i * 7 + 10) % days)
+            repayment = i >= pair_count * 3 // 5
             if repayment:
                 source, destination = (accounts["bank"], accounts["credit"]) if i % 2 == 0 else (accounts["usd"], accounts["usd_credit"])
                 value = Decimal(rng.randint(100, 1400) if source.currency == "CNY" else rng.randint(20, 180))
@@ -278,14 +285,14 @@ def generate(username, end_day):
             outflow.transfer_id = inflow.transfer_id = pair.id
             session.add_all([outflow, inflow])
 
-        for i in range(20):
+        for i in range(adjustment_count):
             account = rng.choice(list(accounts.values()))
             direction = "decrease" if i % 2 else "increase"
-            add(account, start + timedelta(days=(i * 11) % 90), Decimal(rng.randint(100, 8000)) / 100,
+            add(account, start + timedelta(days=(i * 11) % days), Decimal(rng.randint(100, 8000)) / 100,
                 account.currency, "余额对账·减少" if direction == "decrease" else "余额对账·增加", kind="adjustment",
                 scenario="对账调整", extra={"direction": direction})
 
-        split_expenses = [t for t in expenses if t.id not in used][:40]
+        split_expenses = [t for t in expenses if t.id not in used][:split_count]
         for row in split_expenses:
             first, second = money(row.amount * Decimal("0.5")), money(row.amount * Decimal("0.3"))
             row.is_split = True
@@ -293,8 +300,8 @@ def generate(username, end_day):
             for amount, category in zip([first, second, row.amount - first - second], ["超市便利", "生活缴费", "购物消费"]):
                 session.add(TransactionSplit(transaction_id=row.id, category_id=categories[category].id, amount=amount, notes="模拟账单分类拆分"))
         session.flush()
-        if len(created) != 1000 or session.exec(select(func.count()).select_from(Transaction)).one() != before_total + 1000:
-            raise RuntimeError("The batch must add exactly 1000 rows")
+        if len(created) != count or session.exec(select(func.count()).select_from(Transaction)).one() != before_total + count:
+            raise RuntimeError("The batch must add exactly the requested number of rows")
         # Validate every new relationship directly. Old invalid rows belonging
         # to other users must neither be deleted nor hide an invalid new row.
         by_id = {t.id: t for t in created}
@@ -308,7 +315,7 @@ def generate(username, end_day):
                 assert row.master_account_id == account.parent_account_id and row.master_settlement_amount > 0
                 assert row.master_settlement_currency == account_by_id[account.parent_account_id].currency
         pairs = session.exec(select(Transfer).where(Transfer.outflow_transaction_id.in_(by_id))).all()
-        assert len(pairs) == 100
+        assert len(pairs) == pair_count
         for pair in pairs:
             outgoing, incoming = by_id[pair.outflow_transaction_id], by_id[pair.inflow_transaction_id]
             assert pair.family_id == user.family_id and outgoing.currency == incoming.currency
@@ -317,7 +324,7 @@ def generate(username, end_day):
             assert outgoing.extra['direction'] == 'outflow' and incoming.extra['direction'] == 'inflow'
         refund_ids = [t.id for t in created if t.transaction_type == 'refund']
         allocations = session.exec(select(RefundAllocation).where(RefundAllocation.refund_transaction_id.in_(refund_ids))).all()
-        assert len(allocations) == 90
+        assert len(allocations) == refund_count + merged_refund_count
         original_used, refund_used = defaultdict(Decimal), defaultdict(Decimal)
         for link in allocations:
             original, linked_refund = by_id[link.original_transaction_id], by_id[link.refund_transaction_id]
@@ -335,7 +342,7 @@ def generate(username, end_day):
         for part in splits:
             assert part.amount > 0 and session.get(Category, part.category_id).family_id == user.family_id
             split_totals[part.transaction_id] += part.amount
-        assert len(split_totals) == 40 and all(value == by_id[key].amount for key, value in split_totals.items())
+        assert len(split_totals) == split_count and all(value == by_id[key].amount for key, value in split_totals.items())
         problems = sqlite_integrity_problems(session.connection().connection.driver_connection)
         if set(problems) - set(old_integrity):
             raise RuntimeError("Integrity validation failed; import rolled back: " + "; ".join(problems))
@@ -345,7 +352,7 @@ def generate(username, end_day):
             "original_currencies": dict(Counter(t.original_currency for t in created)),
             "foreign_booking_count": sum(t.original_currency != t.currency for t in created),
             "master_settlement_count": sum(t.master_account_id is not None for t in created),
-            "transfer_pairs": 100, "refund_rows": 80, "refund_allocations": 90, "split_transactions": len(split_expenses),
+            "transfer_pairs": pair_count, "refund_rows": refund_count, "refund_allocations": len(allocations), "split_transactions": len(split_expenses),
             "accounts": [{"id": str(a.id), "name": a.name, "currency": a.currency} for a in accounts.values()],
             "example_expense_id": str(next(t.id for t in expenses if t.original_currency != t.currency)),
             "example_refund_id": str(refund.id), "example_transfer_id": str(outflow.id),
@@ -368,5 +375,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--username", default="jj")
     parser.add_argument("--end-date", type=date.fromisoformat, default=datetime.now(LOCAL_TZ).date() - timedelta(days=1))
+    parser.add_argument("--days", type=int, default=90)
+    parser.add_argument("--count", type=int, default=1000)
     args = parser.parse_args()
-    generate(args.username, args.end_date)
+    generate(args.username, args.end_date, args.days, args.count)

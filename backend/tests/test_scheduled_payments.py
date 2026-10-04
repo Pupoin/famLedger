@@ -261,6 +261,19 @@ def test_cross_currency_bank_debit_is_fixed_and_imports_both_transfer_legs(auth_
     for data in [original,incoming]:
         assert auth_client_a.post('/api/v1/transactions',json=data).json()['status']=='duplicate'
     assert value(auth_client_a,source)==6500 and value(auth_client_a,target)==712
+    from services.data_integrity import sqlite_integrity_problems
+    assert sqlite_integrity_problems(db.connection().connection.driver_connection) == []
+    receipt = db.exec(select(Transaction).where(Transaction.account_id == uuid.UUID(target), Transaction.transfer_id.is_not(None))).one()
+    native_amount = receipt.original_amount
+    for bad_amount, bad_currency in [(native_amount + 1, 'USD'), (native_amount, None), (None, 'USD')]:
+        receipt.original_amount, receipt.original_currency = bad_amount, bad_currency
+        db.add(receipt)
+        db.commit()
+        assert 'Invalid transfer family, currency or amount' in sqlite_integrity_problems(db.connection().connection.driver_connection)
+    receipt.original_amount, receipt.original_currency = native_amount, 'USD'
+    db.add(receipt)
+    db.commit()
+    assert sqlite_integrity_problems(db.connection().connection.driver_connection) == []
     # Undo removes bank aliases along with the generated ledger entries.
     assert perform(auth_client_a,plan,action='undo').status_code==200
     assert value(auth_client_a,source)==10000 and value(auth_client_a,target)==1200

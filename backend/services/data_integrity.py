@@ -48,8 +48,10 @@ def sqlite_integrity_problems(connection):
     check({"transactions": ["account_id", "category_id"], "accounts": ["id", "family_id"], "categories": ["id", "family_id"]},
           "SELECT 1 FROM transactions t JOIN accounts a ON a.id=t.account_id LEFT JOIN categories c ON c.id=t.category_id WHERE t.category_id IS NOT NULL AND (c.id IS NULL OR c.family_id IS NOT a.family_id) LIMIT 1",
           "Transaction category belongs to another family")
-    check({"transfers": ["family_id", "outflow_transaction_id", "inflow_transaction_id"], "transactions": ["id", "account_id", "amount", "currency"], "accounts": ["id", "family_id"]},
-          "SELECT 1 FROM transfers r LEFT JOIN transactions o ON o.id=r.outflow_transaction_id LEFT JOIN transactions i ON i.id=r.inflow_transaction_id LEFT JOIN accounts a ON a.id=o.account_id LEFT JOIN accounts b ON b.id=i.account_id WHERE o.id IS NULL OR i.id IS NULL OR o.id=i.id OR a.family_id IS NOT r.family_id OR b.family_id IS NOT r.family_id OR o.currency IS NOT i.currency OR ABS(o.amount-i.amount)>0.00001 LIMIT 1",
+    # Paired legs may settle in different account currencies. Compare their
+    # shared original amount when the booked amounts cannot be compared.
+    check({"transfers": ["family_id", "outflow_transaction_id", "inflow_transaction_id"], "transactions": ["id", "account_id", "amount", "currency", "original_amount", "original_currency"], "accounts": ["id", "family_id"]},
+          "SELECT 1 FROM transfers r LEFT JOIN transactions o ON o.id=r.outflow_transaction_id LEFT JOIN transactions i ON i.id=r.inflow_transaction_id LEFT JOIN accounts a ON a.id=o.account_id LEFT JOIN accounts b ON b.id=i.account_id WHERE o.id IS NULL OR i.id IS NULL OR o.id=i.id OR a.family_id IS NOT r.family_id OR b.family_id IS NOT r.family_id OR NOT ((o.currency=i.currency AND ABS(o.amount-i.amount)<=0.00001) OR (o.original_currency IS NOT NULL AND i.original_currency IS NOT NULL AND o.original_currency=i.original_currency AND o.original_amount IS NOT NULL AND i.original_amount IS NOT NULL AND o.original_amount>0 AND i.original_amount>0 AND ABS(o.original_amount-i.original_amount)<=0.00001)) LIMIT 1",
           "Invalid transfer family, currency or amount")
     check({"transfers": ["amount", "outflow_transaction_id"], "transactions": ["id", "amount"]},
           "SELECT 1 FROM transfers r JOIN transactions t ON t.id=r.outflow_transaction_id WHERE r.amount<=0 OR ABS(r.amount-ABS(t.amount))>0.00001 LIMIT 1",
