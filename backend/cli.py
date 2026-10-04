@@ -73,7 +73,7 @@ def _cmd_import(args) -> int:
     print(format_fingerprint(result["fingerprint"]))
     print()
     print("Checksum and fingerprint both verified. Start the app to let it stamp")
-    print("the schema version and take its first backup.")
+    print("the schema version. Development mode does not create automatic backups.")
     return 0
 
 
@@ -81,7 +81,7 @@ def _cmd_verify(args) -> int:
     if args.db:
         db_path = Path(args.db)
     else:
-        db_path = _resolve_data_dir(args.data_dir) / "mosaic.db"
+        db_path = _resolve_data_dir(args.data_dir) / "famledger.db"
     if not db_path.exists():
         print(f"No database at {db_path}", file=sys.stderr)
         return 1
@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_verify = sub.add_parser(
         "verify", help="Print the data fingerprint of a live database."
     )
-    p_verify.add_argument("--db", help="Path to a mosaic.db (default: <data-dir>/mosaic.db).")
+    p_verify.add_argument("--db", help="Path to a famledger.db (default: <data-dir>/famledger.db).")
     p_verify.set_defaults(func=_cmd_verify)
 
     p_inspect = sub.add_parser(

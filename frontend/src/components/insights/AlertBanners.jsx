@@ -1,7 +1,9 @@
+import { categoryLabel, tx, useLocale } from "../../localization.js";
 import { CATEGORY_ICONS } from "../../constants/categories";
 import { useCurrency } from "../../CurrencyContext";
 
 export default function AlertBanners({ recurring_alerts = [], new_subscription_alerts = [], category_trend_alerts = [], mode }) {
+  useLocale();
   const { fmt } = useCurrency();
   const isPersonal = mode === "personal";
 
@@ -23,16 +25,15 @@ export default function AlertBanners({ recurring_alerts = [], new_subscription_a
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-on-surface">
-                {a.description}
-                <span className="font-normal text-on-surface-variant"> changed from </span>
-                {fmt(prevDisplay)}
-                <span className="font-normal text-on-surface-variant"> to </span>
+                {a.description}{' '}
+                <span className="font-normal text-on-surface-variant">{tx("changed from")}</span>{' '}
+                {fmt(prevDisplay)}{' '}
+                <span className="font-normal text-on-surface-variant">{tx("to")}</span>{' '}
                 {fmt(currDisplay)}
               </p>
-              <p className="text-xs text-on-surface-variant mt-0.5">
-                Recurring payment &middot; {a.category}
+              <p className="text-xs text-on-surface-variant mt-0.5">{tx("Recurring payment ·")} {categoryLabel(a.category)}
                 {!isPersonal && a.my_previous_avg != null && a.my_previous_avg !== a.previous_avg && (
-                  <span> &middot; Full: {fmt(a.previous_avg)} &rarr; {fmt(a.current_amount)}</span>
+                  <span>{tx("· Full:")} {fmt(a.previous_avg)} &rarr; {fmt(a.current_amount)}</span>
                 )}
               </p>
             </div>
@@ -61,21 +62,18 @@ export default function AlertBanners({ recurring_alerts = [], new_subscription_a
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-on-surface">
-                {a.description}
-                <span className="font-normal text-on-surface-variant"> looks like a new </span>
-                {(a.frequency || "").toLowerCase()} subscription
-              </p>
+                {a.description}{' '}
+                <span className="font-normal text-on-surface-variant">{tx("looks like a new")}</span>{' '}
+                {tx((a.frequency || "").toLowerCase())} {tx("subscription")}</p>
               <p className="text-xs text-on-surface-variant mt-0.5">
-                {a.category} &middot; {fmt(amountDisplay)}
+                {categoryLabel(a.category)} &middot; {fmt(amountDisplay)}
                 {!isPersonal && a.my_amount != null && a.my_amount !== a.amount && (
-                  <span> &middot; Full: {fmt(a.amount)}</span>
+                  <span>{tx("· Full:")} {fmt(a.amount)}</span>
                 )}
-                {a.occurrence_count != null && <span> &middot; seen {a.occurrence_count}x</span>}
+                {a.occurrence_count != null && <span>{tx("· seen")} {a.occurrence_count}x</span>}
               </p>
             </div>
-            <span className="px-3 py-1 rounded-full text-xs font-bold shrink-0 bg-secondary-container text-on-secondary-container">
-              New
-            </span>
+            <span className="px-3 py-1 rounded-full text-xs font-bold shrink-0 bg-secondary-container text-on-secondary-container">{tx("New")}</span>
           </div>
         );
       })}
@@ -100,15 +98,13 @@ export default function AlertBanners({ recurring_alerts = [], new_subscription_a
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-on-surface">
-              {a.category}
+              {categoryLabel(a.category)}
               <span className="font-normal text-on-surface-variant">
-                {" "}is {a.direction === "up" ? "up" : "down"} this month
-              </span>
+                {" "} {tx("is")} {a.direction === "up" ? tx("up") : tx("down")} {tx("this month")}</span>
             </p>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              {fmt(a.current_month_amount)} vs your usual {fmt(a.three_month_avg)} by now
-              {!isPersonal && a.shared_current_month_amount != null && a.shared_current_month_amount !== a.current_month_amount && (
-                <span> &middot; Shared: {fmt(a.shared_current_month_amount)}</span>
+              {fmt(a.current_month_amount)} {tx("vs your usual")} {fmt(a.three_month_avg)} {tx("by now")} {!isPersonal && a.shared_current_month_amount != null && a.shared_current_month_amount !== a.current_month_amount && (
+                <span>{tx("· Shared:")} {fmt(a.shared_current_month_amount)}</span>
               )}
             </p>
           </div>

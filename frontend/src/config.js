@@ -1,3 +1,4 @@
+import { tx } from "./localization.js";
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 const config = {
@@ -11,7 +12,7 @@ export default config;
 export async function fetchAppConfig() {
   try {
     const res = await fetch(`${API_BASE}/config`);
-    if (!res.ok) throw new Error("Failed to fetch config");
+    if (!res.ok) throw new Error(tx("Failed to fetch config"));
     return await res.json();
   } catch {
     return { userA: "", userB: "", mode: "personal", user_count: 0 };

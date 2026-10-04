@@ -5,17 +5,14 @@ import { DateFormatProvider } from "./DateFormatContext";
 import ErrorBoundary from "./ErrorBoundary";
 import SureLayout from "./components/SureLayout";
 import Landing from "./pages/Landing";
-import AddExpense from "./pages/AddExpense";
-import AddNew from "./pages/AddNew";
-import History from "./pages/History";
 import Login from "./pages/Login";
 import CreateAccount from "./pages/CreateAccount";
 import ForgotPassword from "./pages/ForgotPassword";
 import Settings from "./pages/Settings";
-import RulesPage from "./pages/RulesPage";
+
 import DebtsPage from "./pages/DebtsPage";
-import EmailsPage from "./pages/EmailsPage";
 import TransactionsPage from "./pages/TransactionsPage";
+import AccountDetailPage from "./pages/AccountDetailPage";
 import ModeSwitchBanner from "./components/ModeSwitchBanner";
 
 // A lazily loaded route whose chunk fails to load almost always means this tab
@@ -60,7 +57,6 @@ function lazyWithReload(importer) {
 }
 
 const Analytics = lazyWithReload(() => import("./pages/Analytics"));
-const Calendar = lazyWithReload(() => import("./pages/Calendar"));
 const Insights = lazyWithReload(() => import("./pages/Insights"));
 const BudgetsPage = lazyWithReload(() => import("./pages/BudgetsPage"));
 
@@ -86,15 +82,15 @@ export default function App() {
   }
 
   return (
-    <DateFormatProvider>
+    <DateFormatProvider key={user?.username}>
       <SureLayout>
         <ModeSwitchBanner />
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/add" element={<AddNew />} />
-            <Route path="/edit/:id" element={<AddExpense />} />
-            <Route path="/add-income" element={<Navigate to="/add?tab=income" replace />} />
+            <Route path="/add" element={<Navigate to="/transactions" replace />} />
+            <Route path="/edit/:id" element={<Navigate to="/transactions" replace />} />
+            <Route path="/add-income" element={<Navigate to="/transactions" replace />} />
             <Route path="/analytics" element={
               <Suspense fallback={
                 <div className="flex items-center justify-center h-64">
@@ -104,15 +100,7 @@ export default function App() {
                 <Analytics />
               </Suspense>
             } />
-            <Route path="/calendar" element={
-              <Suspense fallback={
-                <div className="flex items-center justify-center h-64">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-                </div>
-              }>
-                <Calendar />
-              </Suspense>
-            } />
+            <Route path="/calendar" element={<Navigate to="/" replace />} />
             <Route path="/insights" element={
               <Suspense fallback={
                 <div className="flex items-center justify-center h-64">
@@ -124,6 +112,7 @@ export default function App() {
             } />
             <Route path="/history" element={<TransactionsPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
             <Route path="/budget" element={
               <Suspense fallback={
                 <div className="flex items-center justify-center h-64">
@@ -133,9 +122,8 @@ export default function App() {
                 <BudgetsPage />
               </Suspense>
             } />
-            <Route path="/rules" element={<RulesPage />} />
+            <Route path="/rules" element={<Navigate to="/settings?tab=rules" replace />} />
             <Route path="/debts" element={<DebtsPage />} />
-            <Route path="/emails" element={<EmailsPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

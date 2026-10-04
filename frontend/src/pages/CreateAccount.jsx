@@ -1,3 +1,4 @@
+import { tx, useLocale } from "../localization.js";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -8,6 +9,7 @@ import config from "../config";
 const CUSTOM_QUESTION = "__custom__";
 
 export default function CreateAccount() {
+  useLocale();
   const { login } = useAuth();
   const { refreshConfig } = useUsers();
   const navigate = useNavigate();
@@ -41,7 +43,7 @@ export default function CreateAccount() {
     setError("");
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(tx("Passwords do not match"));
       return;
     }
 
@@ -49,11 +51,11 @@ export default function CreateAccount() {
       selectedQuestion === CUSTOM_QUESTION ? customQuestion : selectedQuestion;
 
     if (!securityQuestion) {
-      setError("Please select a security question");
+      setError(tx("Please select a security question"));
       return;
     }
     if (!securityAnswer.trim()) {
-      setError("Please provide a security answer");
+      setError(tx("Please provide a security answer"));
       return;
     }
 
@@ -81,7 +83,7 @@ export default function CreateAccount() {
       await login(username, password);
       await refreshConfig();
     } catch (err) {
-      setError(err.message || "Registration failed");
+      setError(tx(err.message || "Registration failed"));
     } finally {
       setSubmitting(false);
     }
@@ -94,15 +96,11 @@ export default function CreateAccount() {
           <h1 className="font-headline text-2xl font-extrabold text-primary tracking-tight mb-4">
             {config.appName}
           </h1>
-          <p className="text-on-surface-variant text-sm">
-            Maximum accounts reached. Only 2 accounts are allowed.
-          </p>
+          <p className="text-on-surface-variant text-sm">{tx("Maximum accounts reached. Only 2 accounts are allowed.")}</p>
           <button
             onClick={() => navigate("/")}
             className="mt-6 text-primary font-bold text-sm hover:underline"
-          >
-            Back to Sign In
-          </button>
+          >{tx("Back to Sign In")}</button>
         </div>
       </div>
     );
@@ -118,24 +116,22 @@ export default function CreateAccount() {
             </h1>
             <p className="text-on-surface-variant text-sm font-medium mt-1">
               {accountStatus?.user_count === 0
-                ? "Welcome! Create the first account."
-                : "Create the second account."}
+                ? tx("Welcome! Create the first account.")
+                : tx("Create the second account.")}
             </p>
           </div>
 
           {error && (
             <div className="bg-error-container/20 border border-error/20 text-error px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
               <span className="material-symbols-outlined text-sm">error</span>
-              {error}
+              {tx(error)}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Display Name */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Display Name
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Display Name")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                 <span className="material-symbols-outlined text-primary/60 mr-3">
                   badge
@@ -144,7 +140,7 @@ export default function CreateAccount() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="How others will see you"
+                  placeholder={tx("How others will see you")}
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                   minLength={2}
@@ -156,9 +152,7 @@ export default function CreateAccount() {
 
             {/* Username */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Username
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Username")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                 <span className="material-symbols-outlined text-primary/60 mr-3">
                   person
@@ -167,22 +161,20 @@ export default function CreateAccount() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Login username"
+                  placeholder={tx("Login username")}
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                   minLength={2}
                   maxLength={50}
                   pattern="[a-zA-Z0-9_-]+"
-                  title="Alphanumeric characters, underscores, and hyphens only"
+                  title={tx("Alphanumeric characters, underscores, and hyphens only")}
                 />
               </div>
             </div>
 
             {/* Password */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Password
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Password")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                 <span className="material-symbols-outlined text-primary/60 mr-3">
                   lock
@@ -191,7 +183,7 @@ export default function CreateAccount() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder={tx("At least 6 characters")}
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                   minLength={6}
@@ -201,9 +193,7 @@ export default function CreateAccount() {
 
             {/* Confirm Password */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Confirm Password
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Confirm Password")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                 <span className="material-symbols-outlined text-primary/60 mr-3">
                   lock
@@ -212,7 +202,7 @@ export default function CreateAccount() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat your password"
+                  placeholder={tx("Repeat your password")}
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                   minLength={6}
@@ -222,9 +212,7 @@ export default function CreateAccount() {
 
             {/* Security Question */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Security Question
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Security Question")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 focus-within:bg-surface-container-lowest transition-colors">
                 <select
                   value={selectedQuestion}
@@ -232,13 +220,13 @@ export default function CreateAccount() {
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                 >
-                  <option value="">Select a question...</option>
+                  <option value="">{tx("Select a question...")}</option>
                   {presetQuestions.map((q) => (
                     <option key={q} value={q}>
                       {q}
                     </option>
                   ))}
-                  <option value={CUSTOM_QUESTION}>Write your own...</option>
+                  <option value={CUSTOM_QUESTION}>{tx("Write your own...")}</option>
                 </select>
               </div>
               {selectedQuestion === CUSTOM_QUESTION && (
@@ -247,7 +235,7 @@ export default function CreateAccount() {
                     type="text"
                     value={customQuestion}
                     onChange={(e) => setCustomQuestion(e.target.value)}
-                    placeholder="Type your custom question"
+                    placeholder={tx("Type your custom question")}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                     required
                     maxLength={300}
@@ -258,9 +246,7 @@ export default function CreateAccount() {
 
             {/* Security Answer */}
             <div className="flex flex-col">
-              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                Security Answer
-              </label>
+              <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Security Answer")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                 <span className="material-symbols-outlined text-primary/60 mr-3">
                   key
@@ -269,7 +255,7 @@ export default function CreateAccount() {
                   type="text"
                   value={securityAnswer}
                   onChange={(e) => setSecurityAnswer(e.target.value)}
-                  placeholder="Your answer (case-insensitive)"
+                  placeholder={tx("Your answer (case-insensitive)")}
                   className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                   required
                 />
@@ -282,7 +268,7 @@ export default function CreateAccount() {
               className="w-full h-14 rounded-full bg-gradient-to-r from-primary to-primary-dim text-on-primary font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60 mt-2"
             >
               <span className="material-symbols-outlined">person_add</span>
-              {submitting ? "Creating..." : "Create Account"}
+              {submitting ? tx("Creating...") : tx("Create Account")}
             </button>
           </form>
 
@@ -290,9 +276,7 @@ export default function CreateAccount() {
             <button
               onClick={() => navigate("/")}
               className="text-primary font-bold text-sm hover:underline"
-            >
-              Already have an account? Sign In
-            </button>
+            >{tx("Already have an account? Sign In")}</button>
           </div>
         </div>
       </div>

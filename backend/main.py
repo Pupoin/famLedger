@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,9 +23,8 @@ from database import (
     DATA_DIR,
     get_session,
 )
-from routes import expenses, analytics, export, insights, income
+from routes import analytics, export, insights
 from routes import (
-    v1_imports,
     v1_transactions,
     v1_accounts,
     v1_categories,
@@ -35,10 +34,17 @@ from routes import (
     v1_refunds,
     v1_oidc,
     v1_dashboard,
+    v1_family,
+    v1_tags,
+    v1_budgets,
+    v1_api_keys,
+    v1_pending_fx,
+    v1_schedules,
 )
 from auth import router as auth_router
 from services.audit import audit_logger
 from services.backup import BackupManager
+from services.card_sharing import detach_unshared_cards
 from services.schema import (
     SCHEMA_VERSION,
     assert_schema_not_newer,
@@ -155,7 +161,8 @@ def _assert_backup_mirror_usable() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _warn_if_insecure_cookie_config()
-    _assert_backup_mirror_usable()
+    if os.getenv("ENV", "development") != "development":
+        _assert_backup_mirror_usable()
 
     # Integrity is checked BEFORE any DDL runs. The previous order created
     # tables and ran ALTERs first, i.e. it wrote to a database it had not yet
@@ -172,29 +179,50 @@ async def lifespan(app: FastAPI):
     # Refuse a database written by a newer Mosaic before touching it — older
     # code cannot safely write to a schema it doesn't know about.
     assert_schema_not_newer(engine)
-
     create_db_and_tables()
     sync_schema(engine)
     set_db_schema_version(engine)
 
-    backup_mgr = BackupManager(
-        db_path=DB_PATH,
-        audit_log_path=audit_logger.log_path,
-        backup_dir=BACKUP_DIR,
-        max_backups=MAX_BACKUPS,
-        backup_every_n_mutations=BACKUP_EVERY_N_MUTATIONS,
-        uploads_dir=UPLOADS_DIR,
-        mirror_dir=BACKUP_MIRROR_DIR,
-    )
-    backup_mgr.create_backup()
-    audit_logger.on_mutation = backup_mgr.notify_mutation
+    from services.mutations import set_listener
+    set_listener(None)
+    # Development does not create startup or mutation-triggered backups.
+    # Production keeps the current-format recovery facility.
+    if os.getenv("ENV", "development") != "development":
+        backup_mgr = BackupManager(
+            db_path=DB_PATH, audit_log_path=audit_logger.log_path,
+            backup_dir=BACKUP_DIR, max_backups=MAX_BACKUPS,
+            backup_every_n_mutations=BACKUP_EVERY_N_MUTATIONS,
+            uploads_dir=UPLOADS_DIR, mirror_dir=BACKUP_MIRROR_DIR,
+        )
+        backup_mgr.create_backup()
+        set_listener(backup_mgr.notify_mutation)
 
-    yield
-
-    audit_logger.on_mutation = None
+    from routes.v1_pending_fx import start_retry_worker
+    stopped, worker = start_retry_worker(engine)
+    from services.schedules import start_worker
+    schedules_stopped, schedules_worker = start_worker(engine)
+    try:
+        yield
+    finally:
+        stopped.set()
+        worker.join(timeout=1)
+        schedules_stopped.set()
+        schedules_worker.join(timeout=2)
+        set_listener(None)
 
 
 app = FastAPI(title="famLedger API", lifespan=lifespan)
+app.include_router(v1_schedules.router, prefix="/api")
+
+from services.csrf import protect_cookie_write
+app.middleware("http")(protect_cookie_write)
+
+from sqlalchemy.exc import IntegrityError
+
+@app.exception_handler(IntegrityError)
+async def integrity_conflict(request, exc):
+    return JSONResponse(status_code=409, content={"detail": "数据约束冲突，请刷新后重试或检查重复记录"})
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -204,14 +232,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from services.booking_money import PendingExchangeRate
+@app.exception_handler(PendingExchangeRate)
+async def unavailable_booking_rate(request, error):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=502, content={"detail": "指定日期汇率暂不可用，请稍后重试或确认实际结算金额"})
+
 app.include_router(auth_router, prefix="/api")
-app.include_router(expenses.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(insights.router, prefix="/api")
-app.include_router(income.router, prefix="/api")
-app.include_router(v1_imports.router, prefix="/api")
 app.include_router(v1_transactions.router, prefix="/api")
+app.include_router(v1_pending_fx.router, prefix="/api")
 app.include_router(v1_accounts.router, prefix="/api")
 app.include_router(v1_categories.router, prefix="/api")
 app.include_router(v1_rules.router, prefix="/api")
@@ -220,6 +252,10 @@ app.include_router(v1_transfers.router, prefix="/api")
 app.include_router(v1_refunds.router, prefix="/api")
 app.include_router(v1_oidc.router, prefix="/api")
 app.include_router(v1_dashboard.router, prefix="/api")
+app.include_router(v1_family.router, prefix="/api")
+app.include_router(v1_tags.router, prefix="/api")
+app.include_router(v1_budgets.router, prefix="/api")
+app.include_router(v1_api_keys.router, prefix="/api")
 
 
 @app.get("/api/health")
@@ -254,12 +290,32 @@ def health():
 
 
 @app.get("/api/config")
-def get_app_config(session: Session = Depends(get_session)):
-    """Public endpoint returning display names and app mode."""
+def get_app_config(
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+):
+    """Endpoint returning display names and app mode. Scoped to current user's family or placeholders."""
+    from models import User
+    from sqlmodel import select
     mode = get_app_mode(session)
-    a, b = get_display_names(session)
     count = get_user_count(session)
-    return {"userA": a, "userB": b, "mode": mode, "user_count": count}
+    try:
+        user = get_current_user(request, response, session)
+    except Exception:
+        user = None
+
+    if user:
+        user_db = session.exec(select(User).where(User.username == user)).first()
+        if user_db and user_db.family_id:
+            fam_users = session.exec(
+                select(User).where(User.family_id == user_db.family_id).order_by(User.created_at)
+            ).all()
+            a = fam_users[0].display_name if len(fam_users) > 0 else "用户A"
+            b = fam_users[1].display_name if len(fam_users) > 1 else "用户B"
+            return {"userA": a, "userB": b, "mode": mode, "user_count": len(fam_users)}
+
+    return {"userA": "用户A", "userB": "用户B", "mode": mode, "user_count": 0}
 
 
 @app.get("/api/settings")
@@ -278,22 +334,18 @@ def update_settings(
     session: Session = Depends(get_session),
     current_user: str = Depends(get_current_user),
 ):
-    from models import Settings
+    from models import Settings, User
+    from sqlmodel import select
+
+    user_db = session.exec(select(User).where(User.username == current_user)).first()
+    if not user_db or user_db.role != "admin":
+        raise HTTPException(status_code=403, detail="仅系统管理员有权修改全局系统设置")
+
     new_mode = payload.app_mode
     if new_mode not in VALID_MODES:
         raise HTTPException(status_code=422, detail=f"app_mode must be one of: {', '.join(VALID_MODES)}")
     if new_mode in ("shared", "blended") and get_user_count(session) < 2:
         raise HTTPException(status_code=409, detail="A second user must create an account before switching to this mode.")
-    # Only the primary (first-created) user may switch to personal mode — the
-    # secondary user could otherwise lock themselves (or the primary user, from
-    # the secondary's perspective) out of login, and login's error message for
-    # that case ("Invalid username or password") reads as a forgotten password,
-    # not a mode change. See review_order/06-backend-security-access.md #2.
-    if new_mode == "personal" and get_user_count(session) >= 2 and not is_primary_user(session, current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="Only the primary account holder can switch the app to personal mode.",
-        )
     old_mode = get_app_mode(session)
     row = session.get(Settings, 1)
     if row:
@@ -324,14 +376,26 @@ def get_user_preferences(
             "date_format": row.date_format,
             "currency": row.currency,
             "income_mode_enabled": row.income_mode_enabled,
+            "has_chosen_currency": bool(row.has_chosen_currency) if row.has_chosen_currency is not None else True,
+            "language": row.language,
+            "has_chosen_language": row.has_chosen_language,
         }
-    return {"date_format": "DD/MM/YYYY", "currency": "CAD", "income_mode_enabled": False}
+    return {
+        "date_format": "DD/MM/YYYY",
+        "currency": "CAD",
+        "income_mode_enabled": False,
+        "has_chosen_currency": False,
+        "language": "en",
+        "has_chosen_language": False,
+    }
 
 
 class UserPreferencesUpdate(BaseModel):
+    language: Optional[str] = None
     date_format: Optional[str] = None
     currency: Optional[str] = None
     income_mode_enabled: Optional[bool] = None
+    has_chosen_currency: Optional[bool] = None
 
 
 @app.put("/api/user-preferences")
@@ -342,6 +406,8 @@ def update_user_preferences(
 ):
     from models import UserPreference, VALID_DATE_FORMATS, VALID_CURRENCIES
     from sqlmodel import select
+    if payload.language is not None and payload.language not in ('en', 'zh'):
+        raise HTTPException(status_code=422, detail='language must be en or zh')
     if payload.date_format is not None and payload.date_format not in VALID_DATE_FORMATS:
         raise HTTPException(
             status_code=422,
@@ -354,19 +420,38 @@ def update_user_preferences(
         )
     row = session.exec(select(UserPreference).where(UserPreference.username == current_user)).first()
     if not row:
-        row = UserPreference(username=current_user)
+        row = UserPreference(username=current_user, has_chosen_language=False)
+    if payload.language is not None:
+        row.language = payload.language
+        row.has_chosen_language = True
     if payload.date_format is not None:
         row.date_format = payload.date_format
     if payload.currency is not None:
         row.currency = payload.currency
+    if payload.has_chosen_currency is not None:
+        row.has_chosen_currency = payload.has_chosen_currency
     if payload.income_mode_enabled is not None:
         row.income_mode_enabled = payload.income_mode_enabled
     session.add(row)
+
+    # 若用户处于单人独立家庭空间，且自主更新了币种，联动将其个人空间基准币种同步
+    if payload.currency is not None:
+        from models import User, Family
+        user_rec = session.exec(select(User).where(User.username == current_user)).first()
+        if user_rec and user_rec.family_id:
+            fam = session.get(Family, user_rec.family_id)
+            if fam and (getattr(fam, "is_solo", False) or fam.kind == "personal"):
+                fam.currency = payload.currency
+                session.add(fam)
+
     session.commit()
     return {
         "date_format": row.date_format,
         "currency": row.currency,
         "income_mode_enabled": row.income_mode_enabled,
+        "has_chosen_currency": getattr(row, "has_chosen_currency", True),
+        "language": row.language,
+        "has_chosen_language": row.has_chosen_language,
     }
 
 
@@ -442,8 +527,15 @@ def mount_spa(target_app: FastAPI, dist_dir: Path) -> None:
         name="assets",
     )
 
-    @target_app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
+    @target_app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"], include_in_schema=False)
+    async def serve_spa(request: Request, full_path: str):
+        # 排除 API 路由，确保未匹配的 API 请求始终返回 404 而不是 SPA HTML 或 405
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+
+        if request.method not in ("GET", "HEAD"):
+            raise HTTPException(status_code=405, detail="Method Not Allowed")
+
         candidate = resolve_spa_path(full_path, dist_dir, dist_dir_resolved)
         if candidate is None:
             raise HTTPException(status_code=404)

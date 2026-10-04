@@ -34,14 +34,11 @@ SECRET_KEY = "test-secret-key-for-unit-tests-only"
 SECURITY_QUESTION = "What is your favorite color?"
 SECURITY_ANSWER = "blue"
 
-_hash_a = bcrypt.hashpw(PASSWORD_A.encode(), bcrypt.gensalt()).decode()
-_hash_b = bcrypt.hashpw(PASSWORD_B.encode(), bcrypt.gensalt()).decode()
-_answer_hash = bcrypt.hashpw(SECURITY_ANSWER.encode(), bcrypt.gensalt()).decode()
-
 _config = types.ModuleType("config")
 _config.SECRET_KEY = SECRET_KEY
 _config.BACKUP_PATH = ""
 _config.VALID_MODES = {"personal", "shared", "blended"}
+_config.settings = _config
 
 def _get_app_mode(session) -> str:
     """Delegate to the real get_app_mode (config.example.py) rather than
@@ -60,14 +57,27 @@ sys.modules["config"] = _config
 os.environ["SECRET_KEY"] = SECRET_KEY
 
 # ── 2. Now safe to import app modules ───────────────────────────────
-from sqlalchemy import text
+from sqlalchemy import text, event
+from sqlalchemy.engine import Engine
+import sqlite3
+
+@event.listens_for(Engine, "connect")
+def _enable_test_foreign_keys(connection, record):
+    if isinstance(connection, sqlite3.Connection):
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=10000")
+
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 from fastapi.testclient import TestClient
 
 import database
 from main import app
-from models import Expense, User
+from models import User
+from auth import hash_password, _hash_answer
+_hash_a = hash_password(PASSWORD_A)
+_hash_b = hash_password(PASSWORD_B)
+_answer_hash = _hash_answer(SECURITY_ANSWER)
 from services.audit import AuditLogger
 
 # ── 3. In-memory test database (shared via StaticPool) ──────────────
@@ -102,13 +112,15 @@ app.router.lifespan_context = _test_lifespan
 @pytest.fixture(autouse=True)
 def _clean_db():
     """Ensure tables exist before each test, seed users, clear data after."""
+    app.dependency_overrides[database.get_session] = _get_test_session
     SQLModel.metadata.create_all(_test_engine)
 
     # Seed test users into the User table
     with Session(_test_engine) as s:
         # Clear existing users and settings first
-        s.execute(text("DELETE FROM users"))
-        s.execute(text("DELETE FROM settings"))
+        s.execute(text("PRAGMA defer_foreign_keys=ON"))
+        for table in reversed(SQLModel.metadata.sorted_tables):
+            s.execute(table.delete())
         s.add(User(
             username=USER_A_LOGIN,
             display_name=USER_A,
@@ -123,14 +135,7 @@ def _clean_db():
             security_question=SECURITY_QUESTION,
             security_answer_hash=_answer_hash,
         ))
-        # Mirrors what actually happens in production the moment a 2nd user
-        # registers (see main.py/auth.py — registering the 2nd account
-        # auto-switches app_mode to "shared"). Seeding users directly like
-        # this bypasses that endpoint, so without this row every test would
-        # start from the *real* no-Settings-row default of "personal" instead
-        # — which is a fine scenario for one dedicated test (see
-        # test_settings_default_mode) but not a realistic baseline for the
-        # rest of a two-user test suite.
+        # Start mode tests from an explicit shared setting; registration does not change it.
         from models import Settings
         s.add(Settings(id=1, app_mode="shared"))
         s.commit()
@@ -138,12 +143,9 @@ def _clean_db():
     yield
 
     with Session(_test_engine) as s:
-        s.execute(text("DELETE FROM expense"))
-        s.execute(text("DELETE FROM income"))
-        s.execute(text("DELETE FROM settings"))
-        s.execute(text("DELETE FROM dismissedmerge"))
-        s.execute(text("DELETE FROM userpreference"))
-        s.execute(text("DELETE FROM users"))
+        s.execute(text("PRAGMA defer_foreign_keys=ON"))
+        for table in reversed(SQLModel.metadata.sorted_tables):
+            s.execute(table.delete())
         s.commit()
 
 
@@ -196,37 +198,27 @@ def _clear_insights_cache():
 def audit_log(tmp_path):
     """Redirect audit logging to a temp directory per test."""
     import services.audit as audit_mod
-    import routes.expenses as expenses_mod
-    import routes.income as income_mod
     import routes.insights as insights_mod
     import auth as auth_mod
     import main as main_mod
 
     test_logger = AuditLogger(tmp_path / "audit")
     old_audit = audit_mod.audit_logger
-    old_expenses = expenses_mod.audit_logger
-    old_income = income_mod.audit_logger
-    # routes/insights.py binds its own `audit_logger` at import time (for
-    # DISMISS_ALERT) and was missing from this list, so the alert-dismissal tests
-    # wrote to the *real* backend/audit/audit.jsonl — a tracked file in the repo.
-    # Entries from earlier runs had already been committed to it.
-    old_insights = insights_mod.audit_logger
+    old_insights = getattr(insights_mod, "audit_logger", None)
     old_auth = auth_mod.audit_logger
     old_main = main_mod.audit_logger
 
     audit_mod.audit_logger = test_logger
-    expenses_mod.audit_logger = test_logger
-    income_mod.audit_logger = test_logger
-    insights_mod.audit_logger = test_logger
+    if old_insights:
+        insights_mod.audit_logger = test_logger
     auth_mod.audit_logger = test_logger
     main_mod.audit_logger = test_logger
 
     yield test_logger
 
     audit_mod.audit_logger = old_audit
-    insights_mod.audit_logger = old_insights
-    expenses_mod.audit_logger = old_expenses
-    income_mod.audit_logger = old_income
+    if old_insights:
+        insights_mod.audit_logger = old_insights
     auth_mod.audit_logger = old_auth
     main_mod.audit_logger = old_main
 
@@ -234,14 +226,14 @@ def audit_log(tmp_path):
 @pytest.fixture
 def client():
     """Unauthenticated test client."""
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-FamLedger-CSRF": "1"}) as c:
         yield c
 
 
 @pytest.fixture
 def auth_client_a():
     """Test client authenticated as User A (Alice)."""
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-FamLedger-CSRF": "1"}) as c:
         resp = c.post("/api/auth/login", json={
             "username": USER_A_LOGIN,
             "password": PASSWORD_A,
@@ -253,7 +245,7 @@ def auth_client_a():
 @pytest.fixture
 def auth_client_b():
     """Test client authenticated as User B (Bob)."""
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-FamLedger-CSRF": "1"}) as c:
         resp = c.post("/api/auth/login", json={
             "username": USER_B_LOGIN,
             "password": PASSWORD_B,
@@ -305,3 +297,90 @@ def set_mode(db_session, mode: str) -> None:
         row = Settings(id=1, app_mode=mode)
     db_session.add(row)
     db_session.commit()
+
+
+@pytest.fixture
+def admin_client_a(auth_client_a, db):
+    from sqlmodel import select
+    user = db.exec(select(User).where(User.username == USER_A_LOGIN)).one()
+    user.role = "admin"
+    db.add(user)
+    db.commit()
+    return auth_client_a
+
+
+@pytest.fixture
+def service_family(db, monkeypatch):
+    from models import Family
+    family = Family(name='Explicit service test family')
+    db.add(family)
+    db.commit()
+    monkeypatch.setenv('FAMLEDGER_SERVICE_FAMILY_ID', str(family.id))
+    return family
+
+
+@pytest.fixture(autouse=True)
+def _bind_test_service_family(monkeypatch):
+    from models import Family
+    monkeypatch.delenv("FAMLEDGER_SERVICE_FAMILY_ID", raising=False)
+    def bind(mapper, connection, family):
+        if not os.getenv("FAMLEDGER_SERVICE_FAMILY_ID"):
+            monkeypatch.setenv("FAMLEDGER_SERVICE_FAMILY_ID", str(family.id))
+    event.listen(Family, "after_insert", bind)
+    yield
+    event.remove(Family, "after_insert", bind)
+
+@pytest.fixture
+def oidc_flow(client, db, monkeypatch):
+    """A real signed ID token through authorize/callback, with HTTP transport mocked."""
+    import uuid, time
+    from types import SimpleNamespace
+    from urllib.parse import urlsplit, parse_qs
+    from authlib.jose import JsonWebKey, JsonWebToken
+    from models import SSOProvider, OIDCLogin
+    from routes import v1_oidc
+    key = JsonWebKey.generate_key('RSA', 2048, is_private=True, options={'kid': 'test-key'})
+    def prepare(policy=None, claims_update=None, userinfo_update=None, name=None):
+        name = name or 'idp_' + uuid.uuid4().hex
+        username = 'jit_' + uuid.uuid4().hex
+        issuer = 'https://identity.example.com'
+        provider = SSOProvider(name=name, label='Test', issuer=issuer, client_id='client',
+                               client_secret_encrypted='secret', settings=policy or {})
+        db.add(provider)
+        db.commit()
+        discovery = {'issuer': issuer, 'authorization_endpoint': issuer+'/authorize',
+                     'token_endpoint': issuer+'/token', 'userinfo_endpoint': issuer+'/userinfo',
+                     'jwks_uri': issuer+'/jwks', 'id_token_signing_alg_values_supported': ['RS256']}
+        async def config(_issuer):
+            return discovery
+        monkeypatch.setattr(v1_oidc, '_get_oidc_config', config)
+        monkeypatch.setattr(v1_oidc, 'decrypt_secret', lambda value: value)
+        authorization = client.get(f'/api/v1/auth/sso/{name}/authorize', follow_redirects=False)
+        assert authorization.status_code == 307
+        query = parse_qs(urlsplit(authorization.headers['location']).query)
+        state = query['state'][0]
+        login = db.get(OIDCLogin, state)
+        calls = []
+        claims = {'iss': issuer, 'aud': 'client', 'sub': username, 'nonce': login.nonce,
+                  'iat': int(time.time()), 'exp': int(time.time())+300}
+        claims.update(claims_update or {})
+        signed = JsonWebToken(['RS256']).encode({'alg': 'RS256', 'kid': 'test-key'}, claims, key).decode()
+        info = {'sub': username, 'preferred_username': username, 'email': username+'@example.com',
+                'email_verified': True}
+        info.update(userinfo_update or {})
+        async def transport(_client, method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            if url.endswith('/token'):
+                assert kwargs['data']['code_verifier'] == login.code_verifier
+                data = {'access_token': 'access', 'id_token': signed}
+            elif url.endswith('/jwks'):
+                data = {'keys': [key.as_dict(is_private=False)]}
+            elif url.endswith('/userinfo'):
+                data = info
+            else:
+                raise AssertionError(url)
+            return SimpleNamespace(status_code=200, json=lambda: data, text='')
+        monkeypatch.setattr(v1_oidc, '_oidc_http', transport)
+        return SimpleNamespace(provider=provider, username=username, state=state, query=query,
+                               path=f'/api/v1/auth/sso/{name}/callback?code=code&state={state}', calls=calls)
+    return prepare

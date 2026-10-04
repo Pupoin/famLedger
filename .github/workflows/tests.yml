@@ -24,17 +24,10 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          # Glob covers requirements.txt and requirements-dev.txt, so the cache
-          # key changes when either moves.
-          cache-dependency-path: backend/requirements*.txt
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
-        working-directory: backend
-        # requirements-dev.txt, not requirements.txt: pytest and httpx live there
-        # now so the production image doesn't ship a test runner. The dev file
-        # includes the runtime one via `-r requirements.txt`.
-        run: |
-          pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt
 
       - name: Run tests
         working-directory: backend
@@ -62,6 +55,23 @@ jobs:
       - name: Run tests
         working-directory: frontend
         run: npx vitest run
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  bill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install bill test dependencies
+        run: pip install pytest -r services/bill/backend/requirements.txt
+      - name: Run bill tests in its own module namespace
+        working-directory: services/bill
+        run: python -m pytest tests -q
 
 
 
@@ -126,8 +136,8 @@ jobs:
         # `id -u` would prove nothing. The ownership of a file the *application*
         # created is the real evidence that privileges were dropped.
         run: |
-          owner=$(docker exec mosaic-ci stat -c %u /app/data/mosaic.db)
-          echo "mosaic.db owned by uid $owner"
+          owner=$(docker exec mosaic-ci stat -c %u /app/data/famledger.db)
+          echo "famledger.db owned by uid $owner"
           test "$owner" = "10001"
 
       - name: The maintenance CLI works inside the image

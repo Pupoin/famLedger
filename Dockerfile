@@ -11,7 +11,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: backend + the built frontend it serves
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Version string baked in at build time and reported at GET /api/health, so
 # "did my upgrade actually take effect?" has an answer. Fed from the git tag by
@@ -22,8 +22,14 @@ ENV MOSAIC_BUILD_VERSION=${MOSAIC_BUILD_VERSION}
 # gosu drops privileges in the entrypoint. Needed because the entrypoint must
 # start as root to fix ownership of an existing (root-owned) data volume left
 # behind by an older image, then hand off to an unprivileged user.
+ARG POSTGRES_MAJOR=18
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu \
+    && apt-get install -y --no-install-recommends gosu ca-certificates curl \
+    && mkdir -p /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-${POSTGRES_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
 # Unprivileged runtime account. Fixed uid/gid so file ownership on a mounted
@@ -34,7 +40,7 @@ RUN groupadd --gid 10001 famledger \
 WORKDIR /app/backend
 
 # Install dependencies first (cached layer — only re-runs if requirements.txt changes)
-COPY backend/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source

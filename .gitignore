@@ -7,10 +7,13 @@ dist/
 build/
 venv/
 .venv/
+.cache/
+.pytest_cache/
 *.db
 *.db-shm
 *.db-wal
 config.py
+!services/bill/backend/ingest/config.py
 
 # Node
 node_modules/
@@ -31,6 +34,12 @@ backend/uploads/
 
 # Audit logs and backups
 backend/data/
+backend/audit/
+backend/backups/
+services/bill/backups/
+services/bill/data/*
+!services/bill/data/category_rules.json
+.playwright-mcp/
 
 # Env — local secrets, never commit these
 .env

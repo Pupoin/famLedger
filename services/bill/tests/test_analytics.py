@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 
-from backend.dashboard.analytics import build_stats
+from backend.ingest.stats import build_stats
 
 
 class AnalyticsTests(unittest.TestCase):

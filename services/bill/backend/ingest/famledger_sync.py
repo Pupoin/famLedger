@@ -72,55 +72,45 @@ class FamLedgerClient:
             raise RuntimeError(f"FamLedger API {method} {url} error: {resp.status_code} {resp.text}") from exc
         return resp.json()
 
-    def store_email(self, message: dict, mail_kind: str, raw_text: str = "") -> dict:
-        """保存原始邮件到 FamLedger 数据库。"""
-        sender = ((message.get("from") or {}).get("emailAddress") or {}).get("address", "")
-        received_raw = message.get("receivedDateTime")
-        if received_raw:
-            received_at = received_raw
-        else:
-            received_at = datetime.now(timezone.utc).isoformat()
-
-        body = (message.get("body") or {}).get("content", "")
-        payload = {
-            "message_id": message["id"],
-            "mail_kind": mail_kind,
-            "subject": message.get("subject", ""),
-            "sender": sender,
-            "received_at": received_at,
-            "raw_html": body,
-            "raw_text": raw_text,
-            "raw_payload": message,
-        }
-        return self.request("POST", "/api/v1/imports/emails", payload=payload)
-
     def push_transaction(
         self,
         record: TransactionRecord,
         *,
-        raw_email_id: str | None = None,
         mail_body: str = "",
     ) -> dict:
-        """将解析出的交易明细通过 API 发送至 FamLedger。"""
-        nature = "refund" if record.behaviour in ("退款", "退货", "消费撤销") else ("expense" if record.cost < 0 else "income")
+        """将解析出的交易明细通过 API 发送至 FamLedger（精炼规范）。"""
+        is_refund = record.behaviour in ("退款", "退货", "消费撤销")
+        is_cc_payment = "信用卡还款" in (record.business or "") or "信用卡还款" in (record.behaviour or "")
+
+        tags = []
+        if is_cc_payment:
+            txn_type = "transfer"
+            tags.append("信用卡还款")
+        elif is_refund:
+            txn_type = "refund"
+        elif "转账" in (record.behaviour or "") or "转账" in (record.business or ""):
+            txn_type = "transfer"
+        else:
+            txn_type = "expense" if record.cost < 0 else "income"
+
         payload = {
-            "account_identifier": record.account,
-            "transacted_at": record.cost_time.date().isoformat(),
+            "account": f"招商银行:{record.account.strip()}",
+            "narration": record.business,
+            "amount": str(abs(record.original_cost if record.original_cost is not None else record.cost)),
+            "currency": (record.original_currency or "CNY") if record.original_cost is not None else "CNY",
             "occurred_at": occurred_at(record).isoformat(timespec="seconds"),
-            "amount": str(abs(record.cost)),
-            "currency": record.original_currency or "CNY",
-            "name": record.business,
-            "merchant_name": record.business,
-            "transaction_type": nature,
-            "nature": nature,
+            "transaction_type": txn_type,
+            "tags": tags,
             "external_id": external_id(record),
-            "raw_email_id": raw_email_id,
             "notes": mail_body[:2000] if mail_body else "",
-            "counterparty": {
-                "payer_name": record.payer_name,
-                "payer_account_last4": record.payer_account_last4,
-                "payee_name": record.payee_name,
-                "payee_account_last4": record.payee_account_last4,
+            "extra": {
+                **({"direction": "inflow" if record.cost >= 0 else "outflow"} if txn_type == "transfer" else {}),
+                "counterparty": {
+                    "payer_name": record.payer_name,
+                    "payer_account_last4": record.payer_account_last4,
+                    "payee_name": record.payee_name,
+                    "payee_account_last4": record.payee_account_last4,
+                }
             },
         }
         return self.request("POST", "/api/v1/transactions", payload=payload)
@@ -131,54 +121,46 @@ def sync_emails_and_parse_to_famledger(
     messages_by_kind: dict[str, list[dict]],
 ) -> tuple[int, int]:
     """
-    处理邮件批次：
-    1. 首先将原始邮件存档到 FamLedger（POST /api/v1/imports/emails）
-    2. 如果为新邮件（is_new=True），则进行账单解析并调用 API 录入交易流水。
-    返回 (新邮件入库数, 新增交易流水数)。
+    处理邮件批次：直接进行账单解析并调用 API 录入交易流水。
+    返回 (处理邮件数, 新增交易流水数)。
     """
-    stored_count = 0
+    processed_count = 0
     pushed_count = 0
 
     for mail_kind, messages in messages_by_kind.items():
         for msg in messages:
+            processed_count += 1
             body, parse_text = message_body_and_parse_text(msg)
-            try:
-                res = client.store_email(msg, mail_kind, raw_text=parse_text)
-            except Exception as exc:
-                logger.warning("存档原始邮件失败，跳过解析: subject=%s err=%s", msg.get("subject"), exc)
-                continue
 
-            email_id = res.get("id")
-            is_new = res.get("is_new", False)
-            if is_new:
-                stored_count += 1
-                logger.info("捕获新邮件并成功存档: id=%s subject=%s", email_id, msg.get("subject"))
+            # 解析邮件账单并推送到 FamLedger 交易流水
+            records: list[TransactionRecord] = []
+            if mail_kind == "credit_daily":
+                recs, _ = parse_credit_daily_message(parse_text)
+                records.extend(recs)
+            elif mail_kind == "credit_recent":
+                recs = parse_credit_recent_message(parse_text)
+                records.extend(recs)
+            elif mail_kind == "debit":
+                received_time = datetime.fromisoformat(msg["receivedDateTime"].replace("Z", "+00:00"))
+                rec = parse_debit_message(parse_text, received_time)
+                if rec:
+                    records.append(rec)
 
-                # 仅对新邮件执行解析并 API 推送
-                records: list[TransactionRecord] = []
-                if mail_kind == "credit_daily":
-                    recs, _ = parse_credit_daily_message(parse_text)
-                    records.extend(recs)
-                elif mail_kind == "credit_recent":
-                    recs = parse_credit_recent_message(parse_text)
-                    records.extend(recs)
-                elif mail_kind == "debit":
-                    received_time = datetime.fromisoformat(msg["receivedDateTime"].replace("Z", "+00:00"))
-                    rec = parse_debit_message(parse_text, received_time)
-                    if rec:
-                        records.append(rec)
+            # 按流水时间排序后通过 API 推送
+            records.sort(key=lambda r: r.cost_time)
+            for rec in records:
+                try:
+                    push_res = client.push_transaction(rec, mail_body=body)
+                    if push_res.get("status") == "pending_fx":
+                        logger.info("交易已保存待换汇，尚未入账: %s", rec.cost_time)
+                    elif push_res.get("status") == "canceled":
+                        logger.info("该来源记录已取消入账: %s", rec.cost_time)
+                    elif push_res.get("status") != "duplicate" and not push_res.get("duplicate") :
+                        pushed_count += 1
+                        logger.info("交易明细已通过 API 推送入库: %s %s %s", rec.cost_time, rec.business, rec.cost)
+                    else:
+                        logger.debug("交易已存在(幂等去重): %s", rec.business)
+                except Exception as push_exc:
+                    logger.error("推送交易明细至 FamLedger 失败: %s", push_exc)
 
-                # 按流水时间排序后通过 API 推送
-                records.sort(key=lambda r: r.cost_time)
-                for rec in records:
-                    try:
-                        push_res = client.push_transaction(rec, raw_email_id=email_id, mail_body=body)
-                        if push_res.get("status") != "duplicate":
-                            pushed_count += 1
-                            logger.info("交易明细已通过 API 推送入库: %s %s %s", rec.cost_time, rec.business, rec.cost)
-                        else:
-                            logger.debug("交易已存在(幂等去重): %s", rec.business)
-                    except Exception as push_exc:
-                        logger.error("推送交易明细至 FamLedger 失败: %s", push_exc)
-
-    return stored_count, pushed_count
+    return processed_count, pushed_count

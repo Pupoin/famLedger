@@ -1,3 +1,4 @@
+import { tx, useLocale } from "./localization.js";
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 
 const ToastContext = createContext({ showToast: () => {} });
@@ -5,6 +6,7 @@ const ToastContext = createContext({ showToast: () => {} });
 const TOAST_DURATION_MS = 3500;
 
 export function ToastProvider({ children }) {
+  useLocale();
   const [toasts, setToasts] = useState([]);
   const nextId = useRef(0);
   const timers = useRef({});
@@ -24,7 +26,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 items-stretch pointer-events-none px-4 w-full max-w-sm">
+      <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[99999] flex flex-col gap-2 items-stretch pointer-events-none px-4 w-full max-w-sm">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -38,11 +40,11 @@ export function ToastProvider({ children }) {
             <span className="material-symbols-outlined text-sm shrink-0">
               {t.type === "error" ? "error" : "check_circle"}
             </span>
-            <span className="flex-1">{t.message}</span>
+            <span className="flex-1">{tx(t.message)}</span>
             <button
               onClick={() => dismissToast(t.id)}
               className="opacity-70 hover:opacity-100 shrink-0"
-              aria-label="Dismiss"
+              aria-label={tx("Dismiss")}
             >
               <span className="material-symbols-outlined text-sm">close</span>
             </button>

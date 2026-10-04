@@ -27,23 +27,24 @@
 
 ---
 
-## 2. 快速开始 (Docker 部署)
+## 2. 运行与配置
 
-推荐使用 Docker 进行一键部署，环境已全量配置化。
+此目录提供独立的邮件账单调度器，以及可选的账单看板。主项目的 `docker-compose.yml` 通过 `famledger-bill` 启动调度器；主应用的页面由 famLedger 提供，不会启动旧的 Sure Compose。
 
 ```bash
-# 1. 准备环境文件
-cp .env.example .env  # 修改其中的 GRAPH_CLIENT_ID 和数据库密码
-
-# 2. 从 sure/ 目录启动统一 Compose（Sure 与 bill）
-cd .. && docker compose up -d --build
+# 在 services/bill 中安装依赖并配置独立账单库、Graph 应用和令牌缓存
+python -m pip install -r backend/requirements.txt
+cp .env.example .env
+python -m backend.run
 ```
 
-- **访问地址**：通过现有反向代理访问 bill 前端；Sure 为 `http://localhost:3000`
-- **后台服务**：
-    - `bill-front`: 网页看板 (仅加入 Docker 网络，无宿主机端口)
-    - `bill-backend`: 自动调度器 (无外部端口)
-    - `bill-postgres`: 数据库 (仅供 Docker 网络访问)
+`POSTGRES_DSN` 指向账单服务自身的 PostgreSQL 数据库。调度器使用设备码授权的 Microsoft Graph 会话读取邮件，不直接写 famLedger 的数据库。
+
+### 推送到 famLedger
+
+配置 `FAMLEDGER_API_URL`、`FAMLEDGER_API_TOKEN`；系统服务令牌须在主应用中绑定到活动家庭。推送通过 `/api/v1/transactions`，以账户和 `external_id` 去重；待换汇响应会保留同步状态等待后续入账。
+
+看板属于独立可选服务，入口为 `front/main.py` 与 `front/Dockerfile`。其数据库与认证配置见下文；主项目 Compose 不发布这个看板。
 
 ### 推送到 Sure
 
@@ -118,18 +119,10 @@ LOG_FILE_PATH=logs/backend.log
 
 ## 5. 测试与校验
 
-在宿主机运行（需安装 pandas/psycopg 等依赖）：
+在宿主机运行（需安装 pytest 和 backend/requirements.txt 中的依赖）：
 
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py"
+python -m pytest tests -q
 ```
 
 ---
-
-## 6. Access 历史迁移
-
-如果您有旧版的 Access 数据库，可执行以下命令迁移：
-
-```bash
-python3 -m backend.ingest.migrate_access --accdb "path/to/your.accdb" --pg-dsn "your_dsn"
-```

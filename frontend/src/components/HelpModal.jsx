@@ -1,3 +1,4 @@
+import { tx, useLocale } from "../localization.js";
 import { useState, useEffect } from "react";
 import { useUsers } from "../ConfigContext";
 import { useIncomeMode } from "../hooks/useIncomeMode";
@@ -9,7 +10,7 @@ const SECTIONS = [
     title: "系统概览与模式",
     content: (mode, incomeEnabled) => [
       "famLedger 是一套对齐 Sure 现代化设计的高性能家庭财务与资产管理系统。系统深度整合邮件智能账单解析、双轨收支流水、资金流向桑基图（Sankey）、消费日历热力图、退款冲抵与转账仲裁引擎。",
-      `当前系统运行模式为：**${mode === "personal" ? "单人模式 (Personal)" : mode === "blended" ? "混合模式 (Blended)" : "共享分摊模式 (Shared)"}**。您可以在「系统设置」中自由调整运行模式。`,
+      `当前系统运行模式为：**${mode === "personal" ? tx("单人模式 (Personal)") : mode === "blended" ? tx("混合模式 (Blended)") : tx("共享分摊模式 (Shared)")}**。您可以在「系统设置」中自由调整运行模式。`,
       "### 三种记账协作模式说明",
       "**单人模式 (Personal)** — 专为个人设计，全面记录个人资产负债、收支明细与预算投资情况。",
       "**共享分摊模式 (Shared)** — 专为伴侣或家庭成员设计，所有公共账单默认按比例分摊，实时计算双方结算余额（Balance）与待结算款项。",
@@ -154,6 +155,7 @@ function renderLine(line, i) {
 }
 
 export default function HelpModal({ onClose }) {
+  useLocale();
   const { mode } = useUsers();
   const { incomeEnabled } = useIncomeMode();
   const [activeSection, setActiveSection] = useState("overview");
@@ -167,8 +169,8 @@ export default function HelpModal({ onClose }) {
   }, [onClose]);
 
   const section = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
-  const lines = section.content(mode, incomeEnabled);
-  const resolveTitle = (s) => typeof s.title === "function" ? s.title(mode, incomeEnabled) : s.title;
+  const lines = section.content(mode, incomeEnabled).map(line => tx(line));
+  const resolveTitle = (s) => tx(typeof s.title === "function" ? s.title(mode, incomeEnabled) : s.title);
 
   return (
     <div
@@ -182,17 +184,13 @@ export default function HelpModal({ onClose }) {
         {/* Header */}
         <div className="p-6 pb-4 sm:p-8 sm:pb-4 border-b border-zinc-100 dark:border-zinc-800/80 flex items-start justify-between">
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-              系统使用手册
-            </h2>
-            <p className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm mt-1">
-              深入了解 famLedger 资产管理系统的全部核心功能与操作技巧
-            </p>
+            <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">{tx("系统使用手册")}</h2>
+            <p className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm mt-1">{tx("深入了解 famLedger 资产管理系统的全部核心功能与操作技巧")}</p>
           </div>
           <button
             onClick={onClose}
             className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-            title="关闭窗口"
+            title={tx("关闭窗口")}
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
@@ -297,9 +295,7 @@ export default function HelpModal({ onClose }) {
           <button
             onClick={onClose}
             className="w-full sm:w-auto px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 font-semibold text-sm rounded-xl transition-colors shadow-xs"
-          >
-            我知道了
-          </button>
+          >{tx("我知道了")}</button>
         </div>
       </div>
     </div>

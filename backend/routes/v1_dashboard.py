@@ -1,3 +1,4 @@
+from services.refund_money import report_offsets, refund_report_summary, spending_refund
 import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -8,7 +9,8 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from database import get_session
-from models import Account, PersonalDebt, Transaction, User
+from auth import get_current_user_or_token
+from models import Account, Category, Family, PersonalDebt, Transaction, TransactionSplit, User
 
 router = APIRouter(tags=["v1-dashboard"])
 
@@ -16,9 +18,14 @@ router = APIRouter(tags=["v1-dashboard"])
 @router.get("/v1/dashboard/summary")
 def get_dashboard_summary(
     request: Request,
-    period: str = Query(default="MTD", description="Time period: MTD, 30D, YTD, ALL"),
+    period: str = Query(default="monthly", description="Time period: monthly, quarterly, ytd, 6m, custom, MTD, 30D, YTD, ALL"),
+    selected_month: Optional[str] = Query(default=None, description="Selected month formatted as YYYY-MM"),
+    start_date: Optional[str] = Query(default=None, description="Start date for custom period (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="End date for custom period (YYYY-MM-DD)"),
     account_id: Optional[str] = Query(default=None),
+    user_filter: Optional[str] = Query(default=None, alias="user", description="Filter by user username/id or '全部'"),
     session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
     """
     Returns complete dashboard aggregates matching Sure layout:
@@ -29,153 +36,247 @@ def get_dashboard_summary(
     - Spending heatmap calendar
     - Investment total
     """
-    # 1. Resolve current user name
-    current_user = None
-    try:
-        from auth import SESSION_COOKIE, _verify_token
-        token = request.cookies.get(SESSION_COOKIE)
-        if token:
-            data = _verify_token(token, session=session)
-            if data:
-                current_user = data.get("user")
-    except Exception:
-        pass
+    # 1. Resolve current user name & family members
+    current_user_name = None
+    if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
+        current_user_name = user_or_ctx
+    elif isinstance(user_or_ctx, dict):
+        current_user_name = user_or_ctx.get("username")
 
-    if not current_user:
-        first_user = session.exec(select(User).order_by(User.created_at.asc())).first()
-        current_user = first_user.username if first_user else "sliver"
+    user_db = None
+    if current_user_name:
+        user_db = session.exec(select(User).where(User.username == current_user_name)).first()
 
-    user_db = session.exec(select(User).where(User.username == current_user)).first()
+    if not user_db:
+        # 服务端 Key 情况下找第一个拥有 family 的用户或首个有效用户
+        user_db = session.exec(select(User).where(User.family_id != None)).first()
+
+    current_user = user_db.username if user_db else (current_user_name or "user")
     display_name = user_db.display_name if user_db and user_db.display_name else current_user
 
-    # 2. Date range calculation
-    today = datetime.date(2026, 9, 27)  # Current app date reference
-    if period == "MTD":
-        start_date = datetime.date(2026, 9, 1)
-        end_date = today
-    elif period == "30D":
-        start_date = today - datetime.timedelta(days=30)
-        end_date = today
-    elif period == "YTD":
-        start_date = datetime.date(2026, 1, 1)
-        end_date = today
-    else:  # ALL
-        start_date = datetime.date(2025, 1, 1)
-        end_date = today
+    # Fetch family members
+    family_id = user_db.family_id if user_db else None
 
-    # 3. Query transactions within period
+    family_members = []
+    if family_id:
+        all_m = session.exec(select(User).where(User.family_id == family_id)).all()
+        for m in all_m:
+            family_members.append({
+                "id": str(m.id),
+                "username": m.username,
+                "display_name": m.display_name or m.username,
+                "is_current": m.username == current_user,
+            })
+
+    # 2. Determine allowed and filtered accounts
+    from models import AccountShare
+    shares = session.exec(select(AccountShare)).all()
+    user_shares = {s.account_id: s for s in shares if user_db and s.user_id == user_db.id}
+
+    from services.stats_engine import (
+        get_family_active_account_ids,
+        is_genuine_income,
+        is_genuine_expense,
+        is_genuine_refund,
+        compute_netted_category_distribution,
+    )
+
+    family_active_ids = get_family_active_account_ids(session, family_id)
+    all_family_accounts = session.exec(
+        select(Account).where(Account.id.in_(family_active_ids)) if family_active_ids else select(Account).where(False)
+    ).all()
+
+    # Permissions filter for current user: 严格基于自己拥有或他人授权共享，杜绝越权
+    visible_accounts = []
+    for a in all_family_accounts:
+        is_my_acc = user_db and a.owner_id == user_db.id
+        sh = user_shares.get(a.id)
+        if (is_my_acc or sh or (user_db and user_db.role == "admin")) and not a.exclude_from_reports and (not sh or sh.include_in_finances):
+            visible_accounts.append(a)
+
+    # If user_filter is given (e.g. 'alice', 'qq', or a user uuid) and not '全部'/'ALL'
+    target_user_obj = None
+    if user_filter and user_filter not in ("全部", "ALL", "all", ""):
+        for m in (all_m if family_id else []):
+            if m.username == user_filter or m.display_name == user_filter or str(m.id) == user_filter:
+                target_user_obj = m
+                break
+
+    if target_user_obj:
+        active_accounts = [a for a in visible_accounts if a.owner_id == target_user_obj.id]
+    else:
+        active_accounts = visible_accounts
+
+    active_account_ids = [a.id for a in active_accounts]
+
+    from services.report_period import resolve_period
+    start_date, end_date, _, _, y, m = resolve_period(period, selected_month, start_date, end_date)
+    from services.report_currency import ReportCurrency
+    report_money = ReportCurrency(session, user_db, cache_independently=True)
+    report_money.account_ids = set(active_account_ids)
+
+    # 3. Query transactions within period (scoped strictly to valid accounts)
     txn_stmt = select(Transaction).where(
         Transaction.transacted_at >= start_date.isoformat(),
         Transaction.transacted_at <= end_date.isoformat(),
+        Transaction.excluded_from_stats == False,
     )
-    if account_id:
+    real_account_id = None
+    if isinstance(account_id, str) and account_id.strip():
         try:
-            acc_uuid = uuid.UUID(account_id)
-            txn_stmt = txn_stmt.where(Transaction.account_id == acc_uuid)
+            real_account_id = uuid.UUID(account_id.strip())
         except Exception:
             pass
 
-    txns = session.exec(txn_stmt).all()
+    if real_account_id:
+        if real_account_id not in active_account_ids:
+            txn_stmt = txn_stmt.where(False)
+        else:
+            txn_stmt = txn_stmt.where(Transaction.account_id == real_account_id)
+    elif active_account_ids:
+        txn_stmt = txn_stmt.where(Transaction.account_id.in_(active_account_ids))
+    else:
+        txn_stmt = txn_stmt.where(False)
 
-    # Calculate Expenses, Incomes, Refunds from real database records
-    expense_txns = [t for t in txns if t.transaction_type == "expense"]
-    income_txns = [t for t in txns if t.transaction_type == "income"]
-    refund_txns = [t for t in txns if t.transaction_type == "refund"]
+    original_txns = session.exec(txn_stmt).all()
+    txns = report_money.transactions(original_txns)
 
-    total_expense_raw = sum(float(t.amount) for t in expense_txns)
-    total_refund_raw = sum(float(t.amount) for t in refund_txns)
+    all_acc_map = {a.id: a for a in all_family_accounts}
+    all_categories = session.exec(select(Category)).all()
+    cat_by_id = {c.id: c for c in all_categories}
+
+    # 4. Use unified stats_engine functions
+    from services.stats_engine import (
+        is_genuine_income,
+        is_genuine_expense,
+        is_genuine_refund,
+        compute_netted_category_distribution,
+    )
+
+    expense_txns = [t for t in txns if is_genuine_expense(t, all_acc_map)]
+    income_txns = [t for t in txns if is_genuine_income(t, all_acc_map)]
+    refund_txns = [t for t in txns if is_genuine_refund(t)]
+
     total_income_raw = sum(float(t.amount) for t in income_txns)
+    total_net_income = round(total_income_raw, 2)
 
-    # Netted total expense (Real spending minus real refunds)
-    total_net_expense = round(max(0.0, total_expense_raw - total_refund_raw), 2)
-    total_net_income = round(total_income_raw, 2) if total_income_raw > 0 else 548.03
+    split_txn_ids = [t.id for t in (expense_txns + refund_txns) if t.is_split]
+    splits_map = {}
+    if split_txn_ids:
+        all_splits = session.exec(
+            select(TransactionSplit).where(TransactionSplit.transaction_id.in_(split_txn_ids))
+        ).all()
+        for sp in report_money.splits(all_splits, original_txns):
+            splits_map.setdefault(sp.transaction_id, []).append(sp)
 
-    # Standard Category Definition & Classifier
-    CATEGORY_DEFS = [
-        {"id": "cat_dining", "name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
-        {"id": "cat_groceries", "name": "超市便利", "icon": "🛒", "color": "#10b981", "kws": ["超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛", "山姆", "全家", "罗森"]},
-        {"id": "cat_utilities", "name": "生活缴费", "icon": "⚡", "color": "#ef4444", "kws": ["自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通", "电信", "水务", "缴费"]},
-        {"id": "cat_transport", "name": "交通出行", "icon": "🚗", "color": "#06b6d4", "kws": ["高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油", "停车", "出行", "中石化", "中石油"]},
-        {"id": "cat_shopping", "name": "购物消费", "icon": "🛍️", "color": "#eab308", "kws": ["京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸", "商行", "数码", "服饰", "唯品会"]},
-        {"id": "cat_transfer", "name": "个人/转账", "icon": "👤", "color": "#0ea5e9", "kws": ["微信转账", "转账", "赵自宽", "还款", "转账快捷", "提现"]},
-    ]
+    categories_data, total_net_expense, total_expense_raw, total_refund_raw = compute_netted_category_distribution(
+        expense_txns, refund_txns, cat_by_id, splits_map=splits_map, session=session, allowed_account_ids=set(active_account_ids), report_money=report_money
+    )
 
-    def get_cat_for_txn(t):
-        full_text = f"{t.name or ''} {t.merchant_name or ''}".lower()
-        for cdef in CATEGORY_DEFS:
-            for kw in cdef["kws"]:
-                if kw.lower() in full_text:
-                    return cdef
-        return {"id": "cat_other", "name": "其他", "icon": "🍪", "color": "#f97316"}
+    # 4.2 Outflow by Account from real expense transactions (净额化扣除账户退款)
+    all_accs = session.exec(select(Account)).all()
+    acc_map = {a.id: a for a in all_accs}
 
-    # 4. Outflow Category Distribution from real expense transactions
-    cat_buckets = {}
-    for cdef in CATEGORY_DEFS:
-        cat_buckets[cdef["name"]] = {"id": cdef["id"], "name": cdef["name"], "icon": cdef["icon"], "color": cdef["color"], "amount": 0.0}
-    cat_buckets["其他"] = {"id": "cat_other", "name": "其他", "icon": "🍪", "color": "#f97316", "amount": 0.0}
-
+    acc_buckets = {}
+    ACC_PALETTE = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4"]
     for t in expense_txns:
-        matched = get_cat_for_txn(t)
-        cat_buckets[matched["name"]]["amount"] += float(t.amount)
+        a_obj = acc_map.get(t.account_id)
+        if a_obj:
+            aname = a_obj.name or a_obj.institution_name or '银行卡'
+            ext = getattr(a_obj, 'external_identifier', None)
+            if ext and str(ext)[-4:] not in aname:
+                aname = f"{aname} {str(ext)[-4:]}"
+        else:
+            aname = "默认主账户"
+        aid = str(t.account_id) if t.account_id else "default_acc"
+        if aid not in acc_buckets:
+            idx = len(acc_buckets)
+            acc_buckets[aid] = {
+                "id": aid,
+                "account_id": aid,
+                "name": aname,
+                "icon": "💳",
+                "color": ACC_PALETTE[idx % len(ACC_PALETTE)],
+                "amount": 0.0,
+            }
+        acc_buckets[aid]["amount"] += float(t.amount)
 
-    # Filter out categories with > 0 and calculate percentages
-    categories_data = []
-    base_sum = total_expense_raw if total_expense_raw > 0 else 1.0
-    for cname, cinfo in cat_buckets.items():
-        if cinfo["amount"] > 0:
-            cinfo["amount"] = round(cinfo["amount"], 2)
-            cinfo["percentage"] = round((cinfo["amount"] / base_sum) * 100, 1)
-            categories_data.append(cinfo)
+    for r in refund_txns:
+        links, remainder, _, _ = report_offsets(session, r, set(active_account_ids), report_money)
+        for source, value in links + [(r, remainder)]:
+            if not value:
+                continue
+            aid = str(source.account_id)
+            if aid not in acc_buckets:
+                account = acc_map.get(source.account_id)
+                acc_buckets[aid] = {"id": aid, "account_id": aid, "name": account.name if account else "退款账户",
+                    "icon": "💳", "color": ACC_PALETTE[len(acc_buckets) % len(ACC_PALETTE)], "amount": 0.0}
+            acc_buckets[aid]["amount"] -= float(value)
 
-    # Sort categories by amount descending
-    categories_data.sort(key=lambda x: x["amount"], reverse=True)
+    accounts_outflow_data = []
+    base_sum = sum(max(0, item["amount"]) for item in acc_buckets.values()) or 1.0
+    for aid, ainfo in acc_buckets.items():
+        if ainfo["amount"] != 0:
+            ainfo["amount"] = round(ainfo["amount"], 2)
+            ainfo["percentage"] = round((max(0, ainfo["amount"]) / base_sum) * 100, 1)
+            accounts_outflow_data.append(ainfo)
+    accounts_outflow_data.sort(key=lambda x: x["amount"], reverse=True)
 
-    # Fallback if no transactions found
+    # If no transactions found, keep clean empty states without fake fallbacks
     if not categories_data:
-        categories_data = [
-            {"id": "cat_other", "name": "其他", "amount": 1383.90, "percentage": 48.6, "color": "#f97316", "icon": "🍪"},
-            {"id": "cat_transfer", "name": "个人/转账", "amount": 473.78, "percentage": 16.6, "color": "#0ea5e9", "icon": "👤"},
-            {"id": "cat_shopping", "name": "购物消费", "amount": 302.59, "percentage": 10.6, "color": "#eab308", "icon": "🛍️"},
-            {"id": "cat_groceries", "name": "超市便利", "amount": 294.52, "percentage": 10.3, "color": "#10b981", "icon": "🛒"},
-            {"id": "cat_dining", "name": "餐饮美食", "amount": 202.32, "percentage": 7.1, "color": "#8b5cf6", "icon": "🍴"},
-            {"id": "cat_utilities", "name": "生活缴费", "amount": 126.55, "percentage": 4.4, "color": "#ef4444", "icon": "⚡"},
-            {"id": "cat_transport", "name": "交通出行", "amount": 62.11, "percentage": 2.2, "color": "#06b6d4", "icon": "🚗"},
-        ]
-        total_net_expense = 2814.60
+        categories_data = []
+
+    if not accounts_outflow_data:
+        accounts_outflow_data = []
 
     adjustments = []
     if total_refund_raw > 0:
         adjustments.append({
-            "name": "待匹配退款调整",
+            "name": "退款冲抵（已计入净额）",
             "amount": -round(total_refund_raw, 2),
             "hint": "以下账户本期退款已从总支出中真实冲抵扣除"
         })
 
-    # 5. Cashflow Sankey model (Real Incomes -> Cashflow Pool -> Real Expense Destinations)
+    # 5. Cashflow Sankey model (Real Income Categories -> Cashflow Pool -> Real Expense Destinations)
     real_income_sources = []
     if income_txns:
-        inc_map = {}
+        inc_cat_buckets = {}
         for it in income_txns:
-            iname = it.merchant_name or it.name or "工资收入"
-            inc_map[iname] = inc_map.get(iname, 0.0) + float(it.amount)
-        for iname, iamt in inc_map.items():
-            real_income_sources.append({
-                "id": f"inc_{hash(iname)}",
-                "name": iname,
-                "amount": round(iamt, 2),
-                "icon": "💰",
-                "color": "#eab308",
-            })
-    else:
+            cat = cat_by_id.get(it.category_id)
+            cname = cat.name if cat else "其他收入"
+            cicon = cat.icon if (cat and cat.icon) else "💰"
+            ccolor = cat.color if (cat and cat.color) else None
+            cid = str(cat.id) if cat else f"cat_{hash(cname)}"
+
+            if cid not in inc_cat_buckets:
+                inc_cat_buckets[cid] = {
+                    "id": cid,
+                    "name": cname,
+                    "amount": 0.0,
+                    "icon": cicon,
+                    "color": ccolor,
+                }
+            inc_cat_buckets[cid]["amount"] += float(it.amount)
+
+        INC_PALETTE = ["#10b981", "#0d9488", "#0284c7", "#6366f1", "#8b5cf6", "#f59e0b", "#eab308"]
+        sorted_incomes = sorted(inc_cat_buckets.values(), key=lambda x: x["amount"], reverse=True)
+        for idx, inc_item in enumerate(sorted_incomes):
+            if not inc_item["color"]:
+                inc_item["color"] = INC_PALETTE[idx % len(INC_PALETTE)]
+            inc_item["amount"] = round(inc_item["amount"], 2)
+            real_income_sources.append(inc_item)
+    elif total_net_income > 0:
         real_income_sources = [
-            {"id": "inc_salary", "name": "工资收入", "amount": total_net_income, "icon": "💰", "color": "#eab308"}
+            {"id": "inc_salary", "name": "收入汇总", "amount": round(total_net_income, 2), "icon": "💰", "color": "#10b981"}
         ]
+    else:
+        real_income_sources = []
 
     sankey_data = {
         "income_sources": real_income_sources,
         "pool": {
             "name": "Cash Flow",
-            "amount": total_net_expense,
+            "amount": round(total_net_expense, 2) if total_net_expense > 0 else 0.0,
             "color": "#10A861",
         },
         "expense_destinations": [
@@ -185,7 +286,7 @@ def get_dashboard_summary(
                 "icon": cat["icon"],
                 "color": cat["color"],
             }
-            for cat in categories_data
+            for cat in categories_data if cat["amount"] > 0
         ],
     }
 
@@ -193,7 +294,7 @@ def get_dashboard_summary(
     merchant_counts = {}
     merchant_amounts = {}
     for t in expense_txns:
-        mname = t.merchant_name or t.name or "其他"
+        mname = t.narration or "其他"
         merchant_counts[mname] = merchant_counts.get(mname, 0) + 1
         merchant_amounts[mname] = merchant_amounts.get(mname, 0.0) + float(t.amount)
 
@@ -237,49 +338,56 @@ def get_dashboard_summary(
     if other_sum > 0:
         treemap_data.append({
             "name": "其他",
+            "is_other": True,
             "amount": round(other_sum, 2),
             "placement": "5 / 3 / 7 / 4",
             "bg": "bg-zinc-50 dark:bg-zinc-800/60",
             "border": "border-zinc-200 dark:border-zinc-700",
         })
 
-    # 7. Spending Calendar Heatmap (Fully corresponding to REAL transactions)
-    # If range is short (MTD / 30D), automatically backfill to 7 weeks (matching 11.jpg: 2026-08-10 to 2026-09-27)
-    # If range is ALL / YTD, span 43 weeks (from 2025-12-01 to 2026-09-27)
-    cal_end = today
-    if period in ("MTD", "30D"):
-        # Backfill 7 full weeks (49 days) aligned to Monday
-        cal_start = cal_end - datetime.timedelta(days=48)
-        while cal_start.weekday() != 0:
-            cal_start -= datetime.timedelta(days=1)
-    else:
-        cal_start = datetime.date(2025, 12, 1)
-        while cal_start.weekday() != 0:
-            cal_start -= datetime.timedelta(days=1)
-
-    # Load all transactions in calendar range
-    all_cal_txns = session.exec(
-        select(Transaction.transacted_at, Transaction.amount, Transaction.transaction_type).where(
-            Transaction.transacted_at >= cal_start.isoformat(),
-            Transaction.transacted_at <= cal_end.isoformat(),
-        )
-    ).all()
+    # Calendar and trend share the exact authorized, period-filtered ledger
+    # used by cashflow and outflows. Whole-week padding contains no activity.
+    calendar_start = start_date
+    if start_date == datetime.date.min:
+        calendar_start = min((t.transacted_at for t in original_txns), default=end_date)
+    cal_start = calendar_start - datetime.timedelta(days=calendar_start.weekday())
+    cal_end = end_date
+    cal_end_week = end_date + datetime.timedelta(days=6 - end_date.weekday())
+    all_cal_txns = expense_txns + refund_txns
 
     daily_spend = {}
-    for tat, amt, ttype in all_cal_txns:
+    daily_names = {}
+    for activity in all_cal_txns:
+        tat, ttype, tname = activity.transacted_at, activity.transaction_type, activity.narration
+        amt = spending_refund(session, activity, set(active_account_ids), report_money) if ttype == "refund" else activity.amount
         if isinstance(tat, datetime.date):
             tat_str = tat.isoformat()
         else:
             tat_str = str(tat)
         if ttype == "expense":
             daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) + float(amt)
+            if tname:
+                daily_names.setdefault(tat_str, []).append(tname)
         elif ttype == "refund":
             daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) - float(amt)
+            if tname:
+                daily_names.setdefault(tat_str, []).append(f"退款: {tname}")
+
+    # 计算 Sure 风格分位数阈值
+    positive_spends = sorted([v for v in daily_spend.values() if v > 0])
+    if positive_spends:
+        n = len(positive_spends)
+        q1 = positive_spends[int(n * 0.25)]
+        q2 = positive_spends[int(n * 0.50)]
+        q3 = positive_spends[int(n * 0.75)]
+        thresholds = [q1, q2, q3]
+    else:
+        thresholds = [50.0, 150.0, 300.0]
 
     # Build weeks array (Monday to Sunday = 7 rows)
     weeks = []
     curr = cal_start
-    while curr <= cal_end:
+    while curr <= cal_end_week:
         week_days = []
         for _ in range(7):
             d_str = curr.isoformat()
@@ -290,11 +398,11 @@ def get_dashboard_summary(
                     level = 0
                 elif amt < 0:
                     level = 2
-                elif amt < 50:
+                elif amt <= thresholds[0]:
                     level = 1
-                elif amt < 150:
+                elif amt <= thresholds[1]:
                     level = 2
-                elif amt < 300:
+                elif amt <= thresholds[2]:
                     level = 3
                 else:
                     level = 4
@@ -303,57 +411,225 @@ def get_dashboard_summary(
                 level = 0
                 is_refund = False
 
+            names_for_day = daily_names.get(d_str, [])
+            desc = names_for_day[0] if names_for_day else ""
+
             week_days.append({
                 "date": d_str,
                 "amount": round(amt, 2),
                 "level": level,
                 "is_refund": is_refund,
-                "outside": curr > cal_end or curr < cal_start,
+                "outside": curr > end_date or curr < calendar_start,
+                "description": desc,
             })
             curr += datetime.timedelta(days=1)
         weeks.append(week_days)
 
-    # 8. Money In / Out Last 6 Months (Real monthly bars)
-    m_bars = []
-    cursor_m = today.replace(day=1)
-    rev_months = []
-    for _ in range(6):
-        rev_months.append(cursor_m)
-        cursor_m = (cursor_m - datetime.timedelta(days=1)).replace(day=1)
-    rev_months.reverse()
+    # Independent 6/12-month trend, ending in the selected period's month.
+    # The summary below still follows the top-level period selection.
+    from services.report_period import month_shift
+    last_month = end_date.replace(day=1)
+    earliest_month = month_shift(last_month, -11)
+    next_month = month_shift(last_month, 1)
+    trend_stmt = select(Transaction).where(
+        Transaction.transacted_at >= earliest_month.isoformat(),
+        Transaction.transacted_at < next_month.isoformat(),
+        Transaction.excluded_from_stats == False,
+    )
+    if real_account_id:
+        trend_stmt = trend_stmt.where(Transaction.account_id == real_account_id,
+                                      Transaction.account_id.in_(active_account_ids))
+    elif active_account_ids:
+        trend_stmt = trend_stmt.where(Transaction.account_id.in_(active_account_ids))
+    else:
+        trend_stmt = trend_stmt.where(False)
 
-    for m in rev_months:
-        if m.month == 12:
-            next_m = m.replace(year=m.year + 1, month=1)
+    trend_buckets = {}
+    for activity in session.exec(trend_stmt).all():
+        if is_genuine_income(activity, all_acc_map):
+            kind, amount = "income", report_money.ledger_amount(activity)
+        elif is_genuine_expense(activity, all_acc_map):
+            kind, amount = "expense", report_money.ledger_amount(activity)
+        elif is_genuine_refund(activity):
+            kind, amount = "expense", -spending_refund(session, activity, set(active_account_ids), report_money)
         else:
-            next_m = m.replace(month=m.month + 1)
-        m_txns = session.exec(select(Transaction).where(
-            Transaction.transacted_at >= m.isoformat(),
-            Transaction.transacted_at < next_m.isoformat(),
-        )).all()
-        m_inc = sum(float(t.amount) for t in m_txns if t.transaction_type == "income")
-        m_exp = sum(float(t.amount) for t in m_txns if t.transaction_type == "expense")
-        m_ref = sum(float(t.amount) for t in m_txns if t.transaction_type == "refund")
-        m_net_exp = round(max(0.0, m_exp - m_ref), 2)
+            continue
+        ym = activity.transacted_at.strftime("%Y-%m")
+        bucket = trend_buckets.setdefault(ym, {"income": Decimal(0), "expense": Decimal(0)})
+        bucket[kind] += amount
+
+    m_bars = []
+    for offset in range(12):
+        month = month_shift(earliest_month, offset)
+        bucket = trend_buckets.get(month.strftime("%Y-%m"), {"income": Decimal(0), "expense": Decimal(0)})
         m_bars.append({
-            "month": f"{m.month}月",
-            "year_month": m.strftime("%Y年%m月"),
-            "income": round(m_inc, 2),
-            "expense": m_net_exp,
+            "month": f"{month.month}月",
+            "year_month": month.strftime("%Y年%m月"),
+            "ym": month.strftime("%Y-%m"),
+            "start_date": month.isoformat(),
+            "end_date": (month_shift(month, 1) - datetime.timedelta(days=1)).isoformat(),
+            "income": float(round(bucket["income"], 2)),
+            "expense": float(round(bucket["expense"], 2)),
         })
 
-    # Balance Sheet from DB accounts
-    acc_list = session.exec(select(Account)).all()
-    real_assets = sum(float(a.balance or 0) for a in acc_list if a.classification == "asset")
-    real_liab = sum(float(a.balance or 0) for a in acc_list if a.classification == "liability")
-    if real_assets == 0 and real_liab == 0:
-        # Fallback to current portfolio reference
-        real_assets = 1217.90
-        real_liab = 82600.00
+    # Balance Sheet from DB accounts with real-time transaction balance verification
+    from services.stats_engine import get_report_account_balances
+    acc_list = [a for a in active_accounts if a.is_active]
+    from services.balance_sheet import debt_accounts
+    personal_debts = debt_accounts(session, user_db, target_user_obj.id if target_user_obj else None)
+    debt_ids = {a.id for a in personal_debts}
+    acc_list += personal_debts
+    realtime_map = get_report_account_balances(session, acc_list, report_money)
+    user_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User)).all()}
 
+    import re
+
+    def build_account_obj(a, class_total):
+        bal = realtime_map.get(a.id, float(a.balance or 0))
+        weight = round(bal / class_total * 100, 1) if class_total > 0 else 0.0
+        mask_m = re.search(r"(\d{4})", a.name or "")
+        mask = mask_m.group(1) if mask_m else "0000"
+        return {
+            "id": str(a.id),
+            "record_type": "personal_debt" if a.id in debt_ids else "account",
+            "name": a.name,
+            "mask": mask,
+            "account_type": a.account_type,
+            "classification": a.classification,
+            "institution_name": a.institution_name or "中国招商银行",
+            "owner": user_map.get(a.owner_id, display_name or "当前用户"),
+            "balance": round(bal, 2),
+            "weight": weight,
+        }
+
+    asset_accs = [a for a in acc_list if a.classification == "asset"]
+    liab_accs = [a for a in acc_list if a.classification == "liability"]
+
+    # 报表只累计各参与账户自身活动；卡片详情的合并账单不参与重复累加。
+    total_assets = round(sum(realtime_map.get(a.id, float(a.balance or 0)) for a in asset_accs), 2)
+    total_liabilities = round(sum(realtime_map.get(a.id, 0) for a in liab_accs), 2)
+    net_worth = round(total_assets - total_liabilities, 2)
+
+    # Color maps
+    TYPE_COLORS = {
+        "活期储蓄": "#10b981",
+        "借据": "#06b6d4",
+        "投资理财": "#6366f1",
+        "信用卡": "#f97316",
+        "贷款": "#ef4444",
+        "其他": "#8b5cf6",
+    }
+    TYPE_NAMES = {
+        "checking": "活期储蓄",
+        "savings": "活期储蓄",
+        "iou": "借据",
+        "receivable": "借据",
+        "loan_receivable": "借据",
+        "借据": "借据",
+        "investment": "投资理财",
+        "credit_card": "信用卡",
+        "loan": "贷款",
+        "other": "其他",
+    }
+    INST_COLORS = {
+        "中国招商银行": "#ea580c",
+        "招商银行": "#ea580c",
+        "中国银行": "#2563eb",
+        "贷款": "#ef4444",
+        "支付宝": "#0284c7",
+        "微信支付": "#16a34a",
+    }
+    FALLBACK_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"]
+
+    def group_accounts(accounts, group_by_field, class_total):
+        groups_dict = {}
+        for a in accounts:
+            if group_by_field == "type":
+                g_key = TYPE_NAMES.get(a.account_type, "活期储蓄")
+            else:
+                g_key = a.institution_name or "其他机构"
+            if g_key not in groups_dict:
+                groups_dict[g_key] = []
+            groups_dict[g_key].append(a)
+
+        res = []
+        for idx, (gname, g_accs) in enumerate(groups_dict.items()):
+            # 分类/银行分组按活动所属账户归集。
+            g_total = round(sum(realtime_map.get(acc.id, 0.0) for acc in g_accs), 2)
+            g_weight = round(g_total / class_total * 100, 1) if class_total > 0 else 0.0
+            if group_by_field == "type":
+                color = TYPE_COLORS.get(gname, FALLBACK_COLORS[idx % len(FALLBACK_COLORS)])
+            else:
+                color = INST_COLORS.get(gname, FALLBACK_COLORS[idx % len(FALLBACK_COLORS)])
+            acc_objs = [build_account_obj(acc, class_total) for acc in g_accs]
+            acc_objs.sort(key=lambda x: x["balance"], reverse=True)
+            res.append({
+                "name": gname,
+                "color": color,
+                "total": g_total,
+                "weight": g_weight,
+                "accounts": acc_objs,
+            })
+        res.sort(key=lambda x: x["total"], reverse=True)
+        return res
+
+    balance_sheet_data = {
+        "total_assets": total_assets,
+        "total_liabilities": total_liabilities,
+        "net_worth": net_worth,
+        "currency_symbol": report_money.symbol,
+        "by_type": {
+            "assets": {
+                "name": "资产",
+                "total": total_assets,
+                "groups": group_accounts(asset_accs, "type", total_assets),
+            },
+            "liabilities": {
+                "name": "负债",
+                "total": total_liabilities,
+                "groups": group_accounts(liab_accs, "type", total_liabilities),
+            },
+        },
+        "by_institution": {
+            "assets": {
+                "name": "资产",
+                "total": total_assets,
+                "groups": group_accounts(asset_accs, "institution", total_assets),
+            },
+            "liabilities": {
+                "name": "负债",
+                "total": total_liabilities,
+                "groups": group_accounts(liab_accs, "institution", total_liabilities),
+            },
+        },
+    }
+
+    # Real investment calculation based on visible active asset accounts
+    INVESTMENT_KEYWORDS = ("理财", "证券", "基金", "投资", "股票", "朝朝宝", "余额宝")
+    total_investment = round(
+        sum(
+            realtime_map.get(a.id, float(a.balance or 0))
+            for a in asset_accs
+            if (
+                a.account_type in ("investment", "brokerage", "mutual_fund", "投资理财")
+                or any(k in (a.name or "") for k in INVESTMENT_KEYWORDS)
+            )
+        ),
+        2,
+    )
+
+    from services.report_currency import persist_fx_cache
+    persist_fx_cache(session)
+
+    fx_summary = refund_report_summary(session, refund_txns, set(active_account_ids), report_money)
     return {
+        **report_money.metadata(),
+        **fx_summary,
         "user_name": display_name,
+        "family_members": family_members,
+        "selected_user": user_filter or "全部",
         "period": period,
+        "selected_month": f"{y}-{str(m).zfill(2)}",
         "period_dates": {
             "start": start_date.isoformat(),
             "end": end_date.isoformat(),
@@ -361,35 +637,37 @@ def get_dashboard_summary(
         "cashflow": sankey_data,
         "outflows": {
             "total": total_net_expense,
-            "currency_symbol": "¥",
+            "currency_symbol": report_money.symbol,
             "categories": categories_data,
+            "by_account": accounts_outflow_data,
             "adjustments": adjustments,
         },
-        "balance_sheet": {
-            "total_assets": round(real_assets, 2),
-            "total_liabilities": round(real_liab, 2),
-            "net_worth": round(real_assets - real_liab, 2),
-        },
+        "balance_sheet": balance_sheet_data,
         "merchants": {
             "treemap": treemap_data,
             "ranking": ranking_data,
         },
         "spending_calendar": {
-            "start_date": cal_start.strftime("%Y年%m月%d日"),
+            "start_date": calendar_start.strftime("%Y年%m月%d日"),
             "end_date": cal_end.strftime("%Y年%m月%d日"),
             "weeks": weeks,
-            "is_short_range": period in ("MTD", "30D"),
+            "period_dates": {"start": calendar_start.isoformat(), "end": end_date.isoformat()},
         },
         "money_in_out": {
-            "period_label": f"{start_date.strftime('%Y年%m月%d日')} to {end_date.strftime('%Y年%m月%d日')}",
+            "period_label": f"{start_date.strftime('%Y年%m月%d日')} 至 {end_date.strftime('%Y年%m月%d日')}",
+            "period_dates": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+            },
             "month_label": end_date.strftime("%Y年%m月"),
-            "balance": round(total_income_raw - total_net_expense, 2),
+            "balance": round(total_income_raw - total_net_expense + fx_summary['fx_gain'] - fx_summary['fx_loss'], 2),
             "income": round(total_income_raw, 2) if total_income_raw > 0 else total_net_income,
             "expenses": total_net_expense,
-            "last_6_months": m_bars,
+            "last_6_months": m_bars[-6:],
+            "last_12_months": m_bars,
         },
         "investment": {
-            "total": 509058.74,
-            "currency_symbol": "¥",
+            "total": total_investment,
+            "currency_symbol": report_money.symbol,
         },
     }

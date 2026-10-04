@@ -1,148 +1,218 @@
-import React from 'react';
+import { chartMoney } from '../../utils/chartMoney';
+import { dateLabel, tx, useLocale, currentLocale } from "../../localization.js";
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, ChevronDown, Info, Menu } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import { useCurrency } from '../../CurrencyContext';
 
 export default function SureMoneyInOut({
   data,
-  currencySymbol = '¥',
+  currencySymbol: reportSymbol,
+  userFilter = '',
 }) {
+  const locale = useLocale();
+  const compactRange = locale === 'en-US';
+  const { symbol, privacyMode } = useCurrency() || {};
+  const currencySymbol = reportSymbol ?? symbol ?? '';
+  const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
   const navigate = useNavigate();
+  const [trendRange, setTrendRange] = useState('6m');
 
-  const periodLabel = data?.period_label || '2026年09月01日 to 2026年09月27日';
-  const monthLabel = data?.month_label || '2026年09月';
-  const balance = data?.balance ?? -2160.48;
-  const income = data?.income ?? 590.86;
-  const expenses = data?.expenses ?? 2751.34;
-  const last6Months = data?.last_6_months || [
-    { month: '4月', income: 0, expense: 0 },
-    { month: '5月', income: 0, expense: 0 },
-    { month: '6月', income: 0, expense: 0 },
-    { month: '7月', income: 0, expense: 0 },
-    { month: '8月', income: 2553.25, expense: 196.31 },
-    { month: '9月', income: 590.86, expense: 2751.34 },
-  ];
+  const periodLabel = data?.period_label || '';
+  const startDate = data?.period_dates?.start;
+  const endDate = data?.period_dates?.end;
+
+  const balance = data?.balance ?? 0;
+  const income = data?.income ?? 0;
+  const expenses = data?.expenses ?? 0;
+
+  const activeBars = trendRange === '12m'
+    ? data?.last_12_months || data?.last_6_months || []
+    : data?.last_6_months || [];
 
   // Calculate bar heights
   const maxVal = Math.max(
-    ...last6Months.map((m) => Math.max(m.income, m.expense)),
+    ...activeBars.map((m) => Math.max(m.income, m.expense)),
     100
   );
 
+  const handleIncomeClick = () => {
+    const params = new URLSearchParams();
+    params.set('transaction_type', 'income');
+    if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    navigate(`/transactions?${params.toString()}`);
+  };
+
+  const handleExpenseClick = () => {
+    const params = new URLSearchParams();
+    params.set('transaction_type', 'expense');
+    if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    navigate(`/transactions?${params.toString()}`);
+  };
+
+  const handleBalanceClick = () => {
+    const params = new URLSearchParams();
+    if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    navigate(`/transactions?${params.toString()}`);
+  };
+
+  const handleMonthBarClick = (m) => {
+    const params = new URLSearchParams();
+    if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
+    if (m.start_date) params.set('start_date', m.start_date);
+    if (m.end_date) params.set('end_date', m.end_date);
+    navigate(`/transactions?${params.toString()}`);
+  };
+
   return (
     <div className="space-y-4 pt-1">
-      {/* ── 1. Date Range Subtitle (Exact 11.jpg) ── */}
-      <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 font-medium">
-        {periodLabel}
-      </p>
-
-      {/* ── 2. Filters Row: (i) 2026年09月 v | All accounts (Exact 11.jpg) ── */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 text-xs font-semibold text-zinc-800 dark:text-zinc-200 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
-        >
-          <Info className="w-3.5 h-3.5 text-zinc-400" />
-          <span>{monthLabel}</span>
-          <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 text-xs font-semibold text-zinc-800 dark:text-zinc-200 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors"
-        >
-          <Menu className="w-3.5 h-3.5 text-zinc-400" />
-          <span>All accounts</span>
-        </button>
-      </div>
-
-      {/* ── 3. Legend & Time Scope (Exact 11.jpg) ── */}
-      <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 pt-1">
+      {/* ── 1. Legend & 6M / 12M Range Switcher ── */}
+      <div className="flex items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Income</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 dark:bg-emerald-500" />
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx("收入")}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-zinc-400 dark:bg-zinc-500" />
-            <span>Expenses</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx("支出")}</span>
           </div>
         </div>
-        <span className="text-[11px] text-zinc-400 font-medium">Last 6 months</span>
+
+        <div data-testid="money-in-out-range" className="inline-flex shrink-0 p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-xs font-medium">
+          <button
+            type="button"
+            aria-label={tx("近 6 个月")}
+            title={tx("近 6 个月")}
+            aria-pressed={trendRange === '6m'}
+            onClick={() => setTrendRange('6m')}
+            className={`${compactRange ? 'px-3 py-1.5' : 'px-2.5 py-1'} rounded-md whitespace-nowrap transition-all cursor-pointer ${
+              trendRange === '6m'
+                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white font-semibold shadow-2xs'
+                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+            }`}
+          >{compactRange ? '6M' : tx("近 6 个月")}</button>
+          <button
+            type="button"
+            aria-label={tx("近 12 个月")}
+            title={tx("近 12 个月")}
+            aria-pressed={trendRange === '12m'}
+            onClick={() => setTrendRange('12m')}
+            className={`${compactRange ? 'px-3 py-1.5' : 'px-2.5 py-1'} rounded-md whitespace-nowrap transition-all cursor-pointer ${
+              trendRange === '12m'
+                ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white font-semibold shadow-2xs'
+                : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
+            }`}
+          >{compactRange ? '12M' : tx("近 12 个月")}</button>
+        </div>
       </div>
 
-      {/* ── 4. Bar Chart Area (Exact 11.jpg 6-Month Comparison) ── */}
-      <div className="h-44 sm:h-48 pt-4 flex items-end justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/80 pb-2">
-        {last6Months.map((m, idx) => {
+      {/* ── 2. Bar Chart Area (Clickable to jump into that month) ── */}
+      <div data-testid="money-in-out-bars" className="h-44 sm:h-48 pt-3 flex items-end justify-between gap-0.5 sm:gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-2 overflow-x-auto">
+        {activeBars.map((m, idx) => {
           const incHeight = Math.max(0, (m.income / maxVal) * 120);
           const expHeight = Math.max(0, (m.expense / maxVal) * 120);
+          const isLatest = idx === activeBars.length - 1;
 
           return (
-            <div key={idx} className="flex-1 flex flex-col items-center gap-2 group">
+            <div
+              key={m.ym || idx}
+              data-testid="money-in-out-month"
+              data-start-date={m.start_date}
+              data-end-date={m.end_date}
+              onClick={() => handleMonthBarClick(m)}
+              className="flex-1 min-w-[20px] sm:min-w-[28px] flex flex-col items-center gap-1.5 sm:gap-2 group cursor-pointer"
+              title={tx("点击查看 {p0} 流水 (收入: {p1}{p2}, 支出: {p3}{p4})", {p0: (m.year_month || m.month), p1: '', p2: formatAmount(m.income), p3: '', p4: formatAmount(m.expense)})}
+            >
               {/* Bars container */}
-              <div className="h-32 w-full flex items-end justify-center gap-1 sm:gap-1.5 relative">
-                {/* Income bar (Green) */}
+              <div className="h-32 w-full flex items-end justify-center gap-0.5 sm:gap-1 relative group-hover:scale-y-[1.03] transition-transform origin-bottom">
+                {/* Income bar */}
                 {m.income > 0 && (
                   <div
                     style={{ height: `${incHeight}px` }}
-                    className="w-2 sm:w-2.5 bg-emerald-500 rounded-t-sm transition-all group-hover:brightness-110"
-                    title={`${m.month} 收入: ${currencySymbol}${m.income.toFixed(2)}`}
+                    className="w-1.5 sm:w-2.5 bg-emerald-600 dark:bg-emerald-500 rounded-t-sm transition-all group-hover:brightness-110 shadow-2xs"
                   />
                 )}
-                {/* Expense bar (Grey, like 11.jpg) */}
+                {/* Expense bar */}
                 <div
                   style={{ height: `${Math.max(4, expHeight)}px` }}
-                  className={`w-3.5 sm:w-5 rounded-t-md transition-all group-hover:brightness-110 ${
+                  className={`w-2 sm:w-3.5 rounded-t-sm transition-all group-hover:brightness-110 ${
                     m.expense > 0
-                      ? 'bg-zinc-400 dark:bg-zinc-500'
-                      : 'bg-zinc-100 dark:bg-zinc-800'
+                      ? 'bg-zinc-400 dark:bg-zinc-500 shadow-2xs'
+                      : 'bg-zinc-100 dark:bg-zinc-800/60'
                   }`}
-                  title={`${m.month} 支出: ${currencySymbol}${m.expense.toFixed(2)}`}
                 />
               </div>
 
               {/* Month label */}
-              <span className="text-[11px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                {m.month}
+              <span
+                className={`text-[11px] sm:text-xs font-mono transition-colors whitespace-nowrap ${
+                  isLatest
+                    ? 'font-bold text-zinc-900 dark:text-zinc-100 underline decoration-emerald-500 underline-offset-4'
+                    : 'text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-800 dark:group-hover:text-zinc-200'
+                }`}
+              >
+                {dateLabel(m.month)}
               </span>
             </div>
           );
         })}
       </div>
 
-      {/* ── 5. Current Month Summary & Balance (Exact 11.jpg) ── */}
+      {/* ── 3. Current Period Summary & Balance (Clickable with period filters) ── */}
       <div className="pt-2 space-y-3">
-        <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-          {monthLabel}
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-zinc-100 dark:border-zinc-800/70 pb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{tx("当期收支结余")}</h3>
+            {periodLabel && (
+              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
+                {dateLabel(periodLabel)}
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center justify-between py-1 text-sm font-semibold">
-          <span className="text-zinc-700 dark:text-zinc-300">Transaction balance</span>
-          <span
-            className={`font-mono text-base font-bold ${
-              balance < 0 ? 'text-red-500 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
-            }`}
+          <div
+            onClick={handleBalanceClick}
+            className="flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+            title={tx("点击查看当期（{p0}）所有收支流水", {p0: (periodLabel)})}
           >
-            {balance < 0 ? '-' : '+'}{currencySymbol}{Math.abs(balance).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-          </span>
+            <span
+              className={`font-mono text-base font-bold ${
+                balance < 0
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : balance > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-zinc-900 dark:text-zinc-100'
+              }`}
+            >
+              {privacyMode ? '••••••' : `${balance < 0 ? '−' : balance > 0 ? '+' : ''}${formatAmount(Math.abs(balance))}`}
+            </span>
+            <ChevronRight className="w-4 h-4 text-zinc-400" />
+          </div>
         </div>
 
-        {/* Clickable Income & Expense Rows (Exact 11.jpg) */}
+        {/* Clickable Income & Expense Rows */}
         <div className="space-y-2">
           {/* Income Row */}
           <button
             type="button"
-            onClick={() => navigate('/transactions?transaction_type=income')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group"
+            onClick={handleIncomeClick}
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs transition-colors group cursor-pointer"
+            title={tx("点击查看当期（{p0}）所有收入明细", {p0: (periodLabel)})}
           >
             <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                Income
-              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 dark:bg-emerald-500 shrink-0" />
+              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx("收入")}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                {currencySymbol}{income.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              <span className="font-mono text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                {formatAmount(income)}
               </span>
               <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
             </div>
@@ -151,18 +221,17 @@ export default function SureMoneyInOut({
           {/* Expenses Row */}
           <button
             type="button"
-            onClick={() => navigate('/transactions?transaction_type=expense')}
-            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group"
+            onClick={handleExpenseClick}
+            className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs transition-colors group cursor-pointer"
+            title={tx("点击查看当期（{p0}）所有支出明细", {p0: (periodLabel)})}
           >
             <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
-              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                Expenses
-              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-500 shrink-0" />
+              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx("支出")}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                {currencySymbol}{expenses.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                {formatAmount(expenses)}
               </span>
               <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
             </div>

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import event, text
+from sqlalchemy.engine import make_url
 from sqlmodel import create_engine, SQLModel, Session
 
 logger = logging.getLogger("famledger")
@@ -14,11 +15,15 @@ DB_PATH = DATA_DIR / "famledger.db"
 # 优先读取 DATABASE_URL (默认采用 PostgreSQL 18)
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
-is_sqlite = DATABASE_URL.startswith("sqlite")
+engine_url = make_url(DATABASE_URL)
+is_sqlite = engine_url.get_backend_name() == "sqlite"
+if engine_url.drivername == "postgresql":
+    # SQLAlchemy's bare PostgreSQL URL defaults to psycopg2; we ship psycopg3.
+    engine_url = engine_url.set(drivername="postgresql+psycopg")
 
 if is_sqlite:
     engine = create_engine(
-        DATABASE_URL,
+        engine_url,
         echo=False,
         connect_args={"check_same_thread": False},
     )
@@ -29,11 +34,12 @@ if is_sqlite:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 else:
     # PostgreSQL 18: 配置高性能连接池 (极低内存占用)
     engine = create_engine(
-        DATABASE_URL,
+        engine_url,
         echo=False,
         pool_size=10,
         max_overflow=20,
@@ -80,4 +86,3 @@ def get_session():
     """FastAPI 依赖项：获取数据库会话。"""
     with Session(engine) as session:
         yield session
-

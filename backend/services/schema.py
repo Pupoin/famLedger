@@ -46,7 +46,7 @@ logger = logging.getLogger("mosaic")
 #
 # 1 -- first stamped version (Mosaic v2.1.0). Structurally identical to the
 #      v2.0.0 schema: v2.1.0 introduces the stamp, not a schema change.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 
 def get_db_schema_version(engine) -> int:
@@ -56,6 +56,13 @@ def get_db_schema_version(engine) -> int:
     neither was ever stamped. Callers must read 0 as "unknown, migrate it"
     rather than "empty".
     """
+    if engine.dialect.name != "sqlite":
+        from sqlalchemy import inspect
+        if not inspect(engine).has_table("schema_version"):
+            return 0
+        with engine.connect() as conn:
+            return int(conn.execute(text("SELECT version FROM schema_version WHERE id=1")).scalar() or 0)
+
     with engine.connect() as conn:
         return int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
 
@@ -66,6 +73,12 @@ def set_db_schema_version(engine, version: int = SCHEMA_VERSION) -> None:
     PRAGMA user_version takes no bound parameter, hence the f-string; the value
     is coerced to int first so this cannot become an injection point.
     """
+    if engine.dialect.name != "sqlite":
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"))
+            conn.execute(text("INSERT INTO schema_version(id,version) VALUES(1,:version) ON CONFLICT(id) DO UPDATE SET version=excluded.version"), {"version": int(version)})
+        return
+
     version = int(version)
     with engine.connect() as conn:
         conn.execute(text(f"PRAGMA user_version = {version}"))
@@ -100,8 +113,17 @@ def _existing_columns(conn, table_name: str) -> dict:
     fresh database -- create_all() builds it with every column already present,
     so there is nothing for this module to do.
     """
-    rows = conn.execute(text(f'PRAGMA table_info("{table_name}")')).fetchall()
-    return {row[1]: (row[2] or "") for row in rows}
+    if conn.dialect.name == "sqlite":
+        rows = conn.execute(text(f'PRAGMA table_info("{table_name}")')).fetchall()
+        return {row[1]: (row[2] or "") for row in rows}
+    else:
+        from sqlalchemy import inspect
+        try:
+            inspector = inspect(conn)
+            cols = inspector.get_columns(table_name)
+            return {col["name"]: str(col.get("type", "")) for col in cols}
+        except Exception:
+            return {}
 
 
 def _sql_literal(value):
@@ -178,9 +200,10 @@ def sync_schema(engine=None, metadata=None) -> list:
     # SQLModel.metadata to be populated at all, and deferring keeps the import
     # graph acyclic with ``database``.
     import database
-
     if engine is None:
         engine = database.engine
+
+    is_pg = engine.dialect.name == "postgresql"
 
     if metadata is None:
         import models  # noqa: F401  -- populates SQLModel.metadata
@@ -230,8 +253,13 @@ def sync_schema(engine=None, metadata=None) -> list:
                         f"old rows stay valid)."
                     )
 
+                if is_pg and str(column.type) == "BOOLEAN" and literal in {"0", "1"}:
+                    literal = "FALSE" if literal == "0" else "TRUE"
                 type_sql = column.type.compile(dialect=engine.dialect)
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {type_sql}'
+                if is_pg:
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{column.name}" {type_sql}'
+                else:
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {type_sql}'
                 if not column.nullable:
                     ddl += " NOT NULL"
                 if literal is not None:
@@ -254,6 +282,37 @@ def sync_schema(engine=None, metadata=None) -> list:
                         table.name, name,
                     )
 
+    _migrate_financial_indexes(engine, metadata)
     if executed:
         logger.info("Schema migration applied %d change(s)", len(executed))
     return executed
+
+
+def _migrate_financial_indexes(engine, metadata):
+    """Version 2 adds enforcement to deployed tables, not only new databases."""
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import IntegrityError
+    tables = set(inspect(engine).get_table_names()) & set(metadata.tables)
+    with engine.begin() as conn:
+        try:
+            if "users" in tables:
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_username_ci ON users(lower(username))"))
+            if "transfers" in tables:
+                for field in ("outflow_transaction_id", "inflow_transaction_id"):
+                    conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS uq_transfers_{field} ON transfers({field})"))
+            if "family_invitations" in tables:
+                # Keep the newest pending request; explicitly cancel older duplicates.
+                conn.execute(text("""UPDATE family_invitations SET status='canceled',
+                    cancel_reason='升级时清理重复未决邀请' WHERE id IN (
+                    SELECT id FROM (SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY family_id, invitee_user_id ORDER BY created_at DESC, id DESC) AS rn
+                    FROM family_invitations WHERE status='pending') AS duplicates WHERE rn>1)"""))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_family_invitation ON family_invitations(family_id,invitee_user_id) WHERE status='pending'"))
+            if "series_alert_states" in tables:
+                indexes = inspect(conn).get_indexes("series_alert_states")
+                old = next((index for index in indexes if index['name'] == 'ix_series_alert_lookup'), None)
+                if old and 'family_id' not in old.get('column_names', []):
+                    conn.execute(text("DROP INDEX ix_series_alert_lookup"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_series_alert_lookup ON series_alert_states(series_key,alert_type,family_id)"))
+        except IntegrityError as exc:
+            raise RuntimeError("Existing data conflicts with required unique constraints; repair duplicates before upgrading") from exc

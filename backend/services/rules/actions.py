@@ -16,6 +16,7 @@ class ActionExecutor:
         actions: List[Dict[str, Any]],
         txn: Transaction,
         dry_run: bool = False,
+        session=None,
     ) -> Dict[str, Any]:
         """
         对交易执行动作列表。
@@ -25,13 +26,23 @@ class ActionExecutor:
 
         for act in actions:
             action_type = act.get("type", "").lower()
-            val = act.get("value")
+            val = act.get("value", act.get("target_value"))
+            if val is None:
+                continue
 
             if action_type == "set_category":
                 # 防护：若用户已手动指定过分类，规则不得静默覆盖
                 if getattr(txn, "category_source", "import") != "manual":
                     try:
-                        cat_uuid = uuid.UUID(str(val)) if val else None
+                        if session is not None:
+                            from models import Account
+                            from .categories import resolve_category
+                            account = session.get(Account, txn.account_id)
+                            if not account:
+                                continue
+                            cat_uuid = resolve_category(session, val, account.family_id)
+                        else:
+                            cat_uuid = uuid.UUID(str(val)) if val else None
                         if txn.category_id != cat_uuid:
                             changes["category_id"] = {"old": str(txn.category_id) if txn.category_id else None, "new": str(cat_uuid) if cat_uuid else None}
                             if not dry_run:
@@ -40,18 +51,28 @@ class ActionExecutor:
                     except (ValueError, TypeError):
                         pass
 
-            elif action_type == "set_merchant":
+            elif action_type in ("set_merchant", "set_narration", "set_description"):
                 if getattr(txn, "merchant_source", "import") != "manual":
-                    new_merchant = str(val or "").strip()
-                    if txn.merchant_name != new_merchant:
-                        changes["merchant_name"] = {"old": txn.merchant_name, "new": new_merchant}
+                    new_val = str(val or "").strip()
+                    if txn.narration != new_val:
+                        changes["narration"] = {"old": txn.narration, "new": new_val}
                         if not dry_run:
-                            txn.merchant_name = new_merchant
+                            txn.narration = new_val
                             txn.merchant_source = "rule"
 
             elif action_type == "set_transaction_type":
+                if txn.transfer_id or txn.refund_of_transaction_id or txn.is_split:
+                    continue
+                if session is not None:
+                    from models import RefundAllocation
+                    from sqlmodel import select
+                    linked = session.exec(select(RefundAllocation).where(
+                        (RefundAllocation.refund_transaction_id == txn.id) |
+                        (RefundAllocation.original_transaction_id == txn.id))).first()
+                    if linked:
+                        continue
                 new_type = str(val or "").strip().lower()
-                if new_type in ("expense", "income", "transfer", "refund", "adjustment") and txn.transaction_type != new_type:
+                if new_type in ("expense", "income", "transfer", "refund") and txn.transaction_type != new_type:
                     changes["transaction_type"] = {"old": txn.transaction_type, "new": new_type}
                     if not dry_run:
                         txn.transaction_type = new_type

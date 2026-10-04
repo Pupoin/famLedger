@@ -26,6 +26,8 @@ def get(key: str) -> dict | None:
 
 def put(key: str, value: dict) -> None:
     with _lock:
+        if key not in _cache and len(_cache) >= 128:
+            _cache.pop(next(iter(_cache)))
         _cache[key] = value
 
 

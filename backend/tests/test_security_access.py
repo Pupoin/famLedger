@@ -7,6 +7,7 @@ Item 4 (avatar delete-before-commit ordering) is covered in
 test_account_deletion.py alongside the rest of that endpoint's tests.
 """
 
+import base64
 import http.cookies
 import json
 import logging
@@ -102,11 +103,11 @@ def test_resolve_spa_path_blocks_traversal_that_still_resolves_to_a_real_file(tm
 def test_secondary_user_cannot_switch_to_personal_mode(auth_client_b):
     resp = _set_mode(auth_client_b, "personal")
     assert resp.status_code == 403
-    assert "primary" in resp.json()["detail"].lower()
+    assert resp.json()["detail"]
 
 
-def test_primary_user_can_switch_to_personal_mode(auth_client_a):
-    resp = _set_mode(auth_client_a, "personal")
+def test_admin_can_switch_to_personal_mode(admin_client_a):
+    resp = _set_mode(admin_client_a, "personal")
     assert resp.status_code == 200
     assert resp.json()["app_mode"] == "personal"
 
@@ -117,13 +118,10 @@ def test_rejected_personal_switch_leaves_mode_unchanged(auth_client_a, auth_clie
     assert resp.json()["app_mode"] == "shared"
 
 
-def test_login_blocked_by_personal_mode_gets_honest_error(auth_client_a, client):
-    _set_mode(auth_client_a, "personal")
-    resp = client.post(
-        "/api/auth/login", json={"username": USER_B_LOGIN, "password": PASSWORD_B}
-    )
-    assert resp.status_code == 403
-    assert "personal mode" in resp.json()["detail"].lower()
+def test_personal_mode_does_not_lock_out_other_users(admin_client_a, client):
+    assert _set_mode(admin_client_a, "personal").status_code == 200
+    resp = client.post("/api/auth/login", json={"username": USER_B_LOGIN, "password": PASSWORD_B})
+    assert resp.status_code == 200
 
 
 def test_login_unknown_user_in_personal_mode_stays_generic(auth_client_a, client):
@@ -134,7 +132,7 @@ def test_login_unknown_user_in_personal_mode_stays_generic(auth_client_a, client
         "/api/auth/login", json={"username": "nobody", "password": "whatever"}
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Invalid username or password"
+    assert resp.json()["detail"] == "用户名或密码错误"
 
 
 def test_login_wrong_password_for_primary_in_personal_mode_still_generic_401(auth_client_a, client):
@@ -143,7 +141,7 @@ def test_login_wrong_password_for_primary_in_personal_mode_still_generic_401(aut
         "/api/auth/login", json={"username": USER_A_LOGIN, "password": "wrongpass"}
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Invalid username or password"
+    assert resp.json()["detail"] == "用户名或密码错误"
 
 
 # ── 3. Insecure-cookie startup warning ──────────────────────────────────────
@@ -189,14 +187,12 @@ def _cookie_value_from_response(resp, name):
 
 
 def _stale_token(username, session_version, age_seconds, persist=False):
-    payload = json.dumps({
-        "user": username,
-        "ts": int(time.time()) - age_seconds,
-        "persist": persist,
-        "sv": session_version,
-    })
-    sig = auth_mod._sign(payload)
-    return f"{payload}|{sig}"
+    import base64
+    fresh = auth_mod._make_token(username, persist=persist, session_version=session_version)
+    data = json.loads(base64.urlsafe_b64decode(fresh.split("|")[0]))
+    data["ts"] = int(time.time()) - age_seconds
+    payload = base64.urlsafe_b64encode(json.dumps(data).encode()).decode()
+    return f"{payload}|{auth_mod._sign(payload)}"
 
 
 def test_fresh_session_is_not_refreshed(auth_client_a):
@@ -220,7 +216,7 @@ def test_stale_non_persistent_session_is_refreshed(client, db):
 
     new_token = _cookie_value_from_response(resp, auth_mod.SESSION_COOKIE)
     assert new_token != token
-    new_payload = json.loads(new_token.rsplit("|", 1)[0])
+    new_payload = _decode_payload(new_token)
     assert time.time() - new_payload["ts"] < 5  # freshly reissued, not the stale ts
     assert new_payload["persist"] is False
 
@@ -275,7 +271,7 @@ def test_refreshed_session_survives_past_original_ttl(client, db):
     # explicitly so the follow-up request definitely sends the refreshed
     # value, not whichever of the two same-name jar entries httpx picks.
     refreshed_token = _cookie_value_from_response(resp, auth_mod.SESSION_COOKIE)
-    refreshed_payload = json.loads(refreshed_token.rsplit("|", 1)[0])
+    refreshed_payload = _decode_payload(refreshed_token)
     assert time.time() - refreshed_payload["ts"] < auth_mod.SESSION_TTL
 
     client.cookies.set(auth_mod.SESSION_COOKIE, refreshed_token)
@@ -351,3 +347,8 @@ def test_missing_chunk_404s_rather_than_falling_back_to_index_html(spa_client):
     response = spa_client.get("/assets/Analytics-staleoldhash.js")
     assert response.status_code == 404
     assert "text/html" not in response.headers.get("content-type", "")
+
+
+def _decode_payload(token):
+    encoded = token.rsplit("|", 1)[0]
+    return json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))

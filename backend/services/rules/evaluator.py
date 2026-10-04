@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import re
-from decimal import Decimal
+import regex as re
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 from models import Transaction
 
@@ -19,16 +19,24 @@ class ConditionEvaluator:
         1. 逻辑复合节点: {"operator": "AND"|"OR"|"NOT", "rules": [...]}
         2. 基础比较节点: {"field": "...", "operator": "...", "value": ...}
         """
+        try:
+            cls.validate(condition)
+        except ValueError:
+            return False
+        return cls._evaluate(condition, txn, account_name)
+
+    @classmethod
+    def _evaluate(cls, condition, txn, account_name):
         operator = condition.get("operator", "AND").upper()
 
         if operator in ("AND", "OR", "NOT"):
             sub_rules = condition.get("rules", [])
             if operator == "AND":
-                return all(cls.evaluate(sub, txn, account_name) for sub in sub_rules)
+                return all(cls._evaluate(sub, txn, account_name) for sub in sub_rules)
             elif operator == "OR":
-                return any(cls.evaluate(sub, txn, account_name) for sub in sub_rules)
+                return any(cls._evaluate(sub, txn, account_name) for sub in sub_rules)
             elif operator == "NOT":
-                return not any(cls.evaluate(sub, txn, account_name) for sub in sub_rules)
+                return not any(cls._evaluate(sub, txn, account_name) for sub in sub_rules)
 
         # 基础条件评估
         field = condition.get("field", "")
@@ -39,12 +47,55 @@ class ConditionEvaluator:
         return cls._match_condition(actual_val, op, expected)
 
     @classmethod
+    def validate(cls, condition, depth=0, budget=None):
+        budget = [0] if budget is None else budget
+        budget[0] += 1
+        if depth > 12 or budget[0] > 200 or not isinstance(condition, dict):
+            raise ValueError("规则条件树结构无效或超出限制")
+        op = condition.get("operator", "AND")
+        if not isinstance(op, str):
+            raise ValueError("规则运算符必须为字符串")
+        if op.upper() in {"AND", "OR", "NOT"}:
+            rules = condition.get("rules", [])
+            if not isinstance(rules, list):
+                raise ValueError("复合规则必须包含 rules 数组")
+            for sub in rules:
+                cls.validate(sub, depth + 1, budget)
+            return
+        allowed = {">", ">=", "gte", "<", "<=", "lte", "==", "!=", "equals", "not_equals",
+                   "contains", "not_contains", "starts_with", "ends_with", "regex", "in", "not_in",
+                   "between", "is_empty", "is_not_empty"}
+        field = condition.get("field")
+        if op.lower() not in allowed or not isinstance(field, str) or not field:
+            raise ValueError("规则字段或运算符无效")
+        field = field.strip().lower()
+        if field not in {"merchant", "merchant_name", "description", "name", "narration", "amount", "account", "notes", "category", "category_id", "type", "currency", "transaction_type", "tags", "status", "transacted_at", "is_reimbursable", "excluded_from_stats"}:
+            raise ValueError("不支持的规则字段")
+        value = condition.get("value")
+        if field == "amount" and op.lower() not in {"is_empty", "is_not_empty"}:
+            values = value if op.lower() in {"between", "in", "not_in"} else [value]
+            if not isinstance(values, (list, tuple)) or (op.lower() == "between" and len(values) != 2):
+                raise ValueError("金额条件必须包含有效数字范围")
+            try:
+                if any(not Decimal(str(v)).is_finite() for v in values):
+                    raise ValueError("金额条件必须为有限数字")
+            except InvalidOperation:
+                raise ValueError("金额条件必须为有效数字")
+        if op.lower() in {"in", "not_in"} and not isinstance(value, list):
+            raise ValueError("成员比较条件必须为数组")
+        if op.lower() == "regex":
+            if not isinstance(value, str) or len(value) > 512:
+                raise ValueError("正则表达式过长或无效")
+            try:
+                re.compile(value)
+            except re.error:
+                raise ValueError("正则表达式无效")
+
+    @classmethod
     def _get_field_value(cls, field: str, txn: Transaction, account_name: str) -> Any:
         field = field.lower().strip()
-        if field in ("merchant", "merchant_name"):
-            return txn.merchant_name or txn.name or ""
-        elif field in ("description", "name"):
-            return txn.name or ""
+        if field in ("merchant", "merchant_name", "description", "name", "narration"):
+            return txn.narration or ""
         elif field == "amount":
             return txn.amount
         elif field == "account":
@@ -72,7 +123,7 @@ class ConditionEvaluator:
                     low, high = Decimal(str(expected[0])), Decimal(str(expected[1]))
                     act_num = Decimal(str(actual))
                     return low <= act_num <= high
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, InvalidOperation):
                     return False
             try:
                 exp_num = Decimal(str(expected))
@@ -89,7 +140,7 @@ class ConditionEvaluator:
                     return act_num == exp_num
                 elif op in ("!=", "not_equals"):
                     return act_num != exp_num
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 return False
 
         # 文本类型比较
@@ -110,8 +161,10 @@ class ConditionEvaluator:
             return act_str.casefold().endswith(exp_str.casefold())
         elif op == "regex":
             try:
-                return bool(re.search(exp_str, act_str, flags=re.IGNORECASE))
-            except re.error:
+                if len(exp_str) > 512 or len(act_str) > 4096:
+                    return False
+                return bool(re.search(exp_str, act_str, flags=re.IGNORECASE, timeout=0.02))
+            except (re.error, TimeoutError):
                 return False
         elif op == "in" and isinstance(expected, (list, tuple)):
             exp_set = {str(item).casefold() for item in expected}

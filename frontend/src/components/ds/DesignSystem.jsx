@@ -1,3 +1,4 @@
+import { tx, useLocale } from "../../localization.js";
 import React from 'react';
 import clsx from 'clsx';
 
@@ -13,6 +14,7 @@ export function Button({
   type = 'button',
   ...props
 }) {
+  useLocale();
   const baseStyles = 'inline-flex items-center justify-center font-medium transition-all duration-200 focus-ring disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer select-none';
 
   const sizeStyles = {
@@ -54,6 +56,7 @@ export function Card({
   onClick,
   ...props
 }) {
+  useLocale();
   return (
     <div
       onClick={onClick}
@@ -76,6 +79,7 @@ export function Pill({
   onRemove,
   className = '',
 }) {
+  useLocale();
   const styles = {
     default: 'bg-surface-container text-on-surface border-outline/20',
     success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
@@ -94,7 +98,7 @@ export function Pill({
       )}
     >
       {Icon && <Icon className="w-3 h-3" />}
-      <span>{label}</span>
+      <span>{tx(label)}</span>
       {onRemove && (
         <button
           type="button"
@@ -117,6 +121,7 @@ export function Drawer({
   footer,
   width = 'max-w-2xl',
 }) {
+  useLocale();
   if (!isOpen) return null;
 
   return (
@@ -169,6 +174,7 @@ export function Modal({
   footer,
   maxWidth = 'max-w-xl',
 }) {
+  useLocale();
   if (!isOpen) return null;
 
   return (

@@ -11,7 +11,7 @@ sys.path.insert(0, "backend")
 
 import database
 from main import app
-from models import Family, User, Account, Category, StoredEmail, Transaction, Transfer, RefundAllocation
+from models import Family, User, Account, Category, Transaction, Transfer, RefundAllocation
 
 
 @pytest.fixture(name="client")
@@ -43,6 +43,7 @@ def client_fixture():
             role="owner",
         )
         session.add(user)
+        session.flush()
 
         cat_food = Category(family_id=family.id, name="餐饮美食")
         cat_shop = Category(family_id=family.id, name="日常购物")
@@ -60,78 +61,23 @@ def client_fixture():
         session.add(acc)
         session.commit()
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-FamLedger-CSRF": "1"}) as client:
         yield client
 
     app.dependency_overrides.clear()
 
 
-def test_raw_email_import_and_deduplication(client: TestClient):
-    headers = {"X-Api-Key": "dev-token"}
-    payload = {
-        "message_id": "graph_msg_001",
-        "mail_kind": "credit_daily",
-        "subject": "招商银行信用卡每日信用管家",
-        "sender": "ccsvc@message.cmbchina.com",
-        "received_at": datetime.now(timezone.utc).isoformat(),
-        "raw_html": "<html><body>您的信用卡消费明细：美团外卖 35.50元</body></html>",
-        "raw_text": "您的信用卡消费明细：美团外卖 35.50元",
-        "raw_payload": {"id": "graph_msg_001", "body": "test"},
-    }
-
-    # 1. 首次存入原始邮件
-    resp = client.post("/api/v1/imports/emails", json=payload, headers=headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["is_new"] is True
-    assert data["status"] == "pending"
-    email_id = data["id"]
-
-    # 2. 再次存入相同 message_id 的邮件（幂等去重）
-    dup_resp = client.post("/api/v1/imports/emails", json=payload, headers=headers)
-    assert dup_resp.status_code == 200
-    dup_data = dup_resp.json()
-    assert dup_data["is_new"] is False
-    assert dup_data["id"] == email_id
-
-    # 3. 查询邮件列表
-    list_resp = client.get("/api/v1/imports/emails", headers=headers)
-    assert list_resp.status_code == 200
-    assert list_resp.json()["total"] == 1
-
-    # 4. 查询单封邮件详情
-    detail_resp = client.get(f"/api/v1/imports/emails/{email_id}", headers=headers)
-    assert detail_resp.status_code == 200
-    detail = detail_resp.json()
-    assert "美团外卖" in detail["raw_html"]
-
-
-def test_transaction_ingest_and_email_linkage(client: TestClient):
+def test_transaction_ingest_direct(client: TestClient):
     headers = {"X-Api-Key": "dev-token"}
 
-    # 1. 先存原始邮件
-    email_payload = {
-        "message_id": "graph_msg_002",
-        "mail_kind": "credit_recent",
-        "subject": "近期消费明细",
-        "sender": "ccsvc@message.cmbchina.com",
-        "received_at": datetime.now(timezone.utc).isoformat(),
-        "raw_html": "<html>星巴克 38.00元</html>",
-    }
-    email_res = client.post("/api/v1/imports/emails", json=email_payload, headers=headers).json()
-    email_id = email_res["id"]
-
-    # 2. 推送解析得到的交易流水并关联 raw_email_id
     txn_payload = {
         "account_identifier": "9085",
         "transacted_at": "2026-09-26",
         "amount": "38.00",
         "currency": "CNY",
-        "name": "星巴克咖啡",
-        "merchant_name": "星巴克",
+        "narration": "星巴克咖啡",
         "nature": "expense",
         "external_id": "ext_starbucks_001",
-        "raw_email_id": email_id,
         "notes": "信用卡刷卡消费",
     }
     txn_res = client.post("/api/v1/transactions", json=txn_payload, headers=headers)
@@ -139,13 +85,6 @@ def test_transaction_ingest_and_email_linkage(client: TestClient):
     txn_data = txn_res.json()
     assert txn_data["status"] == "created"
     assert txn_data["amount"] == "38.00"
-
-    # 3. 校验邮件状态已回写为 parsed，且关联计数为 1
-    email_check = client.get(f"/api/v1/imports/emails/{email_id}", headers=headers).json()
-    assert email_check["status"] == "parsed"
-    assert email_check["parsed_count"] == 1
-    assert len(email_check["parsed_transactions"]) == 1
-    assert email_check["parsed_transactions"][0]["name"] == "星巴克咖啡"
 
 
 def test_auto_transfer_matching(client: TestClient):
@@ -188,8 +127,7 @@ def test_auto_refund_matching(client: TestClient):
         "account_identifier": "信用卡(9085)",
         "transacted_at": "2026-09-20",
         "amount": "150.00",
-        "name": "京东商城-图书音像",
-        "merchant_name": "京东商城",
+        "narration": "京东商城-图书音像",
         "transaction_type": "expense",
         "external_id": "jd_orig_150",
     }, headers=headers)
@@ -199,8 +137,7 @@ def test_auto_refund_matching(client: TestClient):
         "account_identifier": "信用卡(9085)",
         "transacted_at": "2026-09-22",
         "amount": "50.00",
-        "name": "京东退款",
-        "merchant_name": "京东商城",
+        "narration": "京东商城-图书音像退款",
         "nature": "refund",
         "external_id": "jd_refund_50",
     }, headers=headers)
@@ -215,15 +152,14 @@ def test_auto_refund_matching(client: TestClient):
 
 def test_transaction_split(client):
     """测试单笔流水拆分为多个子分类，并校验金额一致性约束。"""
-    headers = {"X-Api-Key": "test_famledger_key"}
+    headers = {"X-Api-Key": "dev-token"}
 
     # 1. 录入一笔 100 元消费
     res = client.post("/api/v1/transactions", json={
         "account_identifier": "信用卡(9085)",
         "transacted_at": "2026-09-26",
         "amount": "100.00",
-        "name": "沃尔玛超市购物",
-        "merchant_name": "沃尔玛",
+        "narration": "沃尔玛超市购物",
         "transaction_type": "expense",
         "external_id": "walmart_100",
     }, headers=headers)
@@ -257,3 +193,55 @@ def test_transaction_split(client):
     amounts = sorted([s["amount"] for s in splits])
     assert amounts == ["30.00", "70.00"]
 
+
+def test_explicit_refund_matching_and_candidates(client):
+    """测试新建退款时的候选消费搜索与显式关联原消费。"""
+    headers = {"X-Api-Key": "dev-token"}
+
+    # 1. 录入一笔消费：Apple Store 购买配件 699 元
+    res_orig = client.post("/api/v1/transactions", json={
+        "account_identifier": "招商信用卡(1234)",
+        "transacted_at": "2026-09-25",
+        "amount": "699.00",
+        "name": "Apple Store 官方直营店消费",
+        "category_name": "数码电器",
+        "transaction_type": "expense",
+        "external_id": "apple_orig_699",
+    }, headers=headers)
+    assert res_orig.status_code == 200
+    orig_id = res_orig.json()["id"]
+
+    # 2. 调用 /api/v1/refunds/candidates 接口检索候选消费
+    res_candidates = client.get("/api/v1/refunds/candidates?search=Apple", headers=headers)
+    assert res_candidates.status_code == 200
+    cands = res_candidates.json()["candidates"]
+    matched_cand = next((c for c in cands if c["id"] == orig_id), None)
+    assert matched_cand is not None
+    assert matched_cand["amount"] == "699.00"
+    assert matched_cand["remaining_refundable"] == "699.00"
+    assert matched_cand["category_name"] == "数码电器"
+
+    # 3. 显式指定 refund_of_transaction_id 录入一笔退款 200 元 (名称故意不含 Apple，验证非启发式命中)
+    res_refund = client.post("/api/v1/transactions", json={
+        "account_identifier": "招商信用卡(1234)",
+        "transacted_at": "2026-09-28",
+        "amount": "200.00",
+        "name": "银联在线退回资金款项",
+        "transaction_type": "refund",
+        "refund_of_transaction_id": orig_id,
+        "external_id": "refund_unionpay_200",
+    }, headers=headers)
+    assert res_refund.status_code == 200
+    refund_id = res_refund.json()["id"]
+
+    # 4. 验证退款流水成功关联 orig_id，并且自动继承了原消费的分类
+    txns = client.get("/api/v1/transactions", headers=headers).json()["items"]
+    refund_txn = next(t for t in txns if t["id"] == refund_id)
+    assert refund_txn["refund_of_transaction_id"] == orig_id
+    assert refund_txn["category_name"] == "数码电器"
+
+    # 5. 再次查询候选消费，剩余可退额度应已减为 499.00
+    res_candidates_2 = client.get("/api/v1/refunds/candidates?search=Apple", headers=headers)
+    cand_after = next(c for c in res_candidates_2.json()["candidates"] if c["id"] == orig_id)
+    assert cand_after["already_allocated"] == "200.00"
+    assert cand_after["remaining_refundable"] == "499.00"

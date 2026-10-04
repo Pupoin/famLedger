@@ -1,9 +1,7 @@
 """
 Shared embedding and clustering service for description similarity.
 
-Used by:
-- routes/expenses.py (similar-descriptions endpoint, description merge UI)
-- routes/insights.py (recurring payment detection)
+Used by routes/insights.py for recurring payment detection.
 """
 
 import threading
@@ -15,8 +13,7 @@ _embedding_lock = threading.Lock()
 
 # Descriptions are immutable strings, so a description -> embedding mapping
 # never goes stale. Re-embedding every unique description on every call was
-# the single biggest cost of the insights page (see
-# review_order/09-insights-recurring-forecast.md, item 1).
+# the single biggest cost of the insights page.
 _embedding_cache: dict[str, "np.ndarray"] = {}
 _embedding_cache_lock = threading.Lock()
 

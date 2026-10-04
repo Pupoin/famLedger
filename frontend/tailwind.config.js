@@ -63,9 +63,57 @@ export default {
         "inverse-primary": colorVar("inverse-primary"),
       },
       fontFamily: {
-        headline: ["Plus Jakarta Sans", "sans-serif"],
-        body: ["Public Sans", "sans-serif"],
-        label: ["Public Sans", "sans-serif"],
+        headline: [
+          "Plus Jakarta Sans",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "PingFang SC",
+          "MiSans",
+          "Samsung Sans",
+          "Noto Sans SC",
+          "Microsoft YaHei",
+          "sans-serif",
+        ],
+        body: [
+          "Public Sans",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "PingFang SC",
+          "MiSans",
+          "Samsung Sans",
+          "Noto Sans SC",
+          "Microsoft YaHei",
+          "sans-serif",
+        ],
+        label: [
+          "Public Sans",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "PingFang SC",
+          "MiSans",
+          "Samsung Sans",
+          "Noto Sans SC",
+          "sans-serif",
+        ],
+        mono: [
+          "Inter",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "PingFang SC",
+          "MiSans",
+          "Noto Sans SC",
+          "sans-serif",
+        ],
+      },
+      fontSize: {
+        "2xs": ["0.6875rem", { lineHeight: "0.875rem" }], // 11px / 14px
+        "xs": ["0.75rem", { lineHeight: "1rem" }],        // 12px / 16px
+        "sm": ["0.875rem", { lineHeight: "1.25rem" }],     // 14px / 20px
+        "base": ["1rem", { lineHeight: "1.375rem" }],      // 16px / 22px
+        "lg": ["1.125rem", { lineHeight: "1.5rem" }],      // 18px / 24px
+        "xl": ["1.25rem", { lineHeight: "1.625rem" }],     // 20px / 26px
+        "2xl": ["1.5rem", { lineHeight: "1.875rem" }],     // 24px / 30px
+        "3xl": ["1.75rem", { lineHeight: "2.125rem" }],    // 28px / 34px
       },
       borderRadius: {
         DEFAULT: "0.25rem",

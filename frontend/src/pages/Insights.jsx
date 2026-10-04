@@ -1,5 +1,6 @@
+import { tx, useLocale } from "../localization.js";
 import { useState, useEffect } from "react";
-import { getInsights } from "../api/expenses";
+import { getInsights } from "../api/client";
 import { useTheme } from "../ThemeContext";
 import { useCurrency } from "../CurrencyContext";
 import { getChartColors, getTooltipStyles } from "../utils/chartConfig";
@@ -20,6 +21,7 @@ import IncomeInsightsSection from "../components/insights/IncomeInsightsSection"
 import EmptyState from "../components/insights/EmptyState";
 
 export default function Insights() {
+  useLocale();
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const CHART_COLORS = getChartColors(isDark);
@@ -37,7 +39,7 @@ export default function Insights() {
         const result = await getInsights();
         setData(result);
       } catch {
-        setError("Could not load insights. Is the server running?");
+        setError(tx("Could not load insights. Is the server running?"));
       } finally {
         setLoading(false);
       }
@@ -55,7 +57,7 @@ export default function Insights() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64 text-error text-sm">
-        {error}
+        {tx(error)}
       </div>
     );
   }
@@ -89,12 +91,8 @@ export default function Insights() {
     <div className="space-y-10">
       {/* Header */}
       <section>
-        <h1 className="font-headline text-3xl font-bold tracking-tight text-on-surface">
-          Smart Insights
-        </h1>
-        <p className="text-on-surface-variant font-medium">
-          What needs your attention, and the patterns behind your spending.
-        </p>
+        <h1 className="font-headline text-3xl font-bold tracking-tight text-on-surface">{tx("Smart Insights")}</h1>
+        <p className="text-on-surface-variant font-medium">{tx("What needs your attention, and the patterns behind your spending.")}</p>
       </section>
 
       {/* On-pace headline — the accurate current-month projection */}
@@ -102,10 +100,8 @@ export default function Insights() {
         <div className="bg-primary text-on-primary rounded-[2rem] p-6 md:p-8 flex items-center gap-4 relative overflow-hidden">
           <span className="material-symbols-outlined text-3xl">speed</span>
           <div>
-            <p className="font-label text-xs uppercase tracking-[0.2em] text-on-primary/70 font-bold">
-              This month
-            </p>
-            <p className="font-headline text-2xl font-extrabold">{onPaceLine}</p>
+            <p className="font-label text-xs uppercase tracking-[0.2em] text-on-primary/70 font-bold">{tx("This month")}</p>
+            <p className="font-headline text-2xl font-extrabold">{tx(onPaceLine)}</p>
           </div>
           <div className="absolute top-0 right-0 w-48 h-48 bg-on-primary/10 blur-[80px] rounded-full -mr-16 -mt-16" />
         </div>
@@ -115,9 +111,7 @@ export default function Insights() {
       {attention.hasAny && (
         <section className="space-y-4">
           <h2 className="font-headline text-xl font-bold flex items-center gap-2">
-            <span className="material-symbols-outlined text-tertiary">notifications_active</span>
-            Needs your attention
-          </h2>
+            <span className="material-symbols-outlined text-tertiary">notifications_active</span> {tx("Needs your attention")}</h2>
           <AlertBanners
             recurring_alerts={attention.recurring_alerts}
             new_subscription_alerts={attention.new_subscription_alerts}
@@ -132,9 +126,7 @@ export default function Insights() {
       {anySection && (
         <section className="space-y-10">
           <h2 className="font-headline text-xl font-bold flex items-center gap-2 border-t border-surface-container-high pt-8">
-            <span className="material-symbols-outlined text-primary">insights</span>
-            Trends &amp; patterns
-          </h2>
+            <span className="material-symbols-outlined text-primary">insights</span> {tx("Trends & patterns")}</h2>
           {visibility.forecast && (
             <ForecastSection forecast={forecast} mode={mode} {...chartProps} />
           )}
@@ -157,7 +149,7 @@ export default function Insights() {
       {!hasAnything && (
         <EmptyState
           icon="auto_awesome"
-          message="No insights yet. Keep logging expenses — recurring bills, spending trends, and unusual charges will appear here automatically."
+          message={tx("No insights yet. Keep logging expenses — recurring bills, spending trends, and unusual charges will appear here automatically.")}
         />
       )}
     </div>

@@ -1,456 +1,126 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Mosaic Logo" width="120" height="120" />
-</p>
-
-<h1 align="center" style="margin-bottom: 0; border-bottom: none;">Mosaic</h1>
-<p align="center"><i>Local First Expense Tracker</i></p>
-
-<br>
+# famLedger - 现代家庭财富与财务协作系统
 
 <p align="center">
-  <a href="https://github.com/sundarep-ai/Mosaic/actions/workflows/tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/sundarep-ai/Mosaic/tests.yml?branch=main&label=Release" alt="Build" /></a>
-  &nbsp;
-  <a href="https://github.com/sundarep-ai/Mosaic/releases"><img src="https://img.shields.io/github/v/release/sundarep-ai/Mosaic?label=release" alt="Release" /></a>
-  &nbsp;
-  <a href="https://hub.docker.com/r/srpraveen97/mosaic"><img src="https://img.shields.io/docker/pulls/srpraveen97/mosaic?label=docker+pulls" alt="Docker Pulls" /></a>
-  &nbsp;
-  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License" />
-</p>
-
-<p align="center">
-  <a href="#screenshots">Screenshots</a>&nbsp;&bull;&nbsp;<a href="#whats-new-in-v200">What's New</a>&nbsp;&bull;&nbsp;<a href="#why-mosaic">Why Mosaic</a>&nbsp;&bull;&nbsp;<a href="#features-at-a-glance">Features</a>&nbsp;&bull;&nbsp;<a href="#setup">Setup</a>&nbsp;&bull;&nbsp;<a href="#method-2-docker">Docker</a>&nbsp;&bull;&nbsp;<a href="FEATURES.md">Full Docs</a>&nbsp;&bull;&nbsp;<a href="CONTRIBUTING.md">Contributing</a>
+  <strong>隐私优先 · 账户流水与双向转账 · 全景桑基现金流 · 自动化规则清洗 · 多成员细粒度授权</strong>
 </p>
 
 ---
 
-Mosaic is a personal expense tracker that runs entirely on your own machine. No subscriptions, no data sent anywhere. Log expenses, understand your spending patterns, and get automated analysis all locally. Mosaic also scales to two: a Blended mode lets couples track personal and shared expenses side by side without mixing them up.
+## 📖 项目简介
+
+**famLedger** 是一款为现代家庭与多成员团队量身定制的私有化部署财富管理与财务协作系统。系统采用 **本地优先 (Local-First)** 架构，在保障绝对数据主权与隐私安全的前提下，提供媲美现代商业金融产品的交互体验与专业严谨的财务核算能力。
+
+无论是个人记账、夫妻共同开销核算、家庭多资产账户统一监控，还是亲友往来借贷与账单自动化清洗，famLedger 均能提供严密、直观、优雅的解决方案。
 
 ---
 
-## Screenshots
+## ✨ 核心特性
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">Light</th>
-      <th align="center">Dark</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><strong>Dashboard</strong> — balance, category breakdown, recent activity</td>
-      <td align="center"></td>
-    </tr>
-    <tr>
-      <td><img src="screenshots/home_lightmode.png" alt="Dashboard light mode" /></td>
-      <td><img src="screenshots/home_darkmode.png" alt="Dashboard dark mode" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Analytics</strong> — category distribution, spending velocity</td>
-      <td align="center"></td>
-    </tr>
-    <tr>
-      <td><img src="screenshots/analytics_lightmode.png" alt="Analytics light mode" /></td>
-      <td><img src="screenshots/analytics_darkmode.png" alt="Analytics dark mode" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Calendar</strong> — heat-map view, click any day to drill down</td>
-      <td align="center"></td>
-    </tr>
-    <tr>
-      <td><img src="screenshots/calendar_lightmode.png" alt="Calendar light mode" /></td>
-      <td><img src="screenshots/calendar_darkmode.png" alt="Calendar dark mode" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Add Expense</strong> — split methods, category auto-suggest</td>
-      <td align="center"></td>
-    </tr>
-    <tr>
-      <td><img src="screenshots/add_lightmode.png" alt="Add expense light mode" /></td>
-      <td><img src="screenshots/add_darkmode.png" alt="Add expense dark mode" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>Clean Up</strong> — AI deduplication, bulk merge</td>
-      <td align="center"></td>
-    </tr>
-    <tr>
-      <td><img src="screenshots/cleanup_lightmode.png" alt="Clean up light mode" /></td>
-      <td><img src="screenshots/cleanup_darkmode.png" alt="Clean up dark mode" /></td>
-    </tr>
-  </tbody>
-</table>
+### 1. 资产全景与账户流水与双向转账
+- **多账户多币种管理**：支持储蓄卡、信用卡、投资证券、基金理财、公积金、现金及负债账户统一分类汇总。
+- **真实账户净值与资产负债表**：动态计算总资产、总负债与实时净资产走势，杜绝资产浮夸。
+- **纯粹财务口径**：内部转账、信用卡还款、借贷出资与回款严格与外部真实消费/收入解耦，彻底避免收支被重复虚增。
+- **单笔交易明细拆分**：支持单笔流水多类目、多标签混合拆分记账。
+
+### 2. 全景桑基图 (Cashflow Sankey)
+- 遵循严谨的“**真实外部收入 → 资金流动池 (Cashflow Pool) → 消费与资产净流向**”可视化模型。
+- 自动平抑跨期退款、实时抵扣负项，真实还原全月/全季度的现金流转全貌。
+
+### 3. 自动化规则清洗引擎 (Rules Engine)
+- **复合条件树**：支持 `AND` / `OR` / `NOT` 嵌套条件匹配，支持商户名、摘要、金额范围、账户、币种等组合筛选。
+- **灵活管道动作**：自动补齐分类、自动挂载标签、标准化商户名称、标记排除统计或自动转账识别。
+- **Dry-Run 预演仿真**：在历史流水样本上无痕模拟规则命中率与修改集，确认无误后支持一键历史全量回溯应用。
+
+### 4. 亲友借贷与信贷台账 (Debts & Loans)
+- **亲友往来 (IOU)**：清晰记录“谁欠我”与“我欠谁”，支持分期还款记录与结清归档。
+- **商业贷款监控**：房贷、车贷、消费贷等负债本金、利率、月供周期性追踪与余额还款销账。
+
+### 5. 多家庭与成员细粒度授权 (Granular RBAC)
+- **家庭边界隔离**：多家庭组织间的数据与权限隔离，杜绝跨家庭数据串户。
+- **账户级权限分配**：支持账户所有者将特定账户共享给指定家庭成员，并精细授予**“只读 (Read-Only)”**或**“读写 (Read-Write)”**及**“完全控制 (Full Control)”**权限，服务端接口全程强制校验防止越权 (IDOR)。
+
+### 6. 企业级认证与自动化 API Key
+- **双轨认证架构**：支持用户端会话 Cookie 与自动化 API Key 双轨并行。
+- **安全 API Key 管理**：前缀安全脱敏展示、SHA-256 安全哈希存库、单次明文生成与一键撤销。
+- **OIDC / SSO 单点登录集成**：原生兼容 Authelia、Keycloak、Authentik 等标准 OAuth2/OIDC 身份提供商，支持管理员动态配置与 JIT 自动建号。
 
 ---
 
-## What's New in v2.1.0
+## 🛠️ 技术栈
 
-A data-safety and operations release. No new features in the app itself — this is about being able to move, verify and upgrade your data without losing any of it.
-
-- **Export and import your whole installation.** `python -m cli export` writes one verifiable archive (database + audit log + avatars); `python -m cli import` restores it. The database travels as the binary SQLite file, so amounts and dates cannot be altered by a text round-trip.
-- **Verifiable, not just hopeful.** Every archive carries a checksum *and* a data fingerprint — row counts, your total expenses, sums per category and payer, date range, users. Import checks both and refuses rather than landing something almost-right. `python -m cli verify` prints the same fingerprint for a live database, so you can compare totals by eye.
-- **Automatic schema migrations.** Columns added in a future release are now ALTERed into an existing database on startup, for every table. Previously only `userpreference` was handled by hand, so a new column elsewhere would fail at *runtime* with `no such column` on an app that had started up perfectly.
-- **Databases are version-stamped**, and Mosaic refuses to start against one written by a newer release instead of risking your data.
-- **Avatars are included in backups.** They were silently excluded before, so "restore from backup" didn't restore everything.
-- **`BACKUP_PATH` is now an additional destination, not a replacement** — see the note under Backups below. This is a behaviour change if you already use it.
-- **`GET /api/health`** reports liveness, version and schema version, and the container now has a real health check — so a wedged process is detectable, and "did my upgrade land?" has an answer.
-- **The container runs as a non-root user**, and the release build no longer publishes without running the test suite first.
-
-## What's New in v2.0.0
-
-*Released 2026-07-15*
-
-A major release focused on making the numbers trustworthy, the insights genuinely useful, and the day-to-day flow faster. Highlights:
-
-**New features**
-
-- **Itemized split calculator** — for a mixed receipt (some items yours, some your partner's, some shared, some taxable), a calculator in the Add Expense form works out who owes what — including a custom tax rate — and drops the result straight into the expense.
-- **Custom categories** — create your own categories from the Add Expense form. They're validated to prevent look-alike duplicates (`groceries` vs `Groceries`) that would fragment your analytics.
-- **Insights, redesigned** — smarter recurring-payment detection (now catches bimonthly, semiannual, and series with a skipped cycle), **price-increase alerts** that tell you the story (*"Netflix $15.99 → $17.99 since March · +$24/yr"*), **new-subscription alerts**, a rebuilt **forecast** (this-month "on pace" total, next-month estimate with a likely range, upcoming bills, and a subscription roll-up), and anomaly detection that no longer gets fooled by one big purchase. Insights now live on their own attention-first page instead of cluttering Home.
-- **Per-user preferences** — your currency and income-tracking choices are now saved to your account and follow you across devices and browsers, instead of being stuck on one device.
-- **Faster expense entry** — **Save & add another**, a live split preview under the amount (*"50/50 → you'll owe Bob $12.50"*), settle-up that prefills the amount and direction, and crash/session-safe entry (a half-typed expense survives a session timeout and offers to restore).
-- **Better History & export** — filtered views are now shareable/bookmarkable via the URL and survive editing a row, pagination reaches your oldest expenses, filters from Calendar/Analytics show a clear pill, and the spreadsheet export matches exactly what's on screen and now includes an **Income** sheet.
-- **Analytics on mobile**, in-app toast notifications, an overspend callout on the income-flow chart, and dark-mode contrast fixes.
-
-**More reliable & correct**
-
-- **Money reconciles everywhere** — your balance, monthly summary, and "my spend" figures now always agree, including a fixed odd-cent rounding bug that could make them differ by a cent. Reimbursements and settlement payments follow one consistent convention across every total.
-- **Accurate forecasting** — fixed an inverted-weighting bug that skewed the spending forecast.
-- **Safer account deletion** — deleting one account no longer silently drops the other person's shared expenses from their totals or locks those rows from editing.
-- **Hardened backups** — every backup is verified after it's written, backups now also fire on data changes (not just at startup), and the app refuses to start on a corrupt database rather than backing up over a good copy.
-- **Safer data import** — the migration scripts now require you to state your date format (no more silent day/month swaps) and import all-or-nothing instead of quietly dropping bad rows.
-- **Security hardening** — path-traversal fix on static file serving, sliding session expiry (an active session no longer logs you out mid-use), and fixes to mode-switching/login edge cases that could lock a user out.
-
-For the complete feature reference, see [FEATURES.md](FEATURES.md).
+| 模块 | 技术选型 | 说明 |
+| :--- | :--- | :--- |
+| **前端应用** | React 18, Vite 6, Tailwind CSS | 响应式现代化设计，支持桌面宽屏与移动端原生交互适配 |
+| **图标与图表** | Lucide React, Recharts | 高清扁平化图表与动态交互 |
+| **国际化与主题** | i18next, Tailwind Dark Mode | 中英双语支持，深色/浅色主题秒级无缝切换 |
+| **后端服务** | Python 3.10+, FastAPI | 高性能异步 RESTful API 服务，依赖注入与严格参数校验 |
+| **持久层与 ORM** | SQLModel, SQLAlchemy 2.0, SQLite / PostgreSQL 18 | 强类型数据模型，事务隔离、固定金额入账与日汇率缓存 |
+| **认证与安全** | Bcrypt, HMAC-SHA256, URL-Safe Base64 | 强密码散列、会话签名防篡改与 API Key 哈希验证 |
 
 ---
 
-## Why Mosaic
+## 🚀 快速启动
 
-**Insights that actually tell you something.**
-Mosaic analyses your spending automatically: it detects recurring expenses, flags anomalies, alerts you when a category spikes above its 3-month average, and forecasts next month's spending. No manual setup, it works from the data you've already logged.
+### 方式一：本地开发环境运行
 
-**AI-powered description clean-up, on your device.**
-Tracked the same grocery store as "Foodbasics", "Food Basics", and "food basics"? The Clean Up tool uses local ONNX embeddings to find description variants that refer to the same thing and lets you merge them in bulk. No API calls, no data leaving your machine.
+在项目根目录安装依赖，并在 `backend/.env` 中配置 `SECRET_KEY`：
 
-**A calendar that shows where your money goes.**
-A monthly heat-map calendar colours each day by spending intensity, making it easy to spot heavy spending days at a glance. Click any day to see exactly what you bought.
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+npm --prefix frontend ci
+```
 
-**Runs locally, your data stays yours.**
-Everything lives in a local database on your machine. Mosaic never leaves home. No third-party access, no cloud sync unless you explicitly configure it (for OneDrive backups).
+同时启动前后端，网页使用 `http://localhost:8888`，API 由前端代理到后端的 8889 端口。前端开启 Vite 热更新，后端开启 Uvicorn 自动重载。开发模式不会自动备份数据库。
 
-**Scales to two when you need it.**
-Couples can log personal and shared expenses side by side. Mosaic tracks who owes what, splits costs fairly, and keeps each person's private spending to themselves.
+```bash
+# 启动
+.venv/bin/python scripts/dev.py start
+
+# 重启 / 停止
+.venv/bin/python scripts/dev.py restart
+.venv/bin/python scripts/dev.py stop
+
+# 生产环境编译构建
+npm --prefix frontend run build
+```
+
+运行日志和进程记录位于 `.cache/development/`。
 
 ---
 
-## Features at a glance
+## 🐳 Docker 部署
 
-| | |
-|---|---|
-| **Dashboard** | Monthly balance, your expense share, income summary, spend by category, recent activity |
-| **Add Expense** | Fuzzy description matching, category auto-suggest, custom categories, flexible split methods |
-| **Analytics** | Date-range charts, Sankey income-flow diagram, category drill-down, largest outlays |
-| **Calendar** | Heat-map month view, income badges, click-to-filter drill-down |
-| **Insights** | Anomaly detection, recurring expense tracker, category trend alerts, spend forecast, weekend vs. weekday analysis |
-| **History** | Searchable and filterable expense table, edit, delete, spreadsheet export |
-| **Clean Up** | AI embedding-based description deduplication with bulk merge |
-| **Modes** | Personal (solo), Shared (split everything), Blended (mix of both) |
+```bash
+cp .env.docker.example .env.docker
+# 填写 SECRET_KEY 与 POSTGRES_PASSWORD，再启动
+docker compose --env-file .env.docker up -d --build
+```
 
-Full feature documentation: [FEATURES.md](FEATURES.md)
+默认使用 PostgreSQL 18，页面端口为 8000。单独运行应用镜像也支持 SQLite：设置 `DATABASE_URL=sqlite:////app/data/famledger.db` 并持久化 `/app/data`，不依赖 PostgreSQL 服务。直接使用 HTTP 时需设置 `COOKIE_SECURE=false`；HTTPS 部署使用 `true`。
+
+## 📁 开发与接口文档
+
+- [文档索引](./docs/README.md)
+- [现金流与桑基图计算口径](./docs/CASHFLOW_SANKEY_SPEC.md)
+- [POST 接口与外部流水 ID](./postapi.md)
+- [账单服务](./services/bill/README.md)
+
+## ✅ 测试
+
+```bash
+.venv/bin/python -m pytest backend/tests -q
+npm --prefix frontend test -- --run
+npm --prefix frontend run build
+```
+
+PostgreSQL 集成测试使用独立的 `fix104_verify` 测试库，配置 `FAMLEDGER_TEST_PG_URL` 后运行 `backend/tests/test_fix104_postgres.py`；未配置时明确跳过。
 
 ---
 
-## Tech stack
-
-| Layer | Technologies |
-|---|---|
-| Backend | Python 3.10+, FastAPI, SQLModel, SQLite (WAL mode), fastembed (ONNX embeddings), bcrypt, openpyxl |
-| Frontend | React 18 (Vite), Tailwind CSS 3, React Router 6, Recharts, Fuse.js |
-
----
-
-## Setup
-
-Choose the method that fits your situation:
-
-| Method | Best for | Requirements |
-|---|---|---|
-| [Production](#method-1-production) | Self-hosting on a machine you control | Python 3.10+, Node.js 18+ |
-| [Docker](#method-2-docker) | Cleanest self-hosting, no Python/Node needed on host | Docker Desktop |
-| [Development](#method-3-development) | Local dev, experimenting | Python 3.10+, Node.js 18+ |
-
-The database (`mosaic.db`) is created automatically on first start — no manual setup required. Create up to 2 user accounts through the web UI after launching.
-
----
-
-### Method 1: Production
-
-FastAPI serves both the API and the built frontend from a single process. No Docker, no reverse proxy.
-
-**Prerequisites:** Python 3.10+, Node.js 18+
-
-```bash
-git clone https://github.com/sundarep-ai/Mosaic.git
-cd Mosaic
-```
-
-**Backend setup:**
-
-```bash
-cd backend
-copy config.example.py config.py # Windows
-# cp config.example.py config.py # macOS / Linux
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS / Linux
-pip install -r requirements.txt
-```
-
-Create `backend/.env`:
-
-```env
-SECRET_KEY=<long random string>
-ENV=production
-COOKIE_SECURE=false
-
-# Optional: an ADDITIONAL cloud-synced destination for backups.
-# Backups always land locally first; this is a mirror, not a replacement.
-# Must already exist — Mosaic refuses to start rather than create it.
-# BACKUP_PATH=C:/Users/yourname/OneDrive/Mosaic-Backups
-```
-
-**Build the frontend:**
-
-```bash
-cd ..
-cd frontend
-npm install
-npm run build
-```
-
-**Run:**
-
-```bash
-cd ..
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-Open **http://localhost:8000** (or `http://<your-machine-ip>:8000` from other devices on your network).
-
-**To update to a new version:**
-
-```bash
-git pull origin main
-cd frontend && npm install && npm run build
-cd ..
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
----
-
-### Method 2: Docker
-
-A single container running FastAPI, which serves both the API and the web UI. By default Compose **pulls a prebuilt, versioned image** from Docker Hub ([`srpraveen97/mosaic`](https://hub.docker.com/r/srpraveen97/mosaic)), so there's no local build step. All data persists in a Docker named volume across restarts and updates.
-
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-
-You only need the `docker-compose.yml` and a `.env` file to run Mosaic, but cloning the repo is the simplest way to get them:
-
-```bash
-git clone https://github.com/sundarep-ai/Mosaic.git
-cd Mosaic
-```
-
-Create a `.env` file (Docker Compose reads this automatically):
-
-```bash
-copy .env.docker.example .env # Windows
-# cp .env.docker.example .env # Linux
-```
-
-Edit `.env` and set your secret key:
-
-```env
-SECRET_KEY=<long random string>
-# Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
-
-# Optional: which release to run (default: latest). Pin a version for reproducible deploys.
-# MOSAIC_VERSION=2.0.0
-
-# Optional: change the port (default is 8000)
-# MOSAIC_PORT=8080
-
-# Optional: set to true if serving over HTTPS
-# COOKIE_SECURE=true
-```
-
-**Pull and start:**
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Open **http://localhost:8000** (or your `MOSAIC_PORT` if you changed it).
-
-> **Note:** The published image already includes the fastembed ONNX model (~45 MB), so the container starts instantly — no download or build on first run.
-
-**To update to a new version:**
-
-```bash
-docker compose pull      # fetch the newest image (or bump MOSAIC_VERSION in .env)
-docker compose up -d     # recreate the container with the new image
-```
-
-To pin a specific release instead of tracking `latest`, set `MOSAIC_VERSION=2.0.0` in `.env` and re-run the two commands above. Your data (database, audit logs, backups, avatars) is stored in the `mosaic-data` Docker volume and is never touched by an update.
-
-> **Building from source instead:** contributors can build the image locally rather than pulling it with `docker compose up -d --build` — the `build:` block is kept in `docker-compose.yml` for exactly this. The first build downloads the fastembed ONNX model (~45 MB) and bakes it into the image; subsequent builds use the cached layer.
-
-**To stop:**
-
-```bash
-docker compose down
-```
-
----
-
-### Method 3: Development
-
-Run the backend and frontend as separate dev servers. The frontend proxies API calls to the backend automatically.
-
-**Prerequisites:** Python 3.10+, Node.js 18+
-
-```bash
-git clone https://github.com/sundarep-ai/Mosaic.git
-cd Mosaic
-```
-
-**Backend:**
-
-```bash
-cd backend
-copy config.example.py config.py # Windows
-# cp config.example.py config.py # macOS / Linux
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS / Linux
-pip install -r requirements.txt
-```
-
-Create `backend/.env`:
-
-```env
-SECRET_KEY=<long random string>
-# Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
-
-# Optional: an ADDITIONAL cloud-synced destination for off-site backups.
-# Backups always land locally first; this is a mirror, not a replacement.
-# BACKUP_PATH=C:/Users/yourname/OneDrive/Mosaic-Backups
-```
-
-```bash
-uvicorn main:app --reload
-```
-
-**Frontend** (new terminal):
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open **http://localhost:5173**.
-
-> **First run:** The first time you use the Description Clean Up feature, `fastembed` downloads an embedding model (~45 MB). One-time, cached locally.
-
----
-
-### Optional: Import existing data
-
-If you have expenses in a `.xlsx` or `.csv` file (works with all methods — run from the backend directory with the venv active, or `docker exec` into the running `mosaic` container):
-
-```bash
-cd backend
-python migrate_expenses.py path/to/expenses.xlsx
-```
-
-Expected columns: `Date`, `Description`, `Amount`, `Category`, `Paid By`, `Split Method`.
-
-For income history (Personal / Blended mode only):
-
-```bash
-python migrate_income.py path/to/income.xlsx
-```
-
-Expected columns: `Date`, `Amount`, `Source`, `Display Name`, `Notes` (optional).
-
-### Optional: CLI password reset
-
-If a user cannot answer their security question:
-
-```bash
-cd backend
-python cli_reset_password.py
-```
-
----
-
-## Backups, and moving your data
-
-Mosaic backs itself up automatically — database, audit log and avatars — on every startup and every 20 data changes, keeping the 30 most recent copies in `DATA_DIR/backups/`. Each one is verified after it's written, and Mosaic refuses to start on a corrupt database rather than backing up over a good copy.
-
-Set `BACKUP_PATH` to also mirror those backups somewhere off-site (a OneDrive-synced folder, a NAS mount). It's an **additional** destination: backups always land locally first, so a broken mirror can't cost you the local copy. The path must already exist and be writable — Mosaic stops at startup if it isn't, instead of creating it and writing backups that sync nowhere.
-
-> Snapshots and syncs are not backups on their own. A sync propagates deletions and corruption; a restore you have never tested is a guess.
-
-### Moving to another machine
-
-```bash
-# On the old machine
-python -m cli export --out mosaic-backup.tar.gz
-
-# On the new one
-python -m cli import --archive mosaic-backup.tar.gz
-
-# Either side, any time — prints the data fingerprint
-python -m cli verify
-```
-
-Under Docker, run the same commands inside the container:
-
-```bash
-docker compose run --rm mosaic python -m cli export --out /app/data/mosaic-backup.tar.gz
-```
-
-The archive holds the database, the audit log and your avatars. The database travels as the binary SQLite file rather than CSV or JSON, so amounts and dates can't be changed by a text round-trip.
-
-**How you know it worked.** Every archive carries a checksum, proving the file arrived byte-identical, and a **data fingerprint** — row counts, your total expenses, sums per category and per payer, the date range, the user list. Import verifies both before installing anything and again afterwards, refuses to overwrite an existing database unless you pass `--force`, and snapshots whatever was there into `DATA_DIR/pre-import/` first.
-
-Run `verify` on both machines and compare the totals by eye. If the headline expense total matches to the cent, your data moved intact.
-
-Keep the old copy until you've used the new one for a while. A migration you can't reverse isn't finished.
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `SECRET_KEY environment variable is not set` | Create `backend/.env` with a `SECRET_KEY` value |
-| `python` not found | Try `python3`, or add Python to your PATH |
-| `npm` not found | Install Node.js from https://nodejs.org/ |
-| PowerShell blocks `activate` | Run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |
-| Port 8000 already in use | Run `uvicorn main:app --host 0.0.0.0 --port 8001` |
-| Port 5173 already in use | Vite auto-picks the next available port — check the terminal output |
-| CORS errors in the browser | Make sure the backend is running on `localhost:8000` before opening the frontend (dev only) |
-| `.db-shm` / `.db-wal` files appeared | Normal — SQLite WAL mode working files, managed automatically |
-| Docker: `failed to connect to docker API` | Open Docker Desktop and wait for it to fully start |
-| Login appears to succeed, then you're immediately signed out / 401s on the next request | You're serving over plain HTTP (e.g. LAN, no TLS) with `ENV=production` and `COOKIE_SECURE` unset — it defaults to `true` in production, so the browser silently refuses to store the session cookie over HTTP. Set `COOKIE_SECURE=false` in `backend/.env` (Method 1) or the compose environment (Docker) and restart. The backend also logs a startup warning (`Insecure cookie configuration detected...`) when it detects this combination. |
-
----
-
-## Links
-
-- [Features](FEATURES.md) — full feature reference
-- [Contributing](CONTRIBUTING.md) — how to contribute
-- [License](LICENSE) — MIT
+## 🔒 隐私与安全声明
+
+famLedger 坚持以隐私安全为第一要务：
+1. **零外部数据上报**：没有第三方跟踪脚本，不收集任何用户使用行为与账目数据。
+2. **本地文件存储**：账户流水与配置存储于自托管的 SQLite 或 PostgreSQL 数据库中。密码与 API Key 保存哈希，原始 API Key 仅在生成时展示。
+3. **备份防灾**：内置本地自动旋转备份机制，确保在意外断电或数据损坏时随时可快速还原。

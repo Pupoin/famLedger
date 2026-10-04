@@ -11,7 +11,7 @@ Usage:
 import getpass
 import sys
 
-import bcrypt
+from auth import hash_password
 from sqlmodel import Session, select
 
 from database import engine
@@ -54,12 +54,11 @@ def main():
             print("Passwords do not match.")
             sys.exit(1)
 
-        user.password_hash = bcrypt.hashpw(
-            new_password.encode(), bcrypt.gensalt()
-        ).decode()
+        user.password_hash = hash_password(new_password)
+        user.session_version = (user.session_version or 0) + 1
         session.add(user)
         session.commit()
-        print(f"Password for '{username}' has been reset successfully.")
+        print(f"Password for '{username}' has been reset successfully, all existing sessions revoked.")
 
 
 if __name__ == "__main__":

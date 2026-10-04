@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 class RulePipeline:
     """按优先级顺序评估规则流水线，执行动作并支持阻断与 Dry-Run 预演。"""
 
-    def __init__(self, rules: List[Rule]):
+    def __init__(self, rules: List[Rule], session=None):
+        self.session = session
         # 按 priority 升序排序（数值越小优先级越高）
         self.rules = sorted(
             [r for r in rules if r.is_active],
@@ -31,12 +32,15 @@ class RulePipeline:
         对单笔交易应用整条规则流水线。
         返回触发命中的规则及其带来的变更差异集。
         """
+        # Evaluate cascading rules against a detached working copy in previews.
+        if dry_run:
+            txn = Transaction.model_validate(txn.model_dump())
         matched_records: List[Dict[str, Any]] = []
 
         for rule in self.rules:
             is_matched = ConditionEvaluator.evaluate(rule.conditions, txn, account_name)
             if is_matched:
-                changes = ActionExecutor.apply_actions(rule.actions, txn, dry_run=dry_run)
+                changes = ActionExecutor.apply_actions(rule.actions, txn, dry_run=False, session=self.session)
                 matched_records.append({
                     "rule_id": str(rule.id),
                     "rule_name": rule.name,
@@ -69,7 +73,7 @@ class RulePipeline:
             # 记录初始快照
             orig_snapshot = {
                 "id": str(txn.id),
-                "merchant_name": txn.merchant_name,
+                "narration": txn.narration,
                 "category_id": str(txn.category_id) if txn.category_id else None,
                 "transaction_type": txn.transaction_type,
                 "notes": txn.notes,

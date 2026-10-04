@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
 import sqlalchemy
@@ -24,6 +24,12 @@ class Family(SQLModel, table=True):
     currency: str = Field(default="CNY", max_length=10)
     month_start_day: int = Field(default=1, ge=1, le=28)
     default_account_sharing: str = Field(default="shared", max_length=20) # shared | private
+    is_solo: bool = Field(default=False) # 兼容标记：是否为单人空间
+    kind: str = Field(default="collaborative", max_length=20) # personal(个人独立记账空间) | collaborative(多人协作家庭组)
+    status: str = Field(default="active", max_length=20, index=True) # active(活动) | dissolved(已解散归档)
+    personal_owner_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
+    dissolved_at: Optional[datetime] = Field(default=None)
+    dissolved_by_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -34,6 +40,7 @@ class Family(SQLModel, table=True):
 class User(SQLModel, table=True):
     """用户实体。彻底破除 2 人注册上限。"""
     __tablename__ = "users"
+    __table_args__ = (Index("uq_users_username_ci", sqlalchemy.func.lower(sqlalchemy.column("username")), unique=True),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     family_id: Optional[uuid.UUID] = Field(default=None, foreign_key="families.id", index=True)
@@ -64,6 +71,37 @@ class UserSession(SQLModel, table=True):
     user_agent: Optional[str] = Field(default=None, max_length=500)
     last_active_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime
+
+
+class RevokedSession(SQLModel, table=True):
+    """Revocation follows the session ID across sliding cookie refreshes."""
+    __tablename__ = "revoked_sessions"
+    id: str = Field(primary_key=True, max_length=64)
+    expires_at: int
+
+
+class OIDCLogin(SQLModel, table=True):
+    __tablename__ = "oidc_logins"
+    id: str = Field(primary_key=True, max_length=64)
+    provider_id: uuid.UUID = Field(index=True)
+    issuer: str
+    client_id: str
+    redirect_uri: str
+    nonce: str
+    code_verifier: str
+    expires_at: int
+    consumed: bool = Field(default=False)
+
+
+class ExchangeRateSnapshot(SQLModel, table=True):
+    """Daily quotes keyed by requested day, retaining the actual business day."""
+    __tablename__ = "exchange_rate_snapshots"
+    requested_date: date = Field(primary_key=True)
+    base_currency: str = Field(default="EUR", primary_key=True, max_length=10)
+    effective_date: date
+    rates: Dict[str, str] = Field(sa_column=Column(JSON_TYPE, nullable=False))
+    provider: str = Field(default="frankfurter", max_length=50)
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==========================================
@@ -130,6 +168,9 @@ class Account(SQLModel, table=True):
     exclude_from_reports: bool = Field(default=False)
     institution_name: Optional[str] = Field(default=None, max_length=100, index=True)
     external_identifier: Optional[str] = Field(default=None, max_length=100, index=True)
+    parent_account_id: Optional[uuid.UUID] = Field(default=None, foreign_key="accounts.id", index=True)
+    color: Optional[str] = Field(default=None, max_length=50)
+    icon: Optional[str] = Field(default=None, max_length=50)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -163,43 +204,29 @@ class Category(SQLModel, table=True):
     parent_id: Optional[uuid.UUID] = Field(default=None, foreign_key="categories.id")
     icon: Optional[str] = Field(default=None, max_length=50)
     color: Optional[str] = Field(default=None, max_length=30)
+    category_type: str = Field(default="expense", max_length=20, index=True)  # expense | income
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==========================================
-# 5.5. 原始账单邮件归档 (StoredEmail)
+# 5.2. 标签实体 (Tag)
 # ==========================================
-class StoredEmail(SQLModel, table=True):
-    """原始账单邮件归档与审计。支持定期拉取与重复解析。"""
-    __tablename__ = "stored_emails"
+class Tag(SQLModel, table=True):
+    """交易多维标签体系。每笔交易可拥有多个标签。"""
+    __tablename__ = "tags"
+
+    aliases: List[str] = Field(default_factory=list, sa_column=Column(
+        JSON_TYPE, nullable=False, server_default=sqlalchemy.text("'[]'")))
+    is_archived: bool = Field(default=False)
     __table_args__ = (
-        Index("uq_stored_email_msgid", "message_id", unique=True),
-        Index("uq_stored_email_fingerprint", "content_fingerprint", unique=True),
-        Index("ix_stored_emails_status", "status"),
-        Index("ix_stored_emails_received", "received_at"),
+        Index("uq_tag_family_name", "family_id", "name", unique=True),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
-    message_id: str = Field(max_length=255, index=True)
-    content_fingerprint: str = Field(max_length=128, index=True)
-    mail_kind: str = Field(default="other", max_length=50)  # credit_daily | credit_recent | debit | other
-    subject: str = Field(max_length=500)
-    sender: str = Field(max_length=255)
-    recipient: Optional[str] = Field(default=None, max_length=255)
-    received_at: datetime = Field(index=True)
-    raw_html: Optional[str] = Field(default=None)
-    raw_text: Optional[str] = Field(default=None)
-    raw_payload: Dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSON_TYPE)
-    )
-    status: str = Field(default="pending", max_length=30)  # pending | parsed | failed | ignored
-    error_message: Optional[str] = Field(default=None)
-    parsed_at: Optional[datetime] = Field(default=None)
-    parsed_count: int = Field(default=0)
+    name: str = Field(max_length=50)
+    color: Optional[str] = Field(default="#71717a", max_length=30)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==========================================
@@ -215,14 +242,23 @@ class Transaction(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
-    raw_email_id: Optional[uuid.UUID] = Field(default=None, foreign_key="stored_emails.id", index=True)
     external_id: Optional[str] = Field(default=None, max_length=255, index=True)
     transacted_at: date = Field(index=True)
-    exact_time: Optional[datetime] = Field(default=None)
+    occurred_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
     currency: str = Field(default="CNY", max_length=10)
-    name: str = Field(max_length=255)
-    merchant_name: Optional[str] = Field(default=None, max_length=150, index=True)
+    narration: str = Field(max_length=255)
+    original_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    original_currency: Optional[str] = Field(default=None, max_length=10)
+    exchange_rate: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(28, 12)))
+    exchange_rate_date: Optional[date] = None
+    exchange_rate_source: Optional[str] = Field(default=None, max_length=100)
+    master_account_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    master_settlement_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    master_settlement_currency: Optional[str] = Field(default=None, max_length=10)
+    master_exchange_rate: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(28, 12)))
+    master_exchange_rate_date: Optional[date] = None
+    master_exchange_rate_source: Optional[str] = Field(default=None, max_length=100)
     category_id: Optional[uuid.UUID] = Field(default=None, foreign_key="categories.id", index=True)
     transaction_type: str = Field(default="expense", max_length=30, index=True)  # expense | income | transfer | refund | adjustment
     status: str = Field(default="cleared", max_length=20)  # cleared | pending
@@ -258,6 +294,27 @@ class TransactionSplit(SQLModel, table=True):
     amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
     notes: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PendingFxTransaction(SQLModel, table=True):
+    """Unbooked source records; a separate table keeps them out of all ledger sums."""
+    __tablename__ = "pending_fx_transactions"
+    __table_args__ = (Index("uq_pending_fx_external", "account_id", "external_id", unique=True),)
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    requested_by_user_id: Optional[uuid.UUID] = Field(default=None, index=True)
+    requested_by_service: bool = Field(default=False)
+    external_id: Optional[str] = Field(default=None, max_length=255)
+    payload: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE))
+    status: str = Field(default="pending_fx", max_length=20, index=True)
+    posted_transaction_id: Optional[uuid.UUID] = None
+    attempts: int = Field(default=0)
+    last_error: Optional[str] = Field(default=None, max_length=500)
+    retry_after: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==========================================
@@ -299,7 +356,16 @@ class RefundAllocation(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     refund_transaction_id: uuid.UUID = Field(foreign_key="transactions.id", index=True)
     original_transaction_id: uuid.UUID = Field(foreign_key="transactions.id", index=True)
-    amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    allocated_amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    original_currency: Optional[str] = Field(default=None, max_length=10)
+    original_book_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    original_book_currency: Optional[str] = Field(default=None, max_length=10)
+    refund_original_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    refund_original_currency: Optional[str] = Field(default=None, max_length=10)
+    refund_book_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    refund_book_currency: Optional[str] = Field(default=None, max_length=10)
+    fx_difference_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    fx_difference_currency: Optional[str] = Field(default=None, max_length=10)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -354,6 +420,64 @@ class Loan(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ScheduledPlan(SQLModel, table=True):
+    __tablename__ = "scheduled_plans"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    owner_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    destination_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    accrual_account_id: Optional[uuid.UUID] = Field(default=None, foreign_key="accounts.id")
+    kind: str = Field(max_length=20)
+    name: str = Field(max_length=100)
+    currency: str = Field(max_length=10)
+    amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    start_date: date
+    end_date: Optional[date] = None
+    frequency: str = Field(default="monthly", max_length=20)
+    interval: int = Field(default=1)
+    occurrence_limit: int = Field(default=120)
+    timezone_name: str = Field(default="UTC", max_length=100)
+    execution_mode: str = Field(default="confirm", max_length=20)
+    status: str = Field(default="active", max_length=20, index=True)
+    config: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE, nullable=False))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ScheduledOccurrence(SQLModel, table=True):
+    __tablename__ = "scheduled_occurrences"
+    __table_args__ = (
+        Index("uq_plan_installment", "plan_id", "number", unique=True),
+        Index("uq_scheduled_bank_id", "account_id", "bank_external_id", unique=True),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    plan_id: uuid.UUID = Field(foreign_key="scheduled_plans.id", index=True)
+    account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    number: int
+    due_date: date = Field(index=True)
+    status: str = Field(default="planned", max_length=20)
+    snapshot: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE, nullable=False))
+    transaction_ids: List[str] = Field(default_factory=list, sa_column=Column(JSON_TYPE, nullable=False))
+    transfer_ids: List[str] = Field(default_factory=list, sa_column=Column(JSON_TYPE, nullable=False))
+    bank_external_id: Optional[str] = Field(default=None, max_length=255)
+    linked_transaction_id: Optional[uuid.UUID] = None
+    linked_original: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE, nullable=False))
+    last_error: Optional[str] = Field(default=None, max_length=500)
+    posted_at: Optional[datetime] = None
+    retry_after: Optional[datetime] = None
+
+
+class ScheduledBankMatch(SQLModel, table=True):
+    __tablename__ = "scheduled_bank_matches"
+    __table_args__ = (Index("uq_scheduled_bank_match", "account_id", "external_id", unique=True),)
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    occurrence_id: uuid.UUID = Field(foreign_key="scheduled_occurrences.id", index=True)
+    account_id: uuid.UUID = Field(foreign_key="accounts.id", index=True)
+    external_id: str = Field(max_length=255)
+    transaction_id: uuid.UUID = Field(foreign_key="transactions.id")
+
+
 class PersonalDebt(SQLModel, table=True):
     """亲友私人借贷往来台账。"""
     __tablename__ = "personal_debts"
@@ -363,6 +487,7 @@ class PersonalDebt(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    owner_id: Optional[uuid.UUID] = Field(default=None, index=True)
     debt_type: str = Field(max_length=20)  # lend | borrow
     counterparty: str = Field(max_length=100)
     principal_amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(19, 4)))
@@ -396,34 +521,19 @@ class Valuation(SQLModel, table=True):
 
 
 # ==========================================
-# 兼容旧版本模型 (仅用于迁移过渡)
+# 财务洞察计算使用的非持久化投影模型（不建表）
 # ==========================================
 class ExpenseBase(SQLModel):
     date: date
-    description: str = Field(max_length=500)
-    amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(10, 2)))
-    category: str = Field(max_length=100)
-    paid_by: str
-    split_method: str
+    description: str = Field(default="", max_length=500)
+    amount: Decimal = Field(default=Decimal("0"))
+    category: str = Field(default="", max_length=100)
+    paid_by: str = Field(default="")
+    split_method: str = Field(default="Personal")
 
-class Expense(ExpenseBase, table=True):
-    __tablename__ = "expense"
-    id: Optional[int] = Field(default=None, primary_key=True)
+class Expense(ExpenseBase):
+    id: Optional[int] = Field(default=None)
     user_id: Optional[str] = Field(default=None)
-
-class ExpenseCreate(ExpenseBase):
-    pass
-
-class ExpenseUpdate(ExpenseBase):
-    pass
-
-class DismissedMerge(SQLModel, table=True):
-    __tablename__ = "dismissedmerge"
-    id: Optional[int] = Field(default=None, primary_key=True)
-    category: str = Field(max_length=100)
-    desc_a: str = Field(max_length=500)
-    desc_b: str = Field(max_length=500)
-    dismissed_by: str = Field(max_length=100)
 
 CURRENCY_SYMBOLS = {
     "USD": "$",
@@ -436,35 +546,29 @@ CURRENCY_SYMBOLS = {
     "CNY": "¥",
     "CHF": "CHF",
     "SGD": "S$",
+    "HKD": "HK$",
 }
 
 VALID_DATE_FORMATS = {"DD/MM/YYYY", "MM/DD/YYYY", "YYYY/MM/DD", "YYYY/DD/MM"}
 VALID_CURRENCIES = set(CURRENCY_SYMBOLS.keys())
-VALID_INCOME_SOURCES = ["Salary", "Freelance", "Investment", "Gift", "Other"]
 
 class IncomeBase(SQLModel):
     date: date
-    amount: Decimal = Field(sa_column=Column(sqlalchemy.Numeric(10, 2)))
-    source: str
+    amount: Decimal = Field(default=Decimal("0"))
+    source: str = Field(default="")
     notes: Optional[str] = Field(default=None, max_length=500)
 
-class Income(IncomeBase, table=True):
-    __tablename__ = "income"
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: str = Field(index=True)
-
-class IncomeCreate(IncomeBase):
-    pass
-
-class IncomeUpdate(IncomeBase):
-    pass
+class Income(IncomeBase):
+    id: Optional[int] = Field(default=None)
+    user_id: str = Field(default="")
 
 class SeriesAlertState(SQLModel, table=True):
     __tablename__ = "series_alert_states"
     __table_args__ = (
-        Index("ix_series_alert_lookup", "series_key", "alert_type", unique=True),
+        Index("ix_series_alert_lookup", "series_key", "alert_type", "family_id", unique=True),
     )
     id: Optional[int] = Field(default=None, primary_key=True)
+    family_id: Optional[uuid.UUID] = Field(default=None, index=True)
     series_key: str = Field(max_length=600)
     alert_type: str = Field(max_length=30)
     first_seen: date = Field(default_factory=date.today)
@@ -483,8 +587,64 @@ class UserPreference(SQLModel, table=True):
     date_format: str = Field(default="YYYY-MM-DD", max_length=20)
     currency: str = Field(default="CNY", max_length=10)
     income_mode_enabled: bool = Field(default=False)
+    has_chosen_currency: bool = Field(default=True)
+    language: str = Field(default='en', max_length=10)
+    has_chosen_language: bool = Field(default=True)
 
 class Settings(SQLModel, table=True):
     __tablename__ = "settings"
     id: int = Field(default=1, primary_key=True)
     app_mode: str = Field(default="personal")
+
+
+# ==========================================
+# 16. API 密钥管理实体 (ApiKey)
+# ==========================================
+class ApiKey(SQLModel, table=True):
+    """用户个人 API Key，支持自动化脚本、快捷指令与外部系统安全鉴权。"""
+    __tablename__ = "api_keys"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    name: str = Field(max_length=100)  # 例如 "iOS 快捷指令"、"自动化记账脚本"
+    key_prefix: str = Field(max_length=16, index=True)  # 例如 "flk_live_a1b2"
+    hashed_key: str = Field(max_length=64, unique=True, index=True)  # SHA-256 哈希
+    scopes: str = Field(default="*")  # 权限范围，默认 "*" 全权限
+    expires_at: Optional[datetime] = Field(default=None)
+    last_used_at: Optional[datetime] = Field(default=None)
+    is_revoked: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+
+class FamilyBudget(SQLModel, table=True):
+    __tablename__ = "family_budgets"
+    family_id: uuid.UUID = Field(foreign_key="families.id", primary_key=True)
+    settings: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE))
+
+
+class FamilyInvitation(SQLModel, table=True):
+    """家庭组入组邀请记录表。"""
+    __tablename__ = "family_invitations"
+    __table_args__ = (
+        Index("ix_invitation_family_invitee", "family_id", "invitee_user_id"),
+        Index("ix_invitation_invitee_status", "invitee_user_id", "status"),
+        Index("uq_pending_family_invitation", "family_id", "invitee_user_id", unique=True,
+              sqlite_where=sqlalchemy.text("status = 'pending'"),
+              postgresql_where=sqlalchemy.text("status = 'pending'")),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    family_id: uuid.UUID = Field(foreign_key="families.id", index=True)
+    inviter_user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    invitee_user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    role: str = Field(default="member", max_length=20)  # 普通入组邀请固定为 member 角色
+    status: str = Field(default="pending", max_length=20, index=True)  # pending | accepted | rejected | canceled | expired
+    message: Optional[str] = Field(default=None, max_length=200)  # 邀请附言
+    source_family_id_at_issue: Optional[uuid.UUID] = Field(default=None)  # 发起时受邀人的源家庭
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(days=7))
+    processed_at: Optional[datetime] = Field(default=None)
+    processed_by_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")
+    cancel_reason: Optional[str] = Field(default=None, max_length=200)

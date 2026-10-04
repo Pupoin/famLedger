@@ -5,12 +5,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-famledger}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-famledger_secret}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be explicitly configured}
       POSTGRES_DB: ${POSTGRES_DB:-famledger}
     volumes:
       - postgres-data:/var/lib/postgresql
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-famledger} -d ${POSTGRES_DB:-famledger}"]
       interval: 5s
@@ -28,10 +28,12 @@ services:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-famledger}:${POSTGRES_PASSWORD:-famledger_secret}@db:5432/${POSTGRES_DB:-famledger}
-      - SECRET_KEY=${SECRET_KEY:-famledger_super_secret_key_change_me}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-famledger}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be explicitly configured}@db:5432/${POSTGRES_DB:-famledger}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be explicitly configured with high entropy}
+      - FAMLEDGER_API_TOKEN=${FAMLEDGER_API_TOKEN:-}
+      - FAMLEDGER_SERVICE_FAMILY_ID=${FAMLEDGER_SERVICE_FAMILY_ID:-}
       - ENV=production
-      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
       - DATA_DIR=/app/data
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     ports:
@@ -62,4 +64,3 @@ volumes:
   postgres-data:
   famledger-data:
   bill-data:
-

@@ -1,3 +1,4 @@
+import { categoryLabel, tx, useLocale, currentLocale } from "../../localization.js";
 import {
   XAxis,
   YAxis,
@@ -11,41 +12,38 @@ import { useCurrency } from "../../CurrencyContext";
 import EmptyState from "./EmptyState";
 
 export default function ForecastSection({ forecast, mode, CHART_COLORS, isDark, tooltipStyle, tooltipItemStyle, tooltipLabelStyle }) {
+  useLocale();
   const { fmt } = useCurrency();
   const isPersonal = mode === "personal";
 
   const now = new Date();
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const forecastMonthLabel = nextMonth.toLocaleString("default", { month: "long", year: "numeric" });
+  const forecastMonthLabel = nextMonth.toLocaleString(currentLocale(), { month: "long", year: "numeric" });
 
   return (
     <section>
       <h2 className="font-headline text-xl font-bold mb-6 flex items-center gap-2">
         <span className="material-symbols-outlined text-primary">auto_awesome</span>
-        {forecastMonthLabel} Forecast
-      </h2>
+        {forecastMonthLabel} {tx("Forecast")}</h2>
       {forecast.total_forecast > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
           {/* Summary card */}
           <div className="md:col-span-4 bg-primary text-on-primary p-8 rounded-[2rem] relative overflow-hidden">
-            <span className="font-label text-xs uppercase tracking-[0.2em] text-on-primary/70 font-bold">
-              Your Estimated Total
-            </span>
+            <span className="font-label text-xs uppercase tracking-[0.2em] text-on-primary/70 font-bold">{tx("Your Estimated Total")}</span>
             <div className="mt-4 font-headline text-4xl font-extrabold">
               {fmt(forecast.total_forecast)}
             </div>
             {!isPersonal && forecast.shared_total_forecast > 0 && (
-              <p className="mt-1 text-sm text-on-primary/60">
-                Shared total: {fmt(forecast.shared_total_forecast)}
+              <p className="mt-1 text-sm text-on-primary/60">{tx("Shared total:")} {fmt(forecast.shared_total_forecast)}
               </p>
             )}
             <div className="mt-4 space-y-2 text-sm text-on-primary/80">
               <div className="flex justify-between">
-                <span>Recurring</span>
+                <span>{tx("Recurring")}</span>
                 <span className="font-bold">{fmt(forecast.recurring_total)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Variable</span>
+                <span>{tx("Variable")}</span>
                 <span className="font-bold">{fmt(forecast.variable_total)}</span>
               </div>
             </div>
@@ -57,7 +55,7 @@ export default function ForecastSection({ forecast, mode, CHART_COLORS, isDark, 
                   </span>
                   <span>
                     {forecast.change_vs_last_month_pct >= 0 ? "+" : ""}
-                    {forecast.change_vs_last_month_pct}% vs last month ({fmt(forecast.last_month_total)})
+                    {forecast.change_vs_last_month_pct} {tx("% vs last month (")} {fmt(forecast.last_month_total)})
                   </span>
                 </div>
               </div>
@@ -67,12 +65,12 @@ export default function ForecastSection({ forecast, mode, CHART_COLORS, isDark, 
 
           {/* Per-category breakdown chart */}
           <div className="md:col-span-8 bg-surface-container p-8 rounded-[2rem]">
-            <h3 className="font-headline text-lg font-bold mb-6">By Category</h3>
+            <h3 className="font-headline text-lg font-bold mb-6">{tx("By Category")}</h3>
             {forecast.by_category.length > 0 ? (
               <ResponsiveContainer width="100%" height={Math.max(200, forecast.by_category.slice(0, 8).length * 44)}>
                 <BarChart
                   data={forecast.by_category.slice(0, 8).map((c) => ({
-                    name: c.category.length > 18 ? c.category.slice(0, 15) + "..." : c.category,
+                    name: categoryLabel(c.category).length > 18 ? categoryLabel(c.category).slice(0, 15) + "..." : categoryLabel(c.category),
                     forecast: c.forecast,
                     last_month: c.last_month,
                   }))}
@@ -97,17 +95,17 @@ export default function ForecastSection({ forecast, mode, CHART_COLORS, isDark, 
                   <Legend
                     wrapperStyle={{ fontSize: 12, paddingTop: 16, color: isDark ? "#bec8c8" : "#2f3334" }}
                   />
-                  <Bar dataKey="forecast" name="Forecast" fill={CHART_COLORS[0]} radius={[0, 8, 8, 0]} barSize={16} />
-                  <Bar dataKey="last_month" name="Last Month" fill={CHART_COLORS[1]} radius={[0, 8, 8, 0]} barSize={16} />
+                  <Bar dataKey="forecast" name={tx("Forecast")} fill={CHART_COLORS[0]} radius={[0, 8, 8, 0]} barSize={16} />
+                  <Bar dataKey="last_month" name={tx("Last Month")} fill={CHART_COLORS[1]} radius={[0, 8, 8, 0]} barSize={16} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-on-surface-variant text-sm text-center py-8">No category data</p>
+              <p className="text-on-surface-variant text-sm text-center py-8">{tx("No category data")}</p>
             )}
           </div>
         </div>
       ) : (
-        <EmptyState icon="auto_awesome" message="Need at least 1 month of history for forecasting" />
+        <EmptyState icon="auto_awesome" message={tx("Need at least 1 month of history for forecasting")} />
       )}
     </section>
   );

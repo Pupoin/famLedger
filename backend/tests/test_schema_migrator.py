@@ -279,5 +279,5 @@ def test_upgrades_a_real_legacy_userpreference_table():
         )).first()
     assert row.username == "alice"
     assert row.date_format == "MM/DD/YYYY"  # existing data untouched
-    assert row.currency == "CAD"            # documented default
+    assert row.currency == "CNY"            # documented default
     assert row.income_mode_enabled == 0

@@ -15,12 +15,12 @@ from sqlmodel import SQLModel, Session, create_engine
 from services.backup import BackupManager
 
 
-def _make_real_db(tmp_path, name="mosaic.db"):
+def _make_real_db(tmp_path, name="famledger.db"):
     """Create a real on-disk SQLite DB with the app's schema and one row."""
     db_path = tmp_path / name
     engine = create_engine(f"sqlite:///{db_path}")
-    SQLModel.metadata.create_all(engine)
     from models import User
+    SQLModel.metadata.create_all(engine)
 
     with Session(engine) as s:
         s.add(User(
@@ -45,13 +45,13 @@ def test_create_backup_produces_a_verifiable_copy(tmp_path):
 
     dest = mgr.create_backup()
 
-    assert (dest / "mosaic.db").exists()
+    assert (dest / "famledger.db").exists()
     assert mgr.verify_backup(dest) is True
 
-    conn = sqlite3.connect(str(dest / "mosaic.db"))
+    conn = sqlite3.connect(str(dest / "famledger.db"))
     try:
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-        assert conn.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1
     finally:
         conn.close()
 
@@ -85,7 +85,7 @@ def test_verify_backup_detects_corruption(tmp_path):
 
     dest = mgr.create_backup()
     # Corrupt the backup copy directly (not the source).
-    with open(dest / "mosaic.db", "r+b") as f:
+    with open(dest / "famledger.db", "r+b") as f:
         f.seek(100)
         f.write(b"\xff" * 50)
 
@@ -178,7 +178,7 @@ def test_notify_mutation_backs_up_every_n_calls(tmp_path):
     assert mgr.notify_mutation() is None
     result = mgr.notify_mutation()
     assert result is not None
-    assert (result / "mosaic.db").exists()
+    assert (result / "famledger.db").exists()
 
     # Counter resets — doesn't fire again until 3 more mutations.
     assert mgr.notify_mutation() is None
@@ -304,7 +304,7 @@ def test_backup_works_when_there_are_no_uploads_yet(tmp_path):
         backup_dir=tmp_path / "backups", uploads_dir=tmp_path / "nonexistent",
     )
     dest = mgr.create_backup()
-    assert (dest / "mosaic.db").exists()
+    assert (dest / "famledger.db").exists()
 
 
 # ── BACKUP_PATH mirrors, it no longer relocates ────────────────────────────────
@@ -325,8 +325,8 @@ def test_mirror_is_additional_not_a_replacement(tmp_path):
     )
     dest = mgr.create_backup()
 
-    assert (dest / "mosaic.db").exists()                     # local copy kept
-    assert (mirror / dest.name / "mosaic.db").exists()       # and mirrored
+    assert (dest / "famledger.db").exists()                     # local copy kept
+    assert (mirror / dest.name / "famledger.db").exists()       # and mirrored
     assert dest.parent == local
 
 
@@ -361,7 +361,7 @@ def test_mirror_failure_never_costs_the_local_backup(tmp_path):
     )
     dest = mgr.create_backup()  # must not raise
 
-    assert (dest / "mosaic.db").exists()
+    assert (dest / "famledger.db").exists()
     assert mgr.verify_backup(dest) is True
 
 
@@ -377,7 +377,8 @@ def test_a_backup_that_failed_verification_is_not_mirrored(tmp_path, monkeypatch
     )
     monkeypatch.setattr(BackupManager, "verify_backup", lambda self, dest: False)
 
-    mgr.create_backup()
+    with pytest.raises(RuntimeError, match="verification failed"):
+        mgr.create_backup()
 
     assert list(mirror.iterdir()) == []
 

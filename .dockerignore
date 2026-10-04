@@ -7,16 +7,41 @@ FEATURES.md
 CONTRIBUTING.md
 
 # Python
+.venv/
+.cache/
+**/__pycache__/
 backend/.venv
 backend/venv
 backend/__pycache__
 backend/**/__pycache__
+
+# Runtime data must not enter the build context or the application image.
+backend/backups/
+backend/audit/
 backend/*.db
 backend/*.db-shm
 backend/*.db-wal
+backend/**/*.db
+backend/**/*.db-shm
+backend/**/*.db-wal
+backend/**/*.sqlite
+backend/**/*.sqlite-shm
+backend/**/*.sqlite-wal
+backend/**/*.sqlite3
+backend/**/*.sqlite3-shm
+backend/**/*.sqlite3-wal
 backend/data/
 backend/uploads/
 backend/.env
+backend/config.py
+.env
+.env.*
+**/.env
+**/.env.*
+services/bill/data/
+services/bill/backups/
+services/bill/logs/
+.playwright-mcp/
 
 # Node
 frontend/node_modules

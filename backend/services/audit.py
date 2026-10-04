@@ -4,8 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from models import Expense, Income
-
 logger = logging.getLogger("mosaic")
 
 # Process-wide listeners notified after ANY AuditLogger instance writes an
@@ -22,16 +20,6 @@ def register_mutation_listener(fn: Callable[[], None]) -> None:
     """Subscribe to be notified after every successful audit log write,
     regardless of which AuditLogger instance performed it."""
     _mutation_listeners.append(fn)
-
-
-def expense_to_dict(expense: Expense) -> dict:
-    """Serialize an Expense instance to a plain dict suitable for JSON."""
-    return expense.model_dump()
-
-
-def income_to_dict(income: Income) -> dict:
-    """Serialize an Income instance to a plain dict suitable for JSON."""
-    return income.model_dump()
 
 
 class AuditLogger:
@@ -93,7 +81,7 @@ class AuditLogger:
 
 
 # Module-level singleton -- initialized with default path.
-# Import and use directly: from services.audit import audit_logger, expense_to_dict
+# Import and use directly: from services.audit import audit_logger
 import os as _os
 _data_dir = Path(_os.getenv("DATA_DIR", str(Path(__file__).parent.parent)))
 _default_dir = _data_dir / "audit"

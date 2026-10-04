@@ -6,12 +6,16 @@ anomalies, forecasts, and growth rankings — all from expense history.
 All monetary values are computed for the current user's portion where applicable.
 """
 
+import hashlib
+import json
+import logging
 import math
 import statistics
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, timedelta
-from typing import Any
+import uuid
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -27,6 +31,8 @@ from services.audit import audit_logger
 from services.clustering import cluster_descriptions_all
 from services.insights_cache import get as _cache_get, put as _cache_put
 from users import resolve_names
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 EXCLUDED_CATEGORIES = {"Payment", "Reimbursement"}
@@ -60,14 +66,49 @@ def _my_portion(e: Expense, me: str, other: str) -> float:
     return 0.0
 
 
-def _fetch_all_expenses(session: Session) -> list[Expense]:
-    """Fetch all non-Payment/Reimbursement expenses ordered by date."""
-    stmt = (
-        select(Expense)
-        .where(Expense.category.notin_(EXCLUDED_CATEGORIES))
-        .order_by(Expense.date.asc(), Expense.id.asc())
-    )
-    return list(session.exec(stmt).all())
+def _fetch_all_expenses(session: Session, family_id: Optional[uuid.UUID] = None, user_db: Optional[Any] = None) -> list[Expense]:
+    """Fetch all non-Payment/Reimbursement expenses ordered by date from Transactions for the current family and authorized accounts."""
+    from models import Transaction, Category, Account
+    from services.stats_engine import get_user_report_account_ids
+    try:
+        cat_stmt = select(Category)
+        if family_id:
+            cat_stmt = cat_stmt.where(Category.family_id == family_id)
+        cats = session.exec(cat_stmt).all()
+        cat_map = {c.id: c.name for c in cats}
+
+        if not family_id:
+            return []
+
+        acc_ids = list(get_user_report_account_ids(session, user_db, family_id=family_id))
+        if not acc_ids:
+            return []
+
+        txn_stmt = select(Transaction).where(
+            Transaction.transaction_type == "expense",
+            Transaction.account_id.in_(acc_ids)
+        )
+
+        txns = session.exec(txn_stmt.order_by(Transaction.transacted_at.asc())).all()
+        result = []
+        for t in txns:
+            c_name = cat_map.get(t.category_id, "其他") if t.category_id else "其他"
+            t_date = t.transacted_at if isinstance(t.transacted_at, date) else date.today()
+            desc_str = t.narration or "日常支出"
+            result.append(
+                Expense(
+                    date=t_date,
+                    description=desc_str,
+                    amount=t.amount,
+                    category=c_name,
+                    paid_by="User",
+                    split_method="Personal",
+                )
+            )
+        return result
+    except Exception as e:
+        logger.warning("Failed to fetch expenses for insights: %s", e)
+        return []
 
 
 # Canonical period grid (days). Replaces the old fixed-band classifier, whose
@@ -354,6 +395,7 @@ def _detect_price_step_alerts(
     session: Session,
     today: date | None = None,
     clustered: list[dict[str, Any]] | None = None,
+    family_id: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Change-point detection on each recurring series' amount sequence:
     compare the median of the last 2-3 occurrences (the "recent" plateau)
@@ -415,10 +457,8 @@ def _detect_price_step_alerts(
         occurrences_per_year = 365.25 / period_days
 
         series_key = _series_key(c["category"], c["first_description"])
-        if alert_state.is_dismissed_for(session, series_key, "price_step", recent_median):
+        if alert_state.is_dismissed_for(session, series_key, "price_step", recent_median, family_id=family_id):
             continue
-        alert_state.record_seen(session, series_key, "price_step", today, baseline_amount=recent_median)
-        to_commit = True
 
         alerts.append({
             "description": c["canonical"],
@@ -439,15 +479,15 @@ def _detect_price_step_alerts(
             "series_key": series_key,
         })
 
-    if to_commit:
-        session.commit()
-
     alerts.sort(key=lambda a: -abs(a["change_pct"]))
     return alerts
 
 
 def _detect_new_subscriptions(
-    clustered: list[dict[str, Any]], session: Session, today: date | None = None
+    clustered: list[dict[str, Any]],
+    session: Session,
+    today: date | None = None,
+    family_id: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Detect the inverse event of a price step: a brand-new recurring
     series. First occurrence <60 days ago, >=2 occurrences already on a
@@ -457,7 +497,6 @@ def _detect_new_subscriptions(
     """
     today = today or date.today()
     alerts = []
-    to_commit = False
 
     for c in clustered:
         occ_dates = c["occ_dates"]
@@ -474,10 +513,8 @@ def _detect_new_subscriptions(
         period_days, frequency = period_match
 
         series_key = _series_key(c["category"], c["first_description"])
-        if alert_state.is_dismissed_for(session, series_key, "new_subscription"):
+        if alert_state.is_dismissed_for(session, series_key, "new_subscription", family_id=family_id):
             continue
-        alert_state.record_seen(session, series_key, "new_subscription", today)
-        to_commit = True
 
         alerts.append({
             "description": c["canonical"],
@@ -490,9 +527,6 @@ def _detect_new_subscriptions(
             "my_amount": c["occ_my_amounts"][-1],
             "series_key": series_key,
         })
-
-    if to_commit:
-        session.commit()
 
     return alerts
 
@@ -1175,18 +1209,46 @@ def _income_insights(
     me: str,
     other: str,
     expenses: list[Expense],
+    family_id: Optional[uuid.UUID] = None,
+    user_db: Optional[Any] = None,
 ) -> dict[str, Any] | None:
     """Compute income-based insights: savings rate, income vs expense, and income by source.
 
     Returns None if no income data exists.
     """
-    incomes = list(
-        session.exec(
-            select(Income)
-            .where(Income.user_id == current_user)
-            .order_by(Income.date.asc())
+    from models import Transaction
+    from services.stats_engine import get_user_report_account_ids
+    try:
+        if not family_id:
+            return None
+        acc_ids = list(get_user_report_account_ids(session, user_db, family_id=family_id))
+        if not acc_ids:
+            return None
+
+        txns = session.exec(
+            select(Transaction)
+            .where(
+                Transaction.transaction_type == "income",
+                Transaction.account_id.in_(acc_ids),
+            )
+            .order_by(Transaction.transacted_at.asc())
         ).all()
-    )
+        incomes = []
+        for t in txns:
+            t_date = t.transacted_at if isinstance(t.transacted_at, date) else date.today()
+            incomes.append(
+                Income(
+                    date=t_date,
+                    amount=t.amount,
+                    source=t.narration or "收入",
+                    notes="",
+                    user_id=current_user,
+                )
+            )
+    except Exception as e:
+        logger.warning("Failed to fetch income for insights: %s", e)
+        incomes = []
+
     if not incomes:
         return None
 
@@ -1302,13 +1364,32 @@ def get_insights(
     """
     today = date.today()
     mode = get_app_mode(session)
-    cache_key = f"{current_user}|{mode}|{today.isoformat()}"
+    # Verify current authorization and read the current inputs before looking up
+    # a cached result. The digest works across workers without audit callbacks.
+    me, other = resolve_names(session, current_user)
+    from models import User, SeriesAlertState
+    u_row = session.exec(select(User).where(User.username == current_user)).first()
+    if not u_row:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    family_id = u_row.family_id
+    expenses = _fetch_all_expenses(session, family_id=family_id, user_db=u_row)
+    states = session.exec(select(SeriesAlertState).where(SeriesAlertState.family_id == family_id)).all() if family_id else []
+    from models import Transaction
+    from services.stats_engine import get_user_report_account_ids
+    report_accounts = get_user_report_account_ids(session, u_row, family_id)
+    income_rows = session.exec(select(Transaction).where(Transaction.account_id.in_(report_accounts),
+                                                        Transaction.transaction_type == "income").order_by(Transaction.id)).all() if report_accounts else []
+    inputs = {"expenses": [expense.model_dump(mode="json") for expense in expenses],
+              "accounts": sorted(str(account) for account in report_accounts),
+              "income": [income.model_dump(mode="json") for income in income_rows],
+              "alerts": sorted([state.model_dump(mode="json") for state in states], key=lambda row: row["id"]),
+              "names": [me, other], "family": str(family_id), "role": u_row.role,
+              "session_version": u_row.session_version}
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
+    cache_key = f"{current_user}|{mode}|{today.isoformat()}|{digest}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
-
-    me, other = resolve_names(session, current_user)
-    expenses = _fetch_all_expenses(session)
 
     # A: Recurring payment detection. Clustering is computed once here and
     # threaded through to price-step and new-subscription detection below,
@@ -1326,8 +1407,8 @@ def get_insights(
     # C: Price-step alerts (change-point detection) + new-subscription
     # alerts. Price steps are computed before category trends for the same
     # attribution reason as anomalies.
-    recurring_alerts = _detect_price_step_alerts(expenses, me, other, session, today, clustered=clustered)
-    new_subscription_alerts = _detect_new_subscriptions(clustered, session, today)
+    recurring_alerts = _detect_price_step_alerts(expenses, me, other, session, today, clustered=clustered, family_id=family_id)
+    new_subscription_alerts = _detect_new_subscriptions(clustered, session, today, family_id=family_id)
 
     # D: Weekend vs weekday spending (dual view: your + shared)
     weekend_weekday = _weekend_vs_weekday(expenses, me, other)
@@ -1346,7 +1427,7 @@ def get_insights(
     # H: Income insights (only for solo/hybrid modes)
     income_data = None
     if mode in ("personal", "blended"):
-        income_data = _income_insights(session, current_user, me, other, expenses)
+        income_data = _income_insights(session, current_user, me, other, expenses, family_id=family_id, user_db=u_row)
 
     result = {
         "recurring_expenses": recurring,
@@ -1387,9 +1468,30 @@ def dismiss_alert(
     """
     if payload.alert_type not in VALID_ALERT_TYPES:
         raise HTTPException(status_code=400, detail=f"alert_type must be one of {sorted(VALID_ALERT_TYPES)}")
-    alert_state.dismiss(session, payload.series_key, payload.alert_type, current_user, date.today())
+    from models import User
+    u_row = session.exec(select(User).where(User.username == current_user)).first()
+    family_id = u_row.family_id if u_row else None
+    alert_state.dismiss(session, payload.series_key, payload.alert_type, current_user, date.today(), family_id=family_id)
     audit_logger.log(
         "DISMISS_ALERT", current_user,
         {"series_key": payload.series_key, "alert_type": payload.alert_type},
     )
     return {"ok": True}
+
+
+@router.post("/insights/alerts/{series_key}/ack")
+def ack_alert(
+    series_key: str,
+    alert_type: str = "price_step",
+    session: Session = Depends(get_session),
+    current_user: str = Depends(get_current_user),
+):
+    """显式确认已获悉某项警报，替代原先在 GET 接口隐式写库的非幂等逻辑。"""
+    if alert_type not in VALID_ALERT_TYPES:
+        raise HTTPException(status_code=400, detail=f"alert_type 必须是 {sorted(VALID_ALERT_TYPES)} 之一")
+    from models import User
+    u_row = session.exec(select(User).where(User.username == current_user)).first()
+    family_id = u_row.family_id if u_row else None
+    alert_state.record_seen(session, series_key, alert_type, date.today(), family_id=family_id)
+    session.commit()
+    return {"status": "ok", "series_key": series_key, "alert_type": alert_type}

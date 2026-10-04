@@ -14,7 +14,7 @@
 # root-owned files in the volume that the app itself could no longer write.
 set -e
 
-DATA_DIR="${DATA_DIR:-/app/data}"
+export DATA_DIR="${DATA_DIR:-/app/data}"
 APP_USER=famledger
 APP_UID=10001
 

@@ -17,6 +17,7 @@ dismissal (dismiss()) *is* a real user mutation and goes through
 audit_logger from the route handler, which does invalidate the cache -- a
 dismissed alert must disappear from the very next GET.
 """
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -40,16 +41,30 @@ def _same_baseline(stored: Decimal | float | None, current: float) -> bool:
     return abs(stored - current) / abs(stored) <= STEP_TOLERANCE
 
 
-def get_state(session: Session, series_key: str, alert_type: str) -> SeriesAlertState | None:
-    return session.exec(
-        select(SeriesAlertState).where(
-            SeriesAlertState.series_key == series_key,
-            SeriesAlertState.alert_type == alert_type,
-        )
-    ).first()
+def get_state(
+    session: Session,
+    series_key: str,
+    alert_type: str,
+    family_id: uuid.UUID | None = None,
+) -> SeriesAlertState | None:
+    stmt = select(SeriesAlertState).where(
+        SeriesAlertState.series_key == series_key,
+        SeriesAlertState.alert_type == alert_type,
+    )
+    if family_id is not None:
+        stmt = stmt.where(SeriesAlertState.family_id == family_id)
+    else:
+        stmt = stmt.where(SeriesAlertState.family_id.is_(None))
+    return session.exec(stmt).first()
 
 
-def is_dismissed_for(session: Session, series_key: str, alert_type: str, current_amount: float | None = None) -> bool:
+def is_dismissed_for(
+    session: Session,
+    series_key: str,
+    alert_type: str,
+    current_amount: float | None = None,
+    family_id: uuid.UUID | None = None,
+) -> bool:
     """True if this series/alert_type is dismissed for the given amount.
 
     A dismissal is scoped to whatever baseline_amount was on file at the time
@@ -57,7 +72,7 @@ def is_dismissed_for(session: Session, series_key: str, alert_type: str, current
     caller doesn't pass a comparable amount at all, e.g. new-subscription
     alerts), the dismissal no longer applies to this new event.
     """
-    row = get_state(session, series_key, alert_type)
+    row = get_state(session, series_key, alert_type, family_id=family_id)
     if row is None or not row.dismissed:
         return False
     if current_amount is None:
@@ -71,6 +86,7 @@ def record_seen(
     alert_type: str,
     today: date,
     baseline_amount: float | None = None,
+    family_id: uuid.UUID | None = None,
 ) -> SeriesAlertState:
     """Record that this series/alert_type is actively detected today.
 
@@ -80,9 +96,10 @@ def record_seen(
     a previously-dismissed one), the row resets: a new event must not
     inherit a dismissal that belonged to a different price.
     """
-    row = get_state(session, series_key, alert_type)
+    row = get_state(session, series_key, alert_type, family_id=family_id)
     if row is None:
         row = SeriesAlertState(
+            family_id=family_id,
             series_key=series_key,
             alert_type=alert_type,
             first_seen=today,
@@ -107,12 +124,25 @@ def record_seen(
     return row
 
 
-def dismiss(session: Session, series_key: str, alert_type: str, user: str, today: date) -> SeriesAlertState:
+def dismiss(
+    session: Session,
+    series_key: str,
+    alert_type: str,
+    user: str,
+    today: date,
+    family_id: uuid.UUID | None = None,
+) -> SeriesAlertState:
     """Mark a series/alert_type dismissed. Commits immediately -- this is
     called from its own dedicated endpoint, not batched with detection."""
-    row = get_state(session, series_key, alert_type)
+    row = get_state(session, series_key, alert_type, family_id=family_id)
     if row is None:
-        row = SeriesAlertState(series_key=series_key, alert_type=alert_type, first_seen=today, last_seen=today)
+        row = SeriesAlertState(
+            family_id=family_id,
+            series_key=series_key,
+            alert_type=alert_type,
+            first_seen=today,
+            last_seen=today,
+        )
     row.dismissed = True
     row.dismissed_by = user
     row.dismissed_at = datetime.now(timezone.utc)

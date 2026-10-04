@@ -49,7 +49,7 @@ def test_adds_missing_columns_to_legacy_table():
         )).first()
     assert row.username == "alice"
     assert row.date_format == "MM/DD/YYYY"  # existing data untouched
-    assert row.currency == "CAD"  # new column gets the documented default
+    assert row.currency == "CNY"  # new column gets the documented default
     assert row.income_mode_enabled == 0
 
 
@@ -62,7 +62,7 @@ def test_idempotent_when_columns_already_exist():
 
     with engine.connect() as conn:
         row = conn.execute(text("SELECT currency FROM userpreference")).first()
-    assert row.currency == "CAD"
+    assert row.currency == "CNY"
 
 
 def test_no_op_when_table_does_not_exist_yet():

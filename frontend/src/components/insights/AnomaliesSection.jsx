@@ -1,8 +1,10 @@
+import { categoryLabel, tx, useLocale } from "../../localization.js";
 import { CATEGORY_ICONS } from "../../constants/categories";
 import { useCurrency } from "../../CurrencyContext";
 import { useDateFormat } from "../../DateFormatContext";
 
 export default function AnomaliesSection({ anomalies, mode }) {
+  useLocale();
   const { fmt } = useCurrency();
   const { formatDate } = useDateFormat();
   const isPersonal = mode === "personal";
@@ -12,9 +14,7 @@ export default function AnomaliesSection({ anomalies, mode }) {
   return (
     <section>
       <h2 className="font-headline text-xl font-bold mb-6 flex items-center gap-2">
-        <span className="material-symbols-outlined text-error">warning</span>
-        Unusual Expenses
-      </h2>
+        <span className="material-symbols-outlined text-error">warning</span> {tx("Unusual Expenses")}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {anomalies.slice(0, 6).map((a) => (
           <div
@@ -32,7 +32,7 @@ export default function AnomaliesSection({ anomalies, mode }) {
                   ? "bg-error-container text-on-error-container"
                   : "bg-primary-container text-on-primary-container"
               }`}>
-                {a.direction === "high" ? "Unusually High" : "Unusually Low"}
+                {a.direction === "high" ? tx("Unusually High") : tx("Unusually Low")}
               </span>
             </div>
             <p className="font-bold text-on-surface truncate">{a.description}</p>
@@ -40,12 +40,11 @@ export default function AnomaliesSection({ anomalies, mode }) {
               {fmt(a.my_portion != null ? a.my_portion : a.amount)}
             </p>
             {!isPersonal && a.my_portion != null && a.my_portion !== a.amount && (
-              <p className="text-xs text-on-surface-variant mt-0.5">
-                Full amount: {fmt(a.amount)}
+              <p className="text-xs text-on-surface-variant mt-0.5">{tx("Full amount:")} {fmt(a.amount)}
               </p>
             )}
             <p className="text-xs text-on-surface-variant mt-2">
-              {a.category} usual: {fmt(a.category_median)} &middot; {formatDate(a.date)}
+              {categoryLabel(a.category)} {tx("usual:")} {fmt(a.category_median)} &middot; {formatDate(a.date)}
             </p>
           </div>
         ))}

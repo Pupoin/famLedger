@@ -8,7 +8,9 @@ class TestCurrencyConversion(unittest.TestCase):
     @patch("backend.ingest.currency_utils.get_exchange_rates")
     def test_sgd_to_cny_conversion(self, mock_rates):
         # 模拟 2024-05-15 的汇率
-        mock_rates.return_value = {"CNY": 5.3537, "USD": 0.74146}
+        mock_rates.side_effect = lambda day, currency: (
+            {"USD": 0.74146} if currency == "SGD" else {"CNY": 7.2205}
+        )
         
         body = """
         2024/05/15 您的消费明细如下：
@@ -17,6 +19,8 @@ class TestCurrencyConversion(unittest.TestCase):
         records, _ = parse_credit_daily_message(body)
         self.assertEqual(len(records), 1)
         self.assertAlmostEqual(float(records[0].cost), -535.37, places=2)
+        self.assertEqual(records[0].original_cost, Decimal("-100.00"))
+        self.assertEqual(records[0].original_currency, "SGD")
 
     @patch("backend.ingest.currency_utils.get_exchange_rates")
     def test_usd_to_cny_conversion(self, mock_rates):

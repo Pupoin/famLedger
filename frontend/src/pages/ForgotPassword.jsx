@@ -1,9 +1,11 @@
+import { tx, useLocale } from "../localization.js";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE } from "../config";
 import config from "../config";
 
 export default function ForgotPassword() {
+  useLocale();
   const navigate = useNavigate();
 
   // Step tracking: "username" -> "answer" -> "success"
@@ -34,7 +36,7 @@ export default function ForgotPassword() {
       setSecurityQuestion(data.security_question);
       setStep("answer");
     } catch (err) {
-      setError(err.message);
+      setError(tx(err.message));
     } finally {
       setSubmitting(false);
     }
@@ -45,7 +47,7 @@ export default function ForgotPassword() {
     setError("");
 
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(tx("Passwords do not match"));
       return;
     }
 
@@ -66,7 +68,7 @@ export default function ForgotPassword() {
       }
       setStep("success");
     } catch (err) {
-      setError(err.message);
+      setError(tx(err.message));
     } finally {
       setSubmitting(false);
     }
@@ -80,24 +82,20 @@ export default function ForgotPassword() {
             <h1 className="font-headline text-2xl font-extrabold text-primary tracking-tight">
               {config.appName}
             </h1>
-            <p className="text-on-surface-variant text-sm font-medium mt-1">
-              Reset your password
-            </p>
+            <p className="text-on-surface-variant text-sm font-medium mt-1">{tx("Reset your password")}</p>
           </div>
 
           {error && (
             <div className="bg-error-container/20 border border-error/20 text-error px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
               <span className="material-symbols-outlined text-sm">error</span>
-              {error}
+              {tx(error)}
             </div>
           )}
 
           {step === "username" && (
             <form onSubmit={handleGetQuestion} className="space-y-5">
               <div className="flex flex-col">
-                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                  Username
-                </label>
+                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Username")}</label>
                 <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                   <span className="material-symbols-outlined text-primary/60 mr-3">
                     person
@@ -106,7 +104,7 @@ export default function ForgotPassword() {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Enter your username"
+                    placeholder={tx("Enter your username")}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                     autoFocus
                     required
@@ -120,7 +118,7 @@ export default function ForgotPassword() {
                 className="w-full h-14 rounded-full bg-gradient-to-r from-primary to-primary-dim text-on-primary font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 <span className="material-symbols-outlined">arrow_forward</span>
-                {submitting ? "Looking up..." : "Continue"}
+                {submitting ? tx("Looking up...") : tx("Continue")}
               </button>
             </form>
           )}
@@ -128,16 +126,12 @@ export default function ForgotPassword() {
           {step === "answer" && (
             <form onSubmit={handleReset} className="space-y-5">
               <div className="bg-primary-container/20 border border-primary/10 rounded-xl px-4 py-3 text-sm text-on-surface">
-                <p className="font-semibold text-primary mb-1">
-                  Security Question
-                </p>
+                <p className="font-semibold text-primary mb-1">{tx("Security Question")}</p>
                 <p>{securityQuestion}</p>
               </div>
 
               <div className="flex flex-col">
-                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                  Your Answer
-                </label>
+                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Your Answer")}</label>
                 <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                   <span className="material-symbols-outlined text-primary/60 mr-3">
                     key
@@ -146,7 +140,7 @@ export default function ForgotPassword() {
                     type="text"
                     value={securityAnswer}
                     onChange={(e) => setSecurityAnswer(e.target.value)}
-                    placeholder="Answer (case-insensitive)"
+                    placeholder={tx("Answer (case-insensitive)")}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                     autoFocus
                     required
@@ -155,9 +149,7 @@ export default function ForgotPassword() {
               </div>
 
               <div className="flex flex-col">
-                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                  New Password
-                </label>
+                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("New Password")}</label>
                 <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                   <span className="material-symbols-outlined text-primary/60 mr-3">
                     lock
@@ -166,7 +158,7 @@ export default function ForgotPassword() {
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="At least 6 characters"
+                    placeholder={tx("At least 6 characters")}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                     required
                     minLength={6}
@@ -175,9 +167,7 @@ export default function ForgotPassword() {
               </div>
 
               <div className="flex flex-col">
-                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">
-                  Confirm New Password
-                </label>
+                <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Confirm New Password")}</label>
                 <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
                   <span className="material-symbols-outlined text-primary/60 mr-3">
                     lock
@@ -186,7 +176,7 @@ export default function ForgotPassword() {
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Repeat new password"
+                    placeholder={tx("Repeat new password")}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
                     required
                     minLength={6}
@@ -202,7 +192,7 @@ export default function ForgotPassword() {
                 <span className="material-symbols-outlined">
                   lock_reset
                 </span>
-                {submitting ? "Resetting..." : "Reset Password"}
+                {submitting ? tx("Resetting...") : tx("Reset Password")}
               </button>
             </form>
           )}
@@ -217,16 +207,12 @@ export default function ForgotPassword() {
                   check_circle
                 </span>
               </div>
-              <p className="text-on-surface font-medium">
-                Password reset successfully!
-              </p>
+              <p className="text-on-surface font-medium">{tx("Password reset successfully!")}</p>
               <button
                 onClick={() => navigate("/")}
                 className="w-full h-14 rounded-full bg-gradient-to-r from-primary to-primary-dim text-on-primary font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2"
               >
-                <span className="material-symbols-outlined">login</span>
-                Sign In
-              </button>
+                <span className="material-symbols-outlined">login</span> {tx("Sign In")}</button>
             </div>
           )}
 
@@ -235,9 +221,7 @@ export default function ForgotPassword() {
               <button
                 onClick={() => navigate("/")}
                 className="text-primary font-bold text-sm hover:underline"
-              >
-                Back to Sign In
-              </button>
+              >{tx("Back to Sign In")}</button>
             </div>
           )}
         </div>

@@ -1,3 +1,4 @@
+import { categoryLabel, tx, useLocale } from "../../localization.js";
 import {
   XAxis,
   YAxis,
@@ -11,13 +12,14 @@ import { useCurrency } from "../../CurrencyContext";
 import EmptyState from "./EmptyState";
 
 function WeekendPanel({ data, title, fmt, isDark, CHART_COLORS, tooltipStyle, tooltipItemStyle, tooltipLabelStyle }) {
+  useLocale();
   const hasData = (data.weekday.count + data.weekend.count) > 0;
 
   if (!hasData) {
     return (
       <div className="flex-1">
         <h3 className="font-headline text-lg font-bold mb-4">{title}</h3>
-        <EmptyState icon="calendar_month" message="No data" />
+        <EmptyState icon="calendar_month" message={tx("No data")} />
       </div>
     );
   }
@@ -32,8 +34,8 @@ function WeekendPanel({ data, title, fmt, isDark, CHART_COLORS, tooltipStyle, to
   }
   const chartData = Object.entries(catMap)
     .map(([category, vals]) => ({
-      name: category.length > 14 ? category.slice(0, 11) + "..." : category,
-      fullName: category,
+      name: categoryLabel(category).length > 14 ? categoryLabel(category).slice(0, 11) + "..." : categoryLabel(category),
+      fullName: categoryLabel(category),
       weekday: vals.weekday,
       weekend: vals.weekend,
     }))
@@ -46,33 +48,24 @@ function WeekendPanel({ data, title, fmt, isDark, CHART_COLORS, tooltipStyle, to
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-surface-container-lowest p-4 rounded-2xl">
-          <span className="font-label text-xs uppercase tracking-[0.15em] text-on-surface-variant font-bold">
-            Weekday avg
-          </span>
+          <span className="font-label text-xs uppercase tracking-[0.15em] text-on-surface-variant font-bold">{tx("Weekday avg")}</span>
           <div className="mt-1 font-headline text-2xl font-extrabold text-on-surface">
             {data.weekday.count > 0 ? fmt(data.weekday.total / data.weekday.count) : fmt(0)}
           </div>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            per transaction · {data.weekday.count} total
-          </p>
+          <p className="text-xs text-on-surface-variant mt-0.5">{tx("per transaction ·")} {data.weekday.count} {tx("total")}</p>
         </div>
         <div className="bg-surface-container-lowest p-4 rounded-2xl">
-          <span className="font-label text-xs uppercase tracking-[0.15em] text-on-surface-variant font-bold">
-            Weekend avg
-          </span>
+          <span className="font-label text-xs uppercase tracking-[0.15em] text-on-surface-variant font-bold">{tx("Weekend avg")}</span>
           <div className="mt-1 font-headline text-2xl font-extrabold text-on-surface">
             {data.weekend.count > 0 ? fmt(data.weekend.total / data.weekend.count) : fmt(0)}
           </div>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            per transaction · {data.weekend.count} total
-          </p>
+          <p className="text-xs text-on-surface-variant mt-0.5">{tx("per transaction ·")} {data.weekend.count} {tx("total")}</p>
         </div>
       </div>
 
       {(data.weekday.total + data.weekend.total) > 0 && (
         <div className="bg-surface-container p-3 rounded-2xl text-center mb-4">
-          <p className="text-sm text-on-surface-variant">
-            Weekend share:{" "}
+          <p className="text-sm text-on-surface-variant">{tx("Weekend share:")} {" "}
             <span className="font-bold text-on-surface">
               {Math.round(
                 (data.weekend.total / (data.weekday.total + data.weekend.total || 1)) * 100
@@ -109,8 +102,8 @@ function WeekendPanel({ data, title, fmt, isDark, CHART_COLORS, tooltipStyle, to
               <Legend
                 wrapperStyle={{ fontSize: 11, paddingTop: 12, color: isDark ? "#bec8c8" : "#2f3334" }}
               />
-              <Bar dataKey="weekday" name="Weekday" fill={CHART_COLORS[0]} radius={[0, 8, 8, 0]} barSize={14} />
-              <Bar dataKey="weekend" name="Weekend" fill={CHART_COLORS[1]} radius={[0, 8, 8, 0]} barSize={14} />
+              <Bar dataKey="weekday" name={tx("Weekday")} fill={CHART_COLORS[0]} radius={[0, 8, 8, 0]} barSize={14} />
+              <Bar dataKey="weekend" name={tx("Weekend")} fill={CHART_COLORS[1]} radius={[0, 8, 8, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -120,6 +113,7 @@ function WeekendPanel({ data, title, fmt, isDark, CHART_COLORS, tooltipStyle, to
 }
 
 export default function WeekendVsWeekday({ weekend_vs_weekday, mode, CHART_COLORS, isDark, tooltipStyle, tooltipItemStyle, tooltipLabelStyle }) {
+  useLocale();
   const { fmt } = useCurrency();
   const isPersonal = mode === "personal";
 
@@ -133,18 +127,16 @@ export default function WeekendVsWeekday({ weekend_vs_weekday, mode, CHART_COLOR
   return (
     <section>
       <h2 className="font-headline text-xl font-bold mb-6 flex items-center gap-2">
-        <span className="material-symbols-outlined text-primary">calendar_month</span>
-        Weekend vs Weekday Spending
-      </h2>
+        <span className="material-symbols-outlined text-primary">calendar_month</span> {tx("Weekend vs Weekday Spending")}</h2>
       {hasAnyData ? (
         <div className={`grid gap-6 ${isPersonal ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
-          <WeekendPanel data={yourData} title="Your Expense" {...panelProps} />
+          <WeekendPanel data={yourData} title={tx("Your Expense")} {...panelProps} />
           {!isPersonal && (
-            <WeekendPanel data={sharedData} title="Shared Expense" {...panelProps} />
+            <WeekendPanel data={sharedData} title={tx("Shared Expense")} {...panelProps} />
           )}
         </div>
       ) : (
-        <EmptyState icon="calendar_month" message="No spending data available yet" />
+        <EmptyState icon="calendar_month" message={tx("No spending data available yet")} />
       )}
     </section>
   );

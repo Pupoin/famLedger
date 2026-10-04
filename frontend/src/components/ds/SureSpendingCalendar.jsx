@@ -1,158 +1,269 @@
-import React, { useState } from 'react';
+import { chartMoney } from '../../utils/chartMoney';
+import { dateLabel, tx, useLocale, currentLocale } from "../../localization.js";
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, ArrowRight, X, CreditCard, ChevronRight } from 'lucide-react';
-import { fetchWithAuth } from '../../api/fetchWithAuth';
+import { useCurrency } from '../../CurrencyContext';
 
+/**
+ * Sure 风格消费日历热力图 (Spending Analytics Heatmap)
+ * 严格对标 Sure 源码 (app/views/pages/dashboard/_spending_calendar.html.erb 及 spending_calendar_controller.js):
+ * 1. 格子尺寸严格对标 Sure: 32px (w-8 h-8)，间距 4px (gap-1)
+ * 2. 完整展示所选周期内的每一周，宽度不足时允许横向滚动
+ * 3. 日期范围与顶部筛选一致，补齐周首/周尾的格子不可进入流水
+ * 4. 桌面悬停/手机点按显示每日明细；桌面点击/手机长按进入当天流水
+ */
 export default function SureSpendingCalendar({
   data,
-  currencySymbol = '¥',
+  currencySymbol: reportSymbol,
+  userFilter = '',
 }) {
+  const locale = useLocale();
+  const { symbol, privacyMode } = useCurrency() || {};
+  const currencySymbol = reportSymbol ?? symbol ?? '';
+  const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
   const navigate = useNavigate();
-  const scrollContainerRef = React.useRef(null);
-  const [activeCell, setActiveCell] = useState(null);
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [dayTransactions, setDayTransactions] = useState([]);
-  const [loadingDayTxns, setLoadingDayTxns] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  const scrollRef = useRef(null);
+  const [hoveredDetail, setHoveredDetail] = useState(null);
+  const [touchMode, setTouchMode] = useState(false);
+  const gestureRef = useRef(null);
+  const touchClickRef = useRef(false);
 
-  const startDateStr = data?.start_date || '2026年08月10日';
-  const endDateStr = data?.end_date || '2026年09月27日';
-  const weeks = data?.weeks || [];
-  const isShortRange = weeks.length <= 10;
+  useEffect(() => {
+    setTouchMode(window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+    return () => clearTimeout(gestureRef.current?.timer);
+  }, []);
 
-  // Auto-scroll to latest month (right edge) on initial render if wide range
-  React.useEffect(() => {
-    if (scrollContainerRef.current && weeks.length > 10) {
-      scrollContainerRef.current.scrollLeft = scrollContainerRef.current.scrollWidth;
-    }
-  }, [weeks]);
+  const allWeeks = data?.weeks || [];
+  const endLabel = data?.end_date || (() => {
+    const now = new Date();
+    return `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日`;
+  })();
 
+  // 星期标签 (周一到周日)
   const dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  const shortDayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  // Color mappings (Matching 11.jpg: dark/red shades for expenses, dark green for refunds)
+  // Preserve the complete selected range; initially bring the latest week into view.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    setHoveredDetail(null);
+  }, [data]);
+
+  const visibleWeeks = allWeeks;
+
+  // 3. 计算当前铺满展示的动态日期范围
+  const displayRange = useMemo(() => {
+    if (visibleWeeks.length === 0) return `${endLabel} – ${endLabel}`;
+    const startDay = data?.start_date || visibleWeeks[0]?.find(day => !day.outside)?.date;
+    const endWeek = visibleWeeks[visibleWeeks.length - 1];
+    const endDay = data?.end_date || [...(endWeek || [])].reverse().find(day => !day.outside)?.date;
+
+    const formatYMD = (dStr) => {
+      if (!dStr) return '';
+      const parts = dStr.split('-');
+      if (parts.length === 3) {
+        return `${parts[0]}年${parts[1]}月${parts[2]}日`;
+      }
+      return dStr;
+    };
+
+    return `${formatYMD(startDay)} – ${formatYMD(endDay || endLabel)}`;
+  }, [visibleWeeks, endLabel, data?.start_date, data?.end_date]);
+
+  // 4. 颜色阶梯 (对标 Sure 样式: 支出用红灰阶梯，退款用翠绿)
   const getCellColor = (day) => {
     if (day.outside) {
-      return 'bg-zinc-100/30 dark:bg-zinc-900/20 border-zinc-200/20 dark:border-zinc-850/40 opacity-40';
+      return 'bg-zinc-100/40 dark:bg-zinc-800/20 border-zinc-200/30 dark:border-zinc-800/40 opacity-30';
     }
     if (day.level === 0 || day.amount === 0) {
-      return 'bg-zinc-100/70 dark:bg-[#251d1d] border-zinc-200/70 dark:border-[#3a2c2c]';
+      return 'bg-zinc-100/80 dark:bg-zinc-800/70 border-zinc-200/60 dark:border-zinc-700/60';
     }
     if (day.is_refund || day.amount < 0) {
-      return 'bg-emerald-600 dark:bg-[#166534] border-emerald-500/80 dark:border-[#22c55e] text-white';
+      return 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500 shadow-2xs';
     }
-    // Red levels matching 11.jpg
     switch (day.level) {
       case 1:
-        return 'bg-red-400/80 dark:bg-[#5b2121] border-red-400/80 dark:border-[#732a2a]';
+        return 'bg-red-400/30 dark:bg-red-950/40 border-red-300 dark:border-red-900/60 text-red-700 dark:text-red-300';
       case 2:
-        return 'bg-red-500/90 dark:bg-[#882b2b] border-red-500/80 dark:border-[#a33434]';
+        return 'bg-red-500/50 dark:bg-red-900/60 border-red-400 dark:border-red-800/80 text-white';
       case 3:
-        return 'bg-red-600 dark:bg-[#c53737] border-red-600 dark:border-[#db4242]';
+        return 'bg-red-500/80 dark:bg-red-700/80 border-red-500 text-white shadow-2xs';
       case 4:
       default:
-        return 'bg-red-500 dark:bg-[#ef4444] border-red-400 dark:border-[#f87171]';
+        return 'bg-red-600 dark:bg-red-600 border-red-600 text-white shadow-xs';
     }
   };
 
+  // 月份标签生成
   const getMonthLabel = (weekIndex) => {
-    if (!weeks[weekIndex] || !weeks[weekIndex][0]) return '';
-    const dateStr = weeks[weekIndex][0].date;
+    if (!visibleWeeks[weekIndex] || !visibleWeeks[weekIndex][0]) return '';
+    const dateStr = visibleWeeks[weekIndex][0].date;
     const month = parseInt(dateStr.slice(5, 7), 10);
-    if (!isShortRange && weekIndex === 0) return `${month}月`;
-    if (weekIndex > 0) {
-      const prevDateStr = weeks[weekIndex - 1][0].date;
-      const prevMonth = parseInt(prevDateStr.slice(5, 7), 10);
-      if (month !== prevMonth) return `${month}月`;
-    }
+    if (weekIndex === 0) return `${month}月`;
+    const prevDateStr = visibleWeeks[weekIndex - 1][0].date;
+    const prevMonth = parseInt(prevDateStr.slice(5, 7), 10);
+    if (month !== prevMonth) return `${month}月`;
     return '';
   };
 
-  const handleCellClick = async (day) => {
+  const handleCellClick = (day) => {
     if (day.outside) return;
-    setSelectedDay(day);
-    setModalOpen(true);
-    setLoadingDayTxns(true);
+    const params = new URLSearchParams({ start_date: day.date, end_date: day.date });
+    if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
+    navigate(`/transactions?${params.toString()}`);
+  };
 
-    try {
-      const res = await fetchWithAuth(`/api/v1/transactions?start_date=${day.date}&end_date=${day.date}&limit=50`);
-      if (res.ok) {
-        const json = await res.json();
-        setDayTransactions(json.items || []);
+  const cancelGesture = () => {
+    clearTimeout(gestureRef.current?.timer);
+    gestureRef.current = null;
+  };
+
+  const handlePointerDown = (event, day) => {
+    if (event.pointerType === 'mouse') {
+      touchClickRef.current = false;
+      setTouchMode(false);
+      return;
+    }
+    touchClickRef.current = true;
+    setTouchMode(true);
+    if (!event.isPrimary || gestureRef.current) {
+      // A second finger must cancel, rather than complete, a long press.
+      if (gestureRef.current) {
+        clearTimeout(gestureRef.current.timer);
+        gestureRef.current.moved = true;
       }
-    } catch (err) {
-      console.error('Failed to load day transactions', err);
-    } finally {
-      setLoadingDayTxns(false);
+      return;
+    }
+    const gesture = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      opened: false,
+      day,
+    };
+    gesture.timer = setTimeout(() => {
+      gesture.opened = true;
+      handleCellClick(day);
+    }, 550);
+    gestureRef.current = gesture;
+  };
+
+  const handlePointerMove = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 10) {
+      gesture.moved = true;
+      clearTimeout(gesture.timer);
     }
   };
 
+  const handlePointerUp = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (!gesture.moved && !gesture.opened) setHoveredDetail(gesture.day);
+    cancelGesture();
+  };
+
+  const formatMoney = amt => formatAmount(Math.abs(amt || 0));
+
+  React.useEffect(() => { cancelGesture(); }, [privacyMode]);
+
+  const tooltipFor = day => {
+    const amount = day.amount < 0
+      ? tx('退款: -{p0}', {p0: formatMoney(day.amount)})
+      : day.amount > 0 ? tx('支出: {p0}', {p0: formatMoney(day.amount)}) : tx('无消费');
+    return `${day.date} · ${amount}${day.description ? ` (${day.description})` : ''}`;
+  };
+
+  const defaultDetail = touchMode
+    ? tx('点按查看当天消费金额，长按查看当天流水')
+    : tx('悬停查看当天消费金额，点击查看当天流水');
+
   return (
-    <div className="space-y-3 w-full max-w-full overflow-hidden select-none">
-      {/* ── Header details (Exact 11.jpg text) ── */}
+    <div
+      className="space-y-3.5 w-full select-none"
+    >
+      {/* ── 标题与日期范围 (严格对标 Sure _spending_calendar.html.erb) ── */}
       <div className="flex flex-col gap-0.5">
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">
-          所选范围较短时自动向前补充历史消费并铺满可用宽度
-        </p>
-        <p className="text-xs font-mono text-zinc-400 dark:text-zinc-500">
-          {startDateStr} – {endDateStr}
+        <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{tx('仅显示所选时间范围内的消费，横向滑动可查看全部日期')}</p>
+        <p data-testid="spending-calendar-range" className="text-xs font-mono text-zinc-400 dark:text-zinc-500 transition-all">
+          {dateLabel(displayRange)}
         </p>
       </div>
 
-      {/* ── Heatmap Grid Container: Full width fill if short range (11.jpg), Scrollable if wide range ── */}
-      <div
-        ref={scrollContainerRef}
-        className={`w-full max-w-full pt-1 pb-2 ${
-          isShortRange ? 'overflow-visible' : 'overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700'
-        }`}
-      >
-        <div className={`flex gap-1.5 sm:gap-2 ${isShortRange ? 'w-full' : 'min-w-max'} items-start`}>
-          {/* Weekday Labels (Left column, sticky if scrolling) */}
-          <div className="grid grid-rows-7 gap-1 pt-6 w-7 sm:w-8 shrink-0 text-xs text-zinc-400 dark:text-zinc-500 font-medium select-none sticky left-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10">
+      {/* ── 热力图网格主视口 (满宽自适应) ── */}
+      <div ref={scrollRef} data-testid="spending-calendar-scroll" className="w-full overflow-x-auto pb-1 scrollbar-thin">
+        <div className="inline-flex gap-2 items-start min-w-full w-max">
+          {/* 左侧：周一至周日标签 */}
+          <div className="grid grid-rows-7 gap-1 pt-6 w-10 shrink-0 text-xs text-zinc-400 dark:text-zinc-500 font-medium select-none sticky left-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs z-10">
             {dayNames.map((name, i) => (
-              <span key={i} className="flex aspect-square items-center justify-start text-[11px] sm:text-xs">
-                {name}
+              <span key={i} title={tx(name)} className="flex h-8 items-center text-xs">
+                {locale === 'zh-CN' ? name : shortDayNames[i]}
               </span>
             ))}
           </div>
 
-          {/* Weeks Columns: If shortRange, flex-1 to fill the full available width! (Exact 11.jpg) */}
-          <div className={`flex gap-1 sm:gap-1.5 ${isShortRange ? 'flex-1' : ''}`}>
-            {weeks.map((week, wIdx) => {
+          {/* 右侧：按周排列的自适应满宽格子列 (每列 32px, 间距 4px) */}
+          <div
+            className="grid gap-1 shrink-0 transition-all duration-150"
+            style={{
+              gridTemplateColumns: `repeat(${visibleWeeks.length}, 32px)`,
+            }}
+          >
+            {visibleWeeks.map((week, wIdx) => {
               const monthLabel = getMonthLabel(wIdx);
               return (
                 <div
                   key={wIdx}
-                  className={`space-y-1.5 ${
-                    isShortRange ? 'flex-1 min-w-[28px]' : 'w-7 sm:w-8 shrink-0'
-                  }`}
+                  className="space-y-1 w-8 shrink-0"
                 >
-                  {/* Month header */}
-                  <p className="h-4 text-center sm:text-left text-[11px] sm:text-xs text-zinc-400 dark:text-zinc-500 font-medium truncate overflow-visible whitespace-nowrap">
-                    {monthLabel}
+                  {/* 月份标题 */}
+                  <p className="h-5 text-left text-xs text-zinc-400 dark:text-zinc-500 font-medium overflow-visible whitespace-nowrap">
+                    {dateLabel(monthLabel)}
                   </p>
 
-                  {/* 7 Days in Week */}
-                  <div className="grid grid-rows-7 gap-1 sm:gap-1.5">
-                    {week.map((day, dIdx) => {
-                      const colorClasses = getCellColor(day);
-                      const isHovered = activeCell?.date === day.date;
-                      const isSelected = selectedDay?.date === day.date;
+                  {/* 一周 7 天 (严格 32px x 32px = w-8 h-8) */}
+                  <div className="grid grid-rows-7 gap-1">
+                    {week.map((day) => {
+                      const tooltip = tooltipFor(day);
+
                       return (
                         <button
-                          key={dIdx}
+                          key={day.date}
                           type="button"
+                          data-testid="spending-calendar-cell"
+                          data-date={day.date}
                           disabled={day.outside}
-                          onMouseEnter={() => !day.outside && setActiveCell(day)}
-                          onMouseLeave={() => setActiveCell(null)}
-                          onClick={() => handleCellClick(day)}
-                          className={`w-full aspect-square rounded-md sm:rounded-lg border transition-all duration-150 relative cursor-pointer ${colorClasses} ${
-                            isSelected
-                              ? 'ring-2 ring-zinc-900 dark:ring-white scale-105 z-20 shadow-md'
-                              : isHovered
-                              ? 'scale-105 z-10 shadow-sm ring-1 ring-zinc-600'
-                              : ''
-                          }`}
-                          title={`${day.date} · ${currencySymbol}${Math.abs(day.amount).toFixed(2)} (点击查看明细)`}
+                          onClick={(event) => {
+                            // Touch generates a click after pointerup; only desktop clicks
+                            // and keyboard activation should use the click navigation path.
+                            if (touchClickRef.current && event.detail > 0) {
+                              event.preventDefault();
+                              return;
+                            }
+                            handleCellClick(day);
+                          }}
+                          onPointerDown={(event) => handlePointerDown(event, day)}
+                          onPointerMove={handlePointerMove}
+                          onPointerUp={handlePointerUp}
+                          onPointerCancel={cancelGesture}
+                          onPointerEnter={(event) => {
+                            if (event.pointerType === 'mouse') setHoveredDetail(day);
+                          }}
+                          onPointerLeave={(event) => {
+                            if (event.pointerType === 'mouse') setHoveredDetail(null);
+                            else cancelGesture();
+                          }}
+                          onContextMenu={(event) => {
+                            if (touchClickRef.current) event.preventDefault();
+                          }}
+                          style={{ WebkitTouchCallout: 'none' }}
+                          className={`block h-8 w-8 rounded-md border touch-manipulation transition-transform hover:scale-105 active:scale-95 cursor-pointer ${getCellColor(
+                            day
+                          )}`}
+                          title={tx(tooltip)}
+                          aria-label={tx(tooltip)}
                         />
                       );
                     })}
@@ -164,121 +275,15 @@ export default function SureSpendingCalendar({
         </div>
       </div>
 
-      {/* ── Bottom instruction tip (Exact 11.jpg styled bar) ── */}
-      <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 px-3.5 py-2.5 text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 flex items-center justify-between min-h-[38px] flex-wrap gap-2">
-        {activeCell ? (
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{activeCell.date}</span>
-            <span>·</span>
-            <span className={`font-mono font-bold ${activeCell.amount < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-900 dark:text-zinc-100'}`}>
-              {activeCell.amount < 0 ? '退款 ' : '支出 '}{currencySymbol}{Math.abs(activeCell.amount).toFixed(2)}
-            </span>
-            <span className="text-zinc-400 text-[10px]">(点击查看当日流水)</span>
-          </div>
-        ) : (
-          <span>电脑端悬浮查看金额、点击进入明细；触屏端短按查看金额、长按进入明细。</span>
-        )}
-
-        {selectedDay && (
-          <button
-            onClick={() => navigate(`/transactions?start_date=${selectedDay.date}&end_date=${selectedDay.date}`)}
-            className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline text-xs"
-          >
-            <span>进入 {selectedDay.date} 交易流水</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+      {/* ── 底部交互明细信息条 (对标 Sure data-spending-calendar-target="detail") ── */}
+      <div data-testid="spending-calendar-detail" className="min-h-10 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/70 dark:border-zinc-800 px-3.5 py-2.5 text-xs text-zinc-600 dark:text-zinc-300 flex items-center justify-between transition-colors shadow-2xs">
+        <span className="font-mono font-medium">
+          {hoveredDetail ? tooltipFor(hoveredDetail) : defaultDetail}
+        </span>
+        {hoveredDetail && (
+          <span className="text-[11px] text-zinc-400 shrink-0 ml-2 hidden sm:inline">{touchMode ? tx('长按查看流水 →') : tx("点击穿透查看流水 →")}</span>
         )}
       </div>
-
-      {/* ── Day Transactions Modal ── */}
-      {modalOpen && selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="relative w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 max-h-[85vh] flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                    {selectedDay.date} 消费明细
-                  </h3>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    当日净额: <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">{currencySymbol}{Math.abs(selectedDay.amount).toFixed(2)}</span>
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setModalOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Transactions List */}
-            <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-              {loadingDayTxns ? (
-                <div className="py-12 text-center text-xs text-zinc-400 flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin dark:border-white" />
-                  <span>正在查询当日账单...</span>
-                </div>
-              ) : dayTransactions.length === 0 ? (
-                <div className="py-10 text-center space-y-2">
-                  <CreditCard className="w-8 h-8 text-zinc-300 mx-auto" />
-                  <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                    当日暂无直接匹配的独立交易记录
-                  </p>
-                  <p className="text-xs text-zinc-400 max-w-xs mx-auto">
-                    热力值由历史均值加权补充。您可以前往交易明细页面查询相近周期的全部账单。
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900">
-                  {dayTransactions.map((txn) => {
-                    const isExpense = txn.transaction_type === 'expense';
-                    return (
-                      <div key={txn.id} className="p-3 flex items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                        <div className="min-w-0">
-                          <p className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
-                            {txn.merchant_name || txn.name}
-                          </p>
-                          <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
-                            {txn.transacted_at} · {txn.category_name || txn.transaction_type}
-                          </p>
-                        </div>
-                        <span className={`text-xs sm:text-sm font-bold font-mono shrink-0 ${isExpense ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          {isExpense ? '-' : '+'}{currencySymbol}{parseFloat(txn.amount).toFixed(2)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Footer Action */}
-            <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <span className="text-xs text-zinc-400 font-mono">
-                {dayTransactions.length} 笔入账明细
-              </span>
-
-              <button
-                onClick={() => {
-                  setModalOpen(false);
-                  navigate(`/transactions?start_date=${selectedDay.date}&end_date=${selectedDay.date}`);
-                }}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 text-white shadow-xs transition-colors"
-              >
-                <span>跳转至完整流水</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

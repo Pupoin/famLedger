@@ -1,3 +1,4 @@
+import { categoryLabel, tx, useLocale } from "../../localization.js";
 import { CATEGORY_ICONS } from "../../constants/categories";
 import { useCurrency } from "../../CurrencyContext";
 import EmptyState from "./EmptyState";
@@ -11,27 +12,26 @@ const FREQ_COLORS = {
 };
 
 export default function RecurringExpenses({ recurring_expenses, mode }) {
+  useLocale();
   const { fmt } = useCurrency();
   const isPersonal = mode === "personal";
 
   return (
     <section>
       <h2 className="font-headline text-xl font-bold mb-6 flex items-center gap-2">
-        <span className="material-symbols-outlined text-primary">autorenew</span>
-        Recurring Expenses
-      </h2>
+        <span className="material-symbols-outlined text-primary">autorenew</span> {tx("Recurring Expenses")}</h2>
       {recurring_expenses.length > 0 ? (
         <div className="bg-surface-container-lowest rounded-[2rem] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="text-on-surface-variant font-label text-xs uppercase tracking-widest border-b border-surface-container-high">
-                  <th scope="col" className="px-6 py-4 font-bold">Expense</th>
-                  <th scope="col" className="px-6 py-4 font-bold">Category</th>
-                  <th scope="col" className="px-6 py-4 font-bold">Frequency</th>
-                  <th scope="col" className="px-6 py-4 font-bold text-right">Avg Amount</th>
-                  <th scope="col" className="px-6 py-4 font-bold text-right">Last Amount</th>
-                  <th scope="col" className="px-6 py-4 font-bold text-right">Occurrences</th>
+                  <th scope="col" className="px-6 py-4 font-bold">{tx("Expense")}</th>
+                  <th scope="col" className="px-6 py-4 font-bold">{tx("Category")}</th>
+                  <th scope="col" className="px-6 py-4 font-bold">{tx("Frequency")}</th>
+                  <th scope="col" className="px-6 py-4 font-bold text-right">{tx("Avg Amount")}</th>
+                  <th scope="col" className="px-6 py-4 font-bold text-right">{tx("Last Amount")}</th>
+                  <th scope="col" className="px-6 py-4 font-bold text-right">{tx("Occurrences")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-container-low">
@@ -54,12 +54,12 @@ export default function RecurringExpenses({ recurring_expenses, mode }) {
                       </td>
                       <td className="px-6 py-5">
                         <span className="px-3 py-1 rounded-full bg-surface-container-high text-[11px] font-bold uppercase text-on-surface-variant">
-                          {r.category}
+                          {categoryLabel(r.category)}
                         </span>
                       </td>
                       <td className="px-6 py-5">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${FREQ_COLORS[r.frequency] || FREQ_COLORS.Monthly}`}>
-                          {r.frequency}
+                          {tx(r.frequency)}
                         </span>
                       </td>
                       <td className="px-6 py-5 text-right">
@@ -83,7 +83,7 @@ export default function RecurringExpenses({ recurring_expenses, mode }) {
           </div>
         </div>
       ) : (
-        <EmptyState icon="autorenew" message="No recurring patterns detected yet. Keep logging expenses!" />
+        <EmptyState icon="autorenew" message={tx("No recurring patterns detected yet. Keep logging expenses!")} />
       )}
     </section>
   );

@@ -36,6 +36,7 @@ def client_fixture():
 
         user = User(family_id=family.id, username="tester", display_name="测试员")
         session.add(user)
+        session.flush()
 
         cat_dining = Category(id=uuid.uuid4(), family_id=family.id, name="餐饮美食")
         cat_coffee = Category(id=uuid.uuid4(), family_id=family.id, name="咖啡茶饮")
@@ -51,7 +52,7 @@ def client_fixture():
         session.add(acc)
         session.commit()
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-FamLedger-CSRF": "1"}) as client:
         yield client
 
     app.dependency_overrides.clear()
@@ -65,16 +66,14 @@ def test_rules_pipeline_and_dry_run(client: TestClient):
         "account_identifier": "招行卡",
         "transacted_at": "2026-09-25",
         "amount": "28.50",
-        "name": "美团外卖-黄焖鸡米饭",
-        "merchant_name": "美团外卖",
+        "narration": "美团外卖-黄焖鸡米饭",
     }, headers=headers)
 
     client.post("/api/v1/transactions", json={
         "account_identifier": "招行卡",
         "transacted_at": "2026-09-25",
         "amount": "36.00",
-        "name": "星巴克咖啡-臻选店",
-        "merchant_name": "星巴克咖啡",
+        "narration": "星巴克咖啡-臻选店",
     }, headers=headers)
 
     # 2. 创建一条复合规则（正则表达式匹配美团外卖，自动重命名商户并打标）

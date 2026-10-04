@@ -64,14 +64,46 @@ class BackupManager:
         dest = self.backup_dir / timestamp
         dest.mkdir(parents=True, exist_ok=True)
 
-        # Backup database using the SQLite online backup API
-        src_conn = sqlite3.connect(str(self.db_path))
-        dst_conn = sqlite3.connect(str(dest / "mosaic.db"))
-        try:
-            src_conn.backup(dst_conn)
-        finally:
-            dst_conn.close()
-            src_conn.close()
+        from database import is_sqlite, DATABASE_URL
+        if not is_sqlite:
+            pg_dump_path = shutil.which("pg_dump")
+            if pg_dump_path:
+                try:
+                    import subprocess
+                    from database import engine
+                    from services.postgres_tools import check_pg_dump_version, pg_dump_connection
+                    check_pg_dump_version(pg_dump_path, engine)
+                    connection_url, environment = pg_dump_connection(DATABASE_URL)
+                    sql_dest = dest / "famledger.sql"
+                    result = subprocess.run(
+                        [pg_dump_path, "--dbname", connection_url, "-f", str(sql_dest), "--no-owner", "--no-privileges"],
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if result.returncode == 0:
+                        logger.info("PostgreSQL database backup created via pg_dump at %s", sql_dest)
+                    else:
+                        raise RuntimeError(f"pg_dump failed with exit code {result.returncode}")
+                except Exception as e:
+                    shutil.rmtree(dest, ignore_errors=True)
+                    raise RuntimeError("PostgreSQL backup failed") from e
+            else:
+                shutil.rmtree(dest, ignore_errors=True)
+                raise RuntimeError("pg_dump is required for PostgreSQL backups")
+        else:
+            # Backup database using the SQLite online backup API
+            if not self.db_path.exists():
+                logger.warning("SQLite database file not found at %s; skipping DB backup", self.db_path)
+            else:
+                src_conn = sqlite3.connect(str(self.db_path))
+                dst_conn = sqlite3.connect(str(dest / "famledger.db"))
+                try:
+                    src_conn.backup(dst_conn)
+                finally:
+                    dst_conn.close()
+                    src_conn.close()
 
         # Copy audit log if it exists
         if self.audit_log_path.exists():
@@ -93,12 +125,20 @@ class BackupManager:
         if verified:
             logger.info("Backup created and verified at %s", dest)
         else:
-            logger.error(
-                "Backup at %s failed verification — it may not be restorable. "
-                "Keeping it for forensics rather than silently deleting it.",
+            logger.warning(
+                "Backup at %s could not be verified (or running in PostgreSQL mode without valid dump).",
                 dest,
             )
+            # 若转储失败且未生成有效备份文件，清理空目录防堆积
+            if not is_sqlite:
+                try:
+                    shutil.rmtree(dest)
+                except OSError:
+                    pass
+                raise RuntimeError("PostgreSQL backup verification failed")
 
+        if not verified:
+            raise RuntimeError("Backup verification failed")
         self._rotate_backups()
 
         # Only mirror a backup that actually verified — copying a known-bad
@@ -142,28 +182,41 @@ class BackupManager:
         low-concurrency SQLite instance, that window is negligible — this is a
         best-effort sanity check, not a strict guarantee.
         """
-        db_copy = dest / "mosaic.db"
-        if not db_copy.exists():
+        from database import is_sqlite
+        if not is_sqlite:
+            sql_file = dest / "famledger.sql"
+            return bool(sql_file.exists() and sql_file.stat().st_size > 0)
+        targets = []
+        for name in ["famledger.db"]:
+            p = dest / name
+            if p.exists() and p not in targets:
+                targets.append(p)
+        if not targets:
             return False
-        try:
-            conn = sqlite3.connect(str(db_copy))
-        except sqlite3.Error:
-            logger.exception("Could not open backup at %s for verification", dest)
-            return False
-        try:
-            # A file corrupted badly enough to lose its SQLite header makes
-            # sqlite3 raise here instead of returning an error row — either
-            # way, the backup isn't restorable.
-            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
-            if integrity != "ok":
-                logger.error("Backup at %s failed integrity_check: %s", dest, integrity)
+
+        for db_copy in targets:
+            try:
+                conn = sqlite3.connect(str(db_copy))
+            except sqlite3.Error:
+                logger.exception("Could not open backup at %s (%s) for verification", dest, db_copy.name)
                 return False
-            return self._row_counts_match(conn)
-        except sqlite3.Error:
-            logger.exception("Backup at %s could not be read for integrity check", dest)
-            return False
-        finally:
-            conn.close()
+            try:
+                # A file corrupted badly enough to lose its SQLite header makes
+                # sqlite3 raise here instead of returning an error row — either
+                # way, the backup isn't restorable.
+                from services.data_integrity import sqlite_integrity_problems
+                integrity = sqlite_integrity_problems(conn)
+                if integrity:
+                    logger.error("Backup at %s (%s) failed integrity_check: %s", dest, db_copy.name, integrity)
+                    return False
+                if not self._row_counts_match(conn):
+                    return False
+            except sqlite3.Error:
+                logger.exception("Backup at %s (%s) could not be read for integrity check", dest, db_copy.name)
+                return False
+            finally:
+                conn.close()
+        return True
 
     def _row_counts_match(self, backup_conn: sqlite3.Connection) -> bool:
         src_conn = sqlite3.connect(str(self.db_path))

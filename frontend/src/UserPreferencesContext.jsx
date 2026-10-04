@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { getUserPreferences, updateUserPreferences } from "./api/expenses";
+import { getUserPreferences, updateUserPreferences } from "./api/client";
 import { useUsers } from "./ConfigContext";
 import { formatCurrency } from "./utils/currency";
+import i18n from './i18n';
+import { tx } from './localization';
 
 /**
  * A single provider backing date_format, currency, and income-mode-enabled —
@@ -24,9 +26,10 @@ const CURRENCIES = [
   { code: "CNY", symbol: "¥", name: "Chinese Yuan" },
   { code: "CHF", symbol: "CHF", name: "Swiss Franc" },
   { code: "SGD", symbol: "S$", name: "Singapore Dollar" },
+  { code: "HKD", symbol: "HK$", name: "Hong Kong Dollar" },
 ];
 
-const DEFAULT_CURRENCY = "CAD";
+const DEFAULT_CURRENCY = "CNY";
 
 // Legacy per-device localStorage keys this context migrates away from, once.
 const LEGACY_CURRENCY_KEY = "currency";
@@ -93,12 +96,63 @@ export function UserPreferencesProvider({ children }) {
 
   const [dateFormat, setDateFormatState] = useState("DD/MM/YYYY");
   const [currency, setCurrencyState] = useState(DEFAULT_CURRENCY);
+  const [hasChosenCurrency, setHasChosenCurrency] = useState(true);
+  const [language, setLanguageState] = useState('en');
+  const [hasChosenLanguage, setHasChosenLanguage] = useState(true);
   const [incomeModeEnabled, setIncomeModeState] = useState(false);
+  const [timezone, setTimezoneState] = useState(() => localStorage.getItem('famledger_tz') || 'Asia/Shanghai');
   const [loaded, setLoaded] = useState(false);
+
+  const setTimezone = (tz) => {
+    setTimezoneState(tz);
+    localStorage.setItem('famledger_tz', tz);
+  };
+
+  const applyLanguage = useCallback(async (prefs) => {
+    const code = prefs.language === 'zh' ? 'zh' : 'en';
+    setLanguageState(code);
+    setHasChosenLanguage(Boolean(prefs.has_chosen_language));
+    await i18n.changeLanguage(code);
+    try { localStorage.setItem('famledger_lang', code); } catch {}
+  }, []);
+
+  const reloadPreferences = useCallback(async () => {
+    try {
+      const prefs = await getUserPreferences();
+      await applyLanguage(prefs);
+      if (prefs.date_format) setDateFormatState(prefs.date_format);
+
+      let resolvedCurrency =
+        prefs.currency && CURRENCIES.some((c) => c.code === prefs.currency)
+          ? prefs.currency
+          : DEFAULT_CURRENCY;
+      setCurrencyState(resolvedCurrency);
+      if (typeof prefs.has_chosen_currency !== 'undefined') {
+        setHasChosenCurrency(Boolean(prefs.has_chosen_currency));
+      }
+      if (typeof prefs.income_mode_enabled !== 'undefined') {
+        setIncomeModeState(Boolean(prefs.income_mode_enabled));
+      }
+      return prefs;
+    } catch {
+      return null;
+    }
+  }, [applyLanguage]);
+
+  useEffect(() => {
+    const handleUpdated = () => {
+      reloadPreferences();
+    };
+    window.addEventListener('preferences-updated', handleUpdated);
+    return () => {
+      window.removeEventListener('preferences-updated', handleUpdated);
+    };
+  }, [reloadPreferences]);
 
   useEffect(() => {
     getUserPreferences()
       .then(async (prefs) => {
+        await applyLanguage(prefs);
         if (prefs.date_format) setDateFormatState(prefs.date_format);
 
         let resolvedCurrency =
@@ -138,10 +192,27 @@ export function UserPreferencesProvider({ children }) {
         localStorage.removeItem(LEGACY_INCOME_MODE_KEY);
 
         setCurrencyState(resolvedCurrency);
+        if (typeof prefs.has_chosen_currency !== 'undefined') {
+          setHasChosenCurrency(Boolean(prefs.has_chosen_currency));
+        }
         setIncomeModeState(resolvedIncome);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
+  }, [applyLanguage]);
+
+  const setLanguage = useCallback(async (code) => {
+    const prefs = await updateUserPreferences({ language: code });
+    await applyLanguage(prefs);
+    window.dispatchEvent(new CustomEvent('preferences-updated'));
+  }, [applyLanguage]);
+
+  const chooseInitialCurrency = useCallback(async (code) => {
+    await updateUserPreferences({ currency: code, has_chosen_currency: true });
+    setCurrencyState(code);
+    setHasChosenCurrency(true);
+    window.dispatchEvent(new CustomEvent('preferences-updated'));
+    window.dispatchEvent(new CustomEvent('accounts-updated'));
   }, []);
 
   const setDateFormat = useCallback(async (newFormat) => {
@@ -152,6 +223,8 @@ export function UserPreferencesProvider({ children }) {
   const setCurrency = useCallback(async (code) => {
     await updateUserPreferences({ currency: code });
     setCurrencyState(code);
+    window.dispatchEvent(new CustomEvent("preferences-updated"));
+    window.dispatchEvent(new CustomEvent("accounts-updated"));
   }, []);
 
   const toggleIncome = useCallback(async (val) => {
@@ -214,6 +287,9 @@ export function UserPreferencesProvider({ children }) {
     <UserPreferencesContext.Provider
       value={{
         // date format
+        language,
+        hasChosenLanguage,
+        setLanguage,
         dateFormat,
         setDateFormat,
         formatDate,
@@ -225,10 +301,17 @@ export function UserPreferencesProvider({ children }) {
         currency,
         symbol: currentCurrency.symbol,
         setCurrency,
+        setCurrencyState,
+        reloadPreferences,
+        hasChosenCurrency,
+        chooseInitialCurrency,
         fmt,
-        currencies: CURRENCIES,
+        currencies: CURRENCIES.map(item => ({ ...item, name: tx(item.name) })),
         privacyMode,
         togglePrivacyMode,
+        // timezone
+        timezone,
+        setTimezone,
         // income mode
         incomeEnabled: incomeModeEnabled && canUseIncome,
         canUseIncome,
@@ -252,8 +335,3 @@ export function useCurrency() {
 export function useIncomeMode() {
   return useContext(UserPreferencesContext);
 }
-
-export function usePrivacyMode() {
-  return useContext(UserPreferencesContext);
-}
-
