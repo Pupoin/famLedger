@@ -9,8 +9,11 @@ The last test covers the real models, so the generic machinery is also exercised
 against the schema the app actually ships.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from sqlalchemy import Column, Integer, MetaData, Numeric, String, Table, text
+from sqlalchemy import Column, DateTime, Integer, MetaData, Numeric, String, Table, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.pool import StaticPool
 from sqlmodel import create_engine
 
@@ -220,6 +223,44 @@ def test_type_mismatch_warns_but_does_not_raise(caplog):
     with caplog.at_level("WARNING"):
         assert sync_schema(engine, metadata=md) == []
     assert any("expects" in record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize("actual_timezone, model_timezone", [
+    (False, False), (True, True), (True, False), (False, True),
+])
+def test_postgres_timestamp_comparison_preserves_timezone(
+    monkeypatch, caplog, actual_timezone, model_timezone,
+):
+    """PostgreSQL's reflected shorthand must not obscure timezone differences."""
+    engine = MagicMock()
+    engine.dialect = postgresql.dialect()
+    conn = engine.connect.return_value.__enter__.return_value
+    conn.dialect = engine.dialect
+    inspector = MagicMock()
+    inspector.get_columns.return_value = [
+        {"name": "id", "type": postgresql.INTEGER()},
+        {"name": "expires_at", "type": postgresql.TIMESTAMP(timezone=actual_timezone)},
+    ]
+    monkeypatch.setattr("sqlalchemy.inspect", lambda connection: inspector)
+    monkeypatch.setattr("services.schema._migrate_financial_indexes", lambda *args: None)
+    md = MetaData()
+    Table("sessions", md, Column("id", Integer, primary_key=True),
+          Column("expires_at", DateTime(timezone=model_timezone)))
+
+    with caplog.at_level("WARNING", logger="mosaic"):
+        assert sync_schema(engine, metadata=md) == []
+
+    warnings = [record.message for record in caplog.records
+                if "Column sessions.expires_at" in record.message]
+    if actual_timezone == model_timezone:
+        assert warnings == []
+    else:
+        assert len(warnings) == 1
+        assert "TIMESTAMP WITH TIME ZONE" in warnings[0]
+        assert "TIMESTAMP WITHOUT TIME ZONE" in warnings[0]
+        assert "postgresql" in warnings[0] and "SQLite" not in warnings[0]
+    conn.execute.assert_not_called()
+    conn.commit.assert_not_called()
 
 
 # ── the version stamp ───────────────────────────────────────────────

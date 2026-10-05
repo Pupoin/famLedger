@@ -1,4 +1,4 @@
-"""Additive schema migration for SQLite, plus a schema-version stamp.
+"""Additive schema migration for SQLite and PostgreSQL, plus a schema-version stamp.
 
 Why this exists
 ---------------
@@ -107,7 +107,7 @@ def assert_schema_not_newer(engine) -> int:
 
 
 def _existing_columns(conn, table_name: str) -> dict:
-    """Map column name -> declared type for a live table.
+    """Map column name -> declared type using the connection's SQL dialect.
 
     An empty dict means the table does not exist yet, which is normal on a
     fresh database -- create_all() builds it with every column already present,
@@ -121,7 +121,10 @@ def _existing_columns(conn, table_name: str) -> dict:
         try:
             inspector = inspect(conn)
             cols = inspector.get_columns(table_name)
-            return {col["name"]: str(col.get("type", "")) for col in cols}
+            return {
+                col["name"]: str(col["type"].compile(dialect=conn.dialect))
+                for col in cols
+            }
         except Exception:
             return {}
 
@@ -183,7 +186,7 @@ def _default_literal(column):
 
 
 def sync_schema(engine=None, metadata=None) -> list:
-    """Add every model column missing from the live SQLite schema.
+    """Add every model column missing from the live database schema.
 
     Returns the DDL statements actually executed -- empty when the schema is
     already current, which is the normal case on every restart after the first.
@@ -228,10 +231,10 @@ def sync_schema(engine=None, metadata=None) -> list:
                     if declared and wanted and declared != wanted:
                         logger.warning(
                             "Column %s.%s is declared %s but the model expects %s. "
-                            "Leaving it alone -- SQLite type affinity usually makes "
-                            "this harmless, but a genuine type change needs a manual "
-                            "migration.",
-                            table.name, column.name, declared, wanted,
+                            "Column types are not altered automatically (%s); "
+                            "verify the difference and use an explicit migration "
+                            "if necessary.",
+                            table.name, column.name, declared, wanted, engine.dialect.name,
                         )
                     continue
 
