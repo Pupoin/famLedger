@@ -12,10 +12,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from backend.auth.graph_auth import (MicrosoftAuthorizationRequired, acquire_graph_token,
                                      initiate_device_code_login, complete_device_code_login)
 from backend.auth.state import load_auth_state, set_auth_failed, set_auth_ok
-from backend.config import load_config
+from backend.config import load_allowed_hosts, load_config
 
 app = FastAPI(title="Mailbridge Microsoft authentication", docs_url=None, redoc_url=None)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=load_allowed_hosts())
 login_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 active_flow = None

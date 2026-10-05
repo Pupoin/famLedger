@@ -8,6 +8,22 @@ import re
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_ALLOWED_HOSTS = ("localhost", "127.0.0.1", "testserver")
+
+
+def load_allowed_hosts():
+    """Load auth-page hosts separately from mail fetching and delivery settings."""
+    load_dotenv(ROOT / ".env", override=False)
+    hosts = [host.strip().lower() for host in os.getenv("MAILBRIDGE_ALLOWED_HOSTS", "").split(",")
+             if host.strip()]
+    if not hosts:
+        hosts = list(DEFAULT_ALLOWED_HOSTS)
+    for host in hosts:
+        if (any(char.isspace() for char in host) or any(char in host for char in "/:@?#")
+                or ("*" in host and host != "*" and not (host.startswith("*.") and "*" not in host[2:]))):
+            raise ValueError("MAILBRIDGE_ALLOWED_HOSTS 请填写主机名或 IPv4 地址，用逗号分隔，不要包含协议、端口或路径")
+    # Keep the local Docker health probe working even with only a public domain configured.
+    return tuple(dict.fromkeys(("localhost", "127.0.0.1", *hosts)))
 
 
 @dataclass(frozen=True)

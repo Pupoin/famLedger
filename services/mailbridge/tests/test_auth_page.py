@@ -3,7 +3,10 @@ from unittest.mock import Mock
 import time
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from backend import config
 from backend.auth import web as auth_app
 from backend.auth import state
 
@@ -28,6 +31,28 @@ def test_only_authentication_interface_and_no_old_dashboard():
         assert client.get("/api/health").json() == {"status": "ok"}
         assert client.get("/api/dashboard").status_code == 404
         assert client.get("/api/records_list").status_code == 404
+
+
+@pytest.mark.parametrize('setting,host,status', [
+    ('mailbridge.example.com', 'mailbridge.example.com:8502', 200),
+    ('192.168.1.10', '192.168.1.10:8502', 200),
+    ('*.example.com', 'mailbridge.example.com', 200),
+    ('mailbridge.example.com', 'evil.example.com', 400),
+    ('mailbridge.example.com', '127.0.0.1:8502', 200),
+    ('mailbridge.example.com', 'localhost:8502', 200),
+])
+def test_configured_host_access_and_local_health_probe(monkeypatch, setting, host, status):
+    monkeypatch.setattr(config, 'load_dotenv', lambda *args, **kwargs: None)
+    monkeypatch.setenv('MAILBRIDGE_ALLOWED_HOSTS', setting)
+    app = FastAPI()
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.load_allowed_hosts())
+    app.include_router(auth_app.app.router)
+    response = TestClient(app).get('/api/health', headers={'Host': host})
+    assert response.status_code == status
+    if status == 200:
+        assert response.json() == {'status': 'ok'}
+    else:
+        assert response.text == 'Invalid host header'
 
 
 def test_auth_state_exposes_no_internal_credentials(monkeypatch):

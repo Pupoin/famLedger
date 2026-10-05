@@ -20,6 +20,10 @@ Open <http://localhost:8502>, click **Sign in with Microsoft / 登录 Microsoft*
 
 访问 <http://localhost:8502> 完成设备码授权。已有微软登录缓存会复用。界面只有认证状态、设备码和登录按钮；不再提供账单看板、交易修改和统计接口。
 
+For domain/IP access through a reverse proxy, add its hostname to `MAILBRIDGE_ALLOWED_HOSTS` in `.env`, for example `localhost,127.0.0.1,mailbridge.example.com`. Use comma-separated hostnames or IPv4 addresses without a scheme, port or path. Localhost access and container health checks remain allowed. After editing `.env`, recreate `auth-web`; code updates also require rebuilding its image.
+
+通过域名/IP 或反向代理访问时，在 `.env` 的 `MAILBRIDGE_ALLOWED_HOSTS` 中加入实际访问主机，例如 `localhost,127.0.0.1,mailbridge.example.com`。多个主机用英文逗号分隔，不包含协议、端口或路径；支持 `*.example.com` 子域名通配，本机地址始终保留。修改配置后重建认证网页容器：`docker compose up -d --build --force-recreate --no-deps auth-web`。
+
 The page checks the existing MSAL cache first. A valid login displays **No need to sign in again**, with **Force reauthentication** available. A device code is displayed only while its current login flow is active; the page uses Microsoft's returned sign-in URL and shows the remaining validity. Restarting the container does not redisplay an orphaned code.
 
 页面先检查现有 MSAL 登录缓存；有效时显示“无需重新认证”，并提供“强制重新认证”按钮。设备码只在本次认证流程运行期间显示，授权地址使用微软实际返回的地址，并显示剩余有效期。容器重启后不继续展示失去认证流程的旧码。
@@ -37,6 +41,7 @@ All configuration is in `.env`. Do not publish this file or token caches.
 | Setting | Meaning / 含义 |
 | --- | --- |
 | `TZ` | Container/log timezone; defaults to `Asia/Shanghai` (UTC+8) / 容器及日志时区，交易时间仍按 UTC 存储 |
+| `MAILBRIDGE_ALLOWED_HOSTS` | Auth-page host allowlist, comma-separated; defaults to local hosts / 认证网页允许访问的域名或 IPv4 地址，以英文逗号分隔 |
 | `GRAPH_CLIENT_ID` | Your Azure app with public client/device-code flow enabled / 开启公共客户端设备码流程的微软应用 |
 | `GRAPH_TENANT_ID` | Usually `common` / 一般为 `common` |
 | `GRAPH_USER_ID` | Usually `me` / 一般为 `me` |
