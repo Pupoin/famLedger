@@ -10542,5 +10542,53 @@
   "返回登录": {
     "zh": "返回登录",
     "en": "Back to sign in"
+  },
+  "取消关联": {
+    "zh": "取消关联",
+    "en": "Unlink"
+  },
+  "取消 {p0} 的关联": {
+    "zh": "取消 {p0} 的关联",
+    "en": "Unlink {p0}"
+  },
+  "确认取消关联": {
+    "zh": "确认取消关联",
+    "en": "Confirm unlink"
+  },
+  "正在取消…": {
+    "zh": "正在取消…",
+    "en": "Unlinking…"
+  },
+  "单点登录关联已取消": {
+    "zh": "单点登录关联已取消",
+    "en": "Single sign-on link removed"
+  },
+  "取消关联失败，请重试": {
+    "zh": "取消关联失败，请重试",
+    "en": "Could not unlink. Please try again."
+  },
+  "关联已不可用": {
+    "zh": "关联已不可用",
+    "en": "Link unavailable"
+  },
+  "重新关联": {
+    "zh": "重新关联",
+    "en": "Relink"
+  },
+  "这是唯一可用的登录方式。请先设置本地密码或关联其他可用的登录服务，再取消关联。": {
+    "zh": "这是唯一可用的登录方式。请先设置本地密码或关联其他可用的登录服务，再取消关联。",
+    "en": "This is your only usable sign-in method. Set a local password or link another available sign-in service before unlinking."
+  },
+  "取消后，该服务将无法登录此账户；账本数据会保留，其他设备需要重新登录。": {
+    "zh": "取消后，该服务将无法登录此账户；账本数据会保留，其他设备需要重新登录。",
+    "en": "This service will no longer sign in to this account. Your ledger data stays; other devices must sign in again."
+  },
+  "该单点登录服务尚未关联当前账户": {
+    "zh": "该单点登录服务尚未关联当前账户",
+    "en": "This sign-in service is not linked to your account."
+  },
+  "不能取消唯一可用的登录方式，请先设置本地密码或关联其他可用的登录服务": {
+    "zh": "不能取消唯一可用的登录方式，请先设置本地密码或关联其他可用的登录服务",
+    "en": "You cannot unlink your only usable sign-in method. Set a local password or link another available sign-in service first."
   }
 }

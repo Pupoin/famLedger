@@ -26,6 +26,7 @@ from models import Family, OIDCIdentity, SSOProvider, User, OIDCLogin
 from auth import (
     SESSION_COOKIE,
     SESSION_TTL,
+    PERSISTENT_TTL,
     COOKIE_SECURE,
     _make_token,
     _verify_token,
@@ -566,14 +567,60 @@ def complete_link(data: OIDCLinkComplete, request: Request, response: Response,
 def list_account_links(request: Request, response: Response, session: Session = Depends(get_session)):
     username = get_current_user(request, response, session)
     user = session.exec(select(User).where(User.username == username)).one()
+    response.headers["Cache-Control"] = "no-store"
+    return _account_link_options(user, session)
+
+
+def _account_link_options(user, session):
     identities = session.exec(select(OIDCIdentity).where(OIDCIdentity.user_id == user.id)).all()
     linked = {(identity.provider, identity.issuer) for identity in identities}
-    providers = session.exec(select(SSOProvider).where(SSOProvider.enabled == True)).all()
+    bound_names = {identity.provider for identity in identities}
+    providers = session.exec(select(SSOProvider)).all()
+    usable = {p.name for p in providers if p.enabled and (p.name, p.issuer) in linked}
+    items = [{"name": p.name, "label": p.label, "enabled": p.enabled,
+              "linked": p.name in usable, "has_binding": p.name in bound_names,
+              "can_unlink": p.name in bound_names and (bool(user.password_hash) or bool(usable - {p.name}))}
+             for p in providers if p.enabled or p.name in bound_names]
+    # Keep stale bindings visible so users can remove a disabled or deleted IdP.
+    for name in sorted(bound_names - {p.name for p in providers}):
+        items.append({"name": name, "label": name, "enabled": False, "linked": False,
+                      "has_binding": True, "can_unlink": bool(user.password_hash) or bool(usable)})
+    return {"has_password": bool(user.password_hash), "providers": items}
+
+
+@router.delete("/{provider_name}/link")
+def unlink_account(provider_name: str, data: OIDCLinkRequest, request: Request, response: Response,
+                   session: Session = Depends(get_session)):
+    from services.transaction_lock import lock_mutation
+    lock_mutation(session)
+    session.expire_all()
+    token = _verify_token(request.cookies.get(SESSION_COOKIE, ""), session)
+    if not token:
+        raise HTTPException(401, "Invalid session")
+    user = session.get(User, uuid.UUID(token["uid"]))
+    option = next((p for p in _account_link_options(user, session)["providers"]
+                   if p["name"] == provider_name and p["has_binding"]), None)
+    if option is None:
+        raise HTTPException(404, "该单点登录服务尚未关联当前账户")
+    if not option["can_unlink"]:
+        raise HTTPException(409, "不能取消唯一可用的登录方式，请先设置本地密码或关联其他可用的登录服务")
+    if user.password_hash:
+        _check_link_password(user, data.current_password, request)
+    identities = session.exec(select(OIDCIdentity).where(
+        OIDCIdentity.user_id == user.id, OIDCIdentity.provider == provider_name,
+    )).all()
+    for identity in identities:
+        session.delete(identity)
+    # Revoke old sessions and pending links; keep this browser signed in.
+    user.session_version += 1
+    session.add(user)
+    persist = token.get("persist") is True
+    fresh_token = _make_token(user.username, persist=persist, session_version=user.session_version, user_id=user.id)
+    session.commit()
     response.headers["Cache-Control"] = "no-store"
-    return {"has_password": bool(user.password_hash), "providers": [
-        {"name": p.name, "label": p.label, "linked": (p.name, p.issuer) in linked}
-        for p in providers
-    ]}
+    response.set_cookie(SESSION_COOKIE, fresh_token, httponly=True, samesite="lax", secure=COOKIE_SECURE,
+                        max_age=PERSISTENT_TTL if persist else SESSION_TTL)
+    return {"status": "unlinked"}
 
 
 @router.post("/{provider_name}/link")
@@ -709,10 +756,21 @@ async def sso_callback(
     elif len(username) > 50:
         username = username[:33] + "_" + identity_suffix
 
+    # Serialize identity changes with unlink, after the network calls. A callback
+    # started before unlink must not revive a binding or issue a new valid session.
+    from services.transaction_lock import lock_mutation
+    lock_mutation(session)
+    session.expire_all()
+    login = session.get(OIDCLogin, state)
+    provider = session.exec(select(SSOProvider).where(SSOProvider.name == provider_name)).first()
+    if (not login or not provider or not provider.enabled
+            or provider.id != login.provider_id or provider.issuer != login.issuer or provider.client_id != login.client_id
+            or login.expires_at < time.time()):
+        raise HTTPException(400, "OIDC 认证事务已失效或身份源不匹配")
+
     if login.link_session_id:
         # Re-read after the external HTTP calls: password changes, logout and
         # provider changes must invalidate an in-flight account link.
-        session.expire_all()
         user = _link_session_user(login, request, session)
         _check_email_domain(_jit_policy(provider.settings), email, userinfo, claims)
         _save_identity_link(user, provider, sub_uid, session)
@@ -735,7 +793,6 @@ async def sso_callback(
         # 刷新认证时间
         identity.last_authenticated_at = datetime.now(timezone.utc)
         session.add(identity)
-        session.commit()
     else:
         # Provider policies are stored in the settings JSON, not model attributes.
         policy = _jit_policy(provider.settings)
@@ -790,13 +847,12 @@ async def sso_callback(
             last_authenticated_at=datetime.now(timezone.utc),
         )
         session.add(identity)
-        session.commit()
-        session.refresh(user)
 
     # 下发会话 Cookie
     if not user.is_active:
         raise HTTPException(403, "关联账号已停用")
     token = _make_token(user.username, session_version=user.session_version, user_id=user.id)
+    session.commit()
     redirect_resp = RedirectResponse(url="/", status_code=302)
     redirect_resp.delete_cookie(key="famledger_oidc_state")
     redirect_resp.set_cookie(
