@@ -39,6 +39,7 @@ services:
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
       - DATA_DIR=/app/data
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - FAMLEDGER_OIDC_ALLOW_PRIVATE_IPS=${FAMLEDGER_OIDC_ALLOW_PRIVATE_IPS:-0}
     ports:
       - "0.0.0.0:${FAMLEDGER_PORT:-8000}:8000"
     volumes:
