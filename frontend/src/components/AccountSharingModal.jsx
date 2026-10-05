@@ -315,8 +315,8 @@ export default function AccountSharingModal({
 
               <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center justify-between">
                 <div>
-                  <p className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">{tx("纳入我的财务概览")}</p>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">{tx("开启后，该账户的余额与收支将合并计入您的总资产仪表盘与统计报表")}</p>
+                  <p className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">{tx("纳入收支与预算统计")}</p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">{tx("控制此账户的收支与预算统计；账户余额始终计入资产和负债合计。")}</p>
                 </div>
                 <button
                   type="button"

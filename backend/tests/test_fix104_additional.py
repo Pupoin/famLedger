@@ -114,12 +114,14 @@ def test_report_scope_and_bank_groups_count_own_ledgers(auth_client_a, db):
     db.add(child)
     db.commit()
     result = auth_client_a.get('/api/v1/dashboard/summary').json()['balance_sheet']
-    assert result['total_liabilities'] == 0
+    assert result['total_liabilities'] == 100
     # Account detail continues to describe the entire visible master bill.
     detail = auth_client_a.get(f'/api/v1/accounts/{primary.id}').json()
     assert Decimal(detail['account']['balance']) == 100
     accounts = auth_client_a.get('/api/v1/accounts').json()['accounts']
-    assert sum(Decimal(a['report_own_balance']) for a in accounts if a['report_included']) == 0
+    assert sum(Decimal(a['report_own_balance']) for a in accounts) == 100
+    excluded = next(a for a in accounts if a['id'] == str(child.id))
+    assert excluded['report_included'] is False
 
 
 def test_manual_provenance_survives_rules(auth_client_a, db):

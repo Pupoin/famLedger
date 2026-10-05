@@ -431,11 +431,10 @@ def get_dashboard_summary(
 
     # Balance Sheet from DB accounts with real-time transaction balance verification
     from services.stats_engine import get_report_account_balances
-    acc_list = [a for a in active_accounts if a.is_active]
-    from services.balance_sheet import debt_accounts
-    personal_debts = debt_accounts(session, user_db, target_user_obj.id if target_user_obj else None)
-    debt_ids = {a.id for a in personal_debts}
-    acc_list += personal_debts
+    from services.balance_sheet import visible_balance_accounts
+    acc_list = visible_balance_accounts(session, user_or_ctx if isinstance(user_or_ctx, str)
+                                        and user_or_ctx.startswith('service:') else user_db,
+                                        target_user_obj.id if target_user_obj else None)
     realtime_map = get_report_account_balances(session, acc_list, report_money)
     user_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User)).all()}
 
@@ -448,7 +447,7 @@ def get_dashboard_summary(
         mask = mask_m.group(1) if mask_m else "0000"
         return {
             "id": str(a.id),
-            "record_type": "personal_debt" if a.id in debt_ids else "account",
+            "record_type": "account",
             "name": a.name,
             "mask": mask,
             "account_type": a.account_type,

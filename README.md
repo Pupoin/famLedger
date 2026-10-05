@@ -12,7 +12,7 @@ famLedger manages personal and household finances through account activity, mult
 
 ### Features
 
-- **Accounts and balances:** bank accounts, cash, investments, credit cards, and loans. Balances are calculated from recorded account activity, including opening balances and reconciliation adjustments.
+- **Accounts and balances:** bank accounts, cash, investments, credit cards, and loans. Balances are calculated from recorded account activity, including opening balances and reconciliation adjustments. Asset and liability totals sum all accounts you own or can access through sharing, including archived accounts and accounts excluded from spending reports; primary and supplementary cards count their own activity once. Standalone personal debt notes remain in debt management and are not added to account balance totals.
 - **Multi-currency booking:** preserve original transaction amounts and currencies, record fixed account settlements, and convert reports into the user's display currency using historical exchange rates cached in the database. Transactions awaiting an exchange rate remain pending until they can be booked.
 - **Transfers and refunds:** paired internal transfers, credit-card repayments, full and partial refunds, refunds allocated across multiple expenses, transaction splits, and tags.
 - **Reports and budgets:** net worth, income and spending reports, cashflow Sankey diagrams, spending calendars, merchant charts, and category budgets. The privacy toggle hides monetary values in charts.
@@ -144,7 +144,7 @@ famLedger 通过账户活动、多币种流水、共享账户和定期支付计�
 
 ### 功能
 
-- **账户与余额**：管理银行账户、现金、投资、信用卡和贷款。余额由已记录的账户活动计算，包含期初余额和对账调整。
+- **账户与余额**：管理银行账户、现金、投资、信用卡和贷款。余额由已记录的账户活动计算，包含期初余额和对账调整。资产与负债合计包含本人及显式共享的全部账户，包括停用及不计入收支报表的账户；主副卡按本卡活动各累计一次。独立的个人借贷记录保留在借贷管理中，不额外叠加到账户余额合计。
 - **多币种入账**：保留交易原始金额和币种，固定账户结算金额；报表通过数据库缓存的历史汇率换算为用户设置的展示币种。缺少汇率的交易先进入待换汇队列，取得汇率后再入账。
 - **转账与退款**：支持成对的内部转账、信用卡还款、全额或部分退款、多笔消费的退款分配、交易拆分和标签。
 - **报表与预算**：包含净资产、收支报表、现金流桑基图、消费日历、商户图表和分类预算。隐私开关会隐藏图表中的金额。

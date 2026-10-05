@@ -257,8 +257,8 @@ def get_account_realtime_balance(
 
         accessible_acc_ids = None
         if current_user is not None:
-            from services.stats_engine import get_user_visible_account_ids
-            accessible_acc_ids = get_user_visible_account_ids(session, current_user, family_id=acc.family_id)
+            from services.balance_sheet import visible_balance_accounts
+            accessible_acc_ids = {a.id for a in visible_balance_accounts(session, current_user)}
 
         # 全户净债务 = 主卡自身债务 + 所有有权访问的附属卡自身发生的净支出
         pool_net_debt = raw_bal
@@ -518,7 +518,8 @@ def list_accounts(
     report_money = ReportCurrency(session, current_user, cache_independently=True) if current_user else None
     from services.stats_engine import get_user_report_account_ids, get_report_account_balances
     report_ids = get_user_report_account_ids(session, current_user, current_user.family_id) if current_user else set()
-    report_own_balances = get_report_account_balances(session, [account for account in all_accounts if account.id in report_ids], report_money) if report_money else {}
+    from services.balance_sheet import visible_balance_accounts
+    report_own_balances = get_report_account_balances(session, visible_balance_accounts(session, current_user), report_money) if report_money else {}
     hidden_sidebar_accounts = _hidden_sidebar_accounts(session, current_user)
     items = []
     for a in all_accounts:
@@ -555,7 +556,7 @@ def list_accounts(
             "balance": str(realtime_bal),
             "report_balance": str(report_money.amount(realtime_bal, a.currency)) if report_money else str(realtime_bal),
             "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(_calc_raw_account_balance(session, a.id, a.classification, a.balance)),
-            "report_included": not a.exclude_from_reports and (my_share.include_in_finances if my_share else True),
+            "report_included": a.id in report_ids if current_user else not a.exclude_from_reports,
             "report_currency": report_money.currency if report_money else a.currency,
             "owner": owner_name,
             "owner_username": owner_usernames.get(a.owner_id, ""),

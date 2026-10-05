@@ -17,7 +17,7 @@ def debt(db, family, owner, amount, kind='borrow'):
     return row
 
 
-def test_dashboard_report_same_authorized_debt_balance(auth_client_a, auth_client_b, db):
+def test_dashboard_report_sum_account_balances_without_adding_standalone_debt_notes(auth_client_a, auth_client_b, db):
     family, alice, bob, accounts = setup_accounts(db)
     alice.role = 'member'
     db.add(alice)
@@ -31,9 +31,9 @@ def test_dashboard_report_same_authorized_debt_balance(auth_client_a, auth_clien
     report = auth_client_a.get('/api/v1/analytics/report' + query)
     assert overview.status_code == report.status_code == 200, (overview.text, report.text)
     o, r = overview.json()['balance_sheet'], report.json()['net_worth']
-    assert o['total_assets'] == r['assets_total'] == 120
-    assert o['total_liabilities'] == r['liabilities_total'] == 50
-    assert o['net_worth'] == r['current'] == 70
+    assert o['total_assets'] == r['assets_total'] == 100
+    assert o['total_liabilities'] == r['liabilities_total'] == 0
+    assert o['net_worth'] == r['current'] == 100
     filtered = auth_client_a.get('/api/v1/dashboard/summary' + query + '&user=bob').json()['balance_sheet']
     assert filtered['total_liabilities'] == 0
 

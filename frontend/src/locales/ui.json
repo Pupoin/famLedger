@@ -10590,5 +10590,21 @@
   "不能取消唯一可用的登录方式，请先设置本地密码或关联其他可用的登录服务": {
     "zh": "不能取消唯一可用的登录方式，请先设置本地密码或关联其他可用的登录服务",
     "en": "You cannot unlink your only usable sign-in method. Set a local password or link another available sign-in service first."
+  },
+  "纳入收支与预算统计": {
+    "zh": "纳入收支与预算统计",
+    "en": "Include in income, spending and budgets"
+  },
+  "控制此账户的收支与预算统计；账户余额始终计入资产和负债合计。": {
+    "zh": "控制此账户的收支与预算统计；账户余额始终计入资产和负债合计。",
+    "en": "Controls income, spending and budget statistics. The account balance always counts toward total assets and liabilities."
+  },
+  "现金及其他资产": {
+    "zh": "现金及其他资产",
+    "en": "Cash / Other assets"
+  },
+  "贷款及其他负债": {
+    "zh": "贷款及其他负债",
+    "en": "Loans / Other debt"
   }
 }

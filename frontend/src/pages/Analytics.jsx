@@ -787,7 +787,7 @@ export default function Analytics() {
                   {t('analytics.netWorth.assets', tx("资产"))}
                 </span>
                 <div className="flex justify-between py-1 border-b border-zinc-100 dark:border-zinc-800">
-                  <span className="text-zinc-500">{t('analytics.netWorth.cash', tx("现金/借记卡"))}</span>
+                  <span className="text-zinc-500">{t('analytics.netWorth.cash', tx("现金及其他资产"))}</span>
                   <span className="font-mono font-bold text-zinc-900 dark:text-white">
                     {fmt(reportData?.net_worth?.cash_total || 0)}
                   </span>
@@ -812,7 +812,7 @@ export default function Analytics() {
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-zinc-500">{t('analytics.netWorth.loan', tx("贷款/债务"))}</span>
+                  <span className="text-zinc-500">{t('analytics.netWorth.loan', tx("贷款及其他负债"))}</span>
                   <span className="font-mono font-bold text-zinc-900 dark:text-white">
                     {fmt(reportData?.net_worth?.loan_total || 0)}
                   </span>

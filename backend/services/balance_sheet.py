@@ -1,33 +1,35 @@
-"""Shared visible personal debts and ledger-based historical net worth."""
+"""Authorized account balances and ledger-based historical net worth."""
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlmodel import select, or_
 
-from models import Account, PersonalDebt, Transaction
+from models import Account, AccountShare, Transaction
 from services.transaction_direction import transaction_direction
 
 
-def debt_accounts(session, user, owner_filter=None):
-    if not user or not user.family_id:
+def visible_balance_accounts(session, user, owner_filter=None):
+    """All explicitly authorized accounts, including archived and report opt-outs.
+
+    Balance sheets describe what remains in accounts; spending participation
+    and sidebar hiding are separate preferences, not balance filters.
+    """
+    if not user:
         return []
-    query = select(PersonalDebt).where(PersonalDebt.family_id == user.family_id,
-                                      PersonalDebt.status == 'active', PersonalDebt.remaining_amount > 0)
-    if user.role not in ('owner', 'admin'):
-        query = query.where(or_(PersonalDebt.owner_id == user.id, PersonalDebt.owner_id.is_(None)))
+    if isinstance(user, str) and user.startswith('service:'):
+        from services.principals import service_family
+        query = select(Account).where(Account.family_id == service_family(session).id)
+    else:
+        if not getattr(user, 'id', None):
+            return []
+        query = select(Account).where(Account.owner_id == user.id)
+        if user.family_id:
+            shared = select(AccountShare.account_id).where(AccountShare.user_id == user.id)
+            query = select(Account).where(Account.family_id == user.family_id,
+                                           or_(Account.owner_id == user.id, Account.id.in_(shared)))
     if owner_filter is not None:
-        query = query.where(PersonalDebt.owner_id == owner_filter)
-    result = []
-    for debt in session.exec(query).all():
-        borrow = debt.debt_type == 'borrow'
-        # Display-only account objects. They are never persisted as accounts.
-        result.append(Account(id=debt.id, family_id=debt.family_id, owner_id=debt.owner_id,
-                              name=debt.notes or f"{'应付借款' if borrow else '应收借款'}：{debt.counterparty}",
-                              institution_name=debt.counterparty, currency=debt.currency,
-                              account_type='loan' if borrow else 'receivable',
-                              classification='liability' if borrow else 'asset', balance=debt.remaining_amount,
-                              created_at=debt.created_at))
-    return result
+        query = query.where(Account.owner_id == owner_filter)
+    return list(session.exec(query).all())
 
 
 def ledger_net_worth_history(session, accounts, report_money, periods):

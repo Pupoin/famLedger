@@ -223,19 +223,9 @@ def get_comprehensive_report(
     avg_savings = round(sum(h["net"] for h in history_months) / len(history_months), 2)
 
     # 6. 真实账户与净资产（严格限定家庭与用户可见权限，杜绝越权泄露）
-    from routes.v1_accounts import get_account_realtime_balance
-
     is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:")
-
-    if not family_id:
-        accounts = []
-    else:
-        all_fam_accs = session.exec(
-            select(Account).where(Account.family_id == family_id, Account.is_active == True)
-        ).all()
-        from services.stats_engine import get_user_report_account_ids
-        vis_ids = get_user_report_account_ids(session, user_or_ctx if is_service else user_db, family_id=family_id)
-        accounts = [a for a in all_fam_accs if a.id in vis_ids]
+    from services.balance_sheet import visible_balance_accounts, ledger_net_worth_history
+    accounts = visible_balance_accounts(session, user_or_ctx if is_service else user_db)
 
     cash_accounts = []
     investment_accounts = []
@@ -257,23 +247,15 @@ def get_comprehensive_report(
             "icon": (a.institution_name or a.name or "银")[0],
         }
 
-        if a.classification == "liability" or a.account_type in ("credit_card", "loan"):
-            if a.account_type == "loan" or "贷款" in a.name:
-                loan_accounts.append(acc_obj)
-            else:
+        if a.classification == "liability":
+            if a.account_type.lower() in ("credit_card", "credit", "信用卡"):
                 credit_accounts.append(acc_obj)
+            else:
+                loan_accounts.append(acc_obj)
         elif a.account_type in ("investment", "brokerage", "mutual_fund") or "理财" in a.name or "证券" in a.name or "基金" in a.name or "投资" in a.name:
             investment_accounts.append(acc_obj)
         else:
             cash_accounts.append(acc_obj)
-
-    # Both overview and reports include the same authorized outstanding debts.
-    from services.balance_sheet import debt_accounts, ledger_net_worth_history
-    for debt in debt_accounts(session, user_db):
-        amount = float(report_money.amount(debt.balance, debt.currency))
-        entry = {"id": str(debt.id), "name": debt.name, "institution": debt.institution_name,
-                 "type": debt.account_type, "balance": amount, "icon": "债"}
-        (loan_accounts if debt.classification == 'liability' else cash_accounts).append(entry)
 
     total_cash = sum(a["balance"] for a in cash_accounts)
     total_invest = sum(a["balance"] for a in investment_accounts)

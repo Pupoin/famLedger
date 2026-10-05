@@ -536,7 +536,7 @@ export default function AccountsPanel({
     const query = accountSearch.trim().toLocaleLowerCase();
     return accounts.filter((account) => {
       if (account.hidden_in_sidebar) return false;
-      if (activeTab !== 'all' && getAccountCategory(normalizeAccountType(account)) !== activeTab) return false;
+      if (activeTab !== 'all' && (account.classification || getAccountCategory(normalizeAccountType(account))) !== activeTab) return false;
       if (!query) return true;
       return [account.name, account.account_name, account.institution_name, account.external_identifier,
               account.owner, account.owner_username, account.owner_display_name]
@@ -548,7 +548,7 @@ export default function AccountsPanel({
   const groupedTree = useMemo(() => {
     const defaultOwner = user?.displayName || user?.username || '当前用户';
 
-    const groupBalance = (a) => a.report_included === false ? 0 : Number(a.report_own_balance ?? a.report_balance ?? a.balance ?? 0);
+    const groupBalance = (a) => Number(a.report_own_balance ?? a.report_balance ?? a.balance ?? 0);
 
     if (groupBy === 'owner_by_institution') {
       // Group by Owner -> Institution
@@ -579,7 +579,7 @@ export default function AccountsPanel({
         const bal = groupBalance(acc);
         const isLiab = acc.classification === 'liability';
         const netBal = activeTab === 'all' && isLiab ? -bal : bal;
-        // 按本账户活动归属计算分组，排除项贡献为零。
+        // 按可见账户自身余额计算，主副卡各累计一次。
         {
           groups[owner].subgroups[inst].total += netBal;
           groups[owner].total += netBal;
@@ -621,7 +621,7 @@ export default function AccountsPanel({
         const bal = groupBalance(acc);
         const isLiab = acc.classification === 'liability';
         const netBal = activeTab === 'all' && isLiab ? -bal : bal;
-        // 按本账户活动归属计算分组，排除项贡献为零。
+        // 按可见账户自身余额计算，主副卡各累计一次。
         {
           groups[owner].subgroups[typeLabel].total += netBal;
           groups[owner].total += netBal;
@@ -666,9 +666,9 @@ export default function AccountsPanel({
           };
         }
         groups[typeLabel].accounts.push(acc);
-        // 按本账户活动归属计算分组，排除项贡献为零。
+        // 按可见账户自身余额计算，主副卡各累计一次。
         {
-          groups[typeLabel].total += (activeTab === 'all' && getAccountCategory(typeLabel) === 'liability' ? -1 : 1) * groupBalance(acc);
+          groups[typeLabel].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
         }
       });
 
@@ -690,9 +690,9 @@ export default function AccountsPanel({
           };
         }
         groups[inst].accounts.push(acc);
-        // 按本账户活动归属计算分组，排除项贡献为零。
+        // 按可见账户自身余额计算，主副卡各累计一次。
         {
-          groups[inst].total += (activeTab === 'all' && getAccountCategory(normalizeAccountType(acc)) === 'liability' ? -1 : 1) * groupBalance(acc);
+          groups[inst].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
         }
       });
       return Object.values(groups);
@@ -712,9 +712,9 @@ export default function AccountsPanel({
         };
       }
       groups[owner].accounts.push(acc);
-      // 按本账户活动归属计算分组，排除项贡献为零。
+      // 按可见账户自身余额计算，主副卡各累计一次。
       {
-        groups[owner].total += (activeTab === 'all' && getAccountCategory(normalizeAccountType(acc)) === 'liability' ? -1 : 1) * groupBalance(acc);
+        groups[owner].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
       }
     });
     return Object.values(groups);
