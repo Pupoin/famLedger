@@ -5,7 +5,7 @@ import uuid
 from datetime import date as DateType, datetime, timezone, date as dt_date, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from services.request_validation import CurrencyCode
@@ -309,6 +309,147 @@ class AccountSharesUpdate(BaseModel):
     members: Optional[List[AccountShareMemberIn]] = None
     update_finance_inclusion: Optional[bool] = None
     include_in_finances: Optional[bool] = None
+
+
+class BulkAccountShareUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    user_id: uuid.UUID
+    permission: Literal["read_only", "read_write", "full_control"] = "read_only"
+    shared: bool = True
+
+
+class BulkAccountSettingsUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    account_ids: List[uuid.UUID] = Field(min_length=1, max_length=200)
+    hidden: Optional[bool] = None
+    confirm_nonzero_balance: bool = False
+    institution_name: Optional[str] = Field(default=None, max_length=100)
+    account_type: Optional[Literal[
+        "cash", "iou", "investment", "crypto", "real_estate", "vehicle", "other_asset",
+        "credit_card", "loan", "other_liability", "checking", "savings", "other",
+    ]] = None
+    members: Optional[List[BulkAccountShareUpdate]] = Field(default=None, max_length=200)
+
+
+def _apply_account_share_updates(session, account, members):
+    """Change only specified recipients, preserving each existing statistics preference."""
+    for member in members:
+        if member.user_id == account.owner_id:
+            continue
+        target = session.get(User, member.user_id)
+        if not target or target.family_id != account.family_id:
+            raise HTTPException(status_code=400, detail="无法共享给非本家庭成员")
+        share = session.exec(select(AccountShare).where(
+            AccountShare.account_id == account.id, AccountShare.user_id == member.user_id,
+        )).first()
+        if member.shared:
+            if not share:
+                share = AccountShare(account_id=account.id, user_id=member.user_id,
+                                     permission=member.permission)
+            else:
+                share.permission = member.permission
+            include = getattr(member, "include_in_finances", None)
+            if include is not None:
+                share.include_in_finances = include
+            session.add(share)
+        elif share:
+            session.delete(share)
+
+
+@router.patch("/bulk/settings")
+def update_bulk_account_settings(
+    payload: BulkAccountSettingsUpdate,
+    session: Session = Depends(get_session),
+    username: str = Depends(get_current_user),
+):
+    """Validate the complete selection before changing any account; commit all changes together."""
+    lock_mutation(session)
+    user = session.exec(select(User).where(User.username == username)).first()
+    if not user:
+        raise HTTPException(401, "用户未认证")
+    account_ids = list(dict.fromkeys(payload.account_ids))
+    accounts = session.exec(select(Account).where(Account.id.in_(account_ids)).with_for_update()).all()
+    shares = session.exec(select(AccountShare).where(
+        AccountShare.account_id.in_(account_ids), AccountShare.user_id == user.id,
+    )).all()
+    my_shares = {share.account_id: share for share in shares}
+    if len(accounts) != len(account_ids) or any(
+        account.family_id != user.family_id
+        or (account.owner_id != user.id and account.id not in my_shares)
+        for account in accounts
+    ):
+        raise HTTPException(404, "Account not found")
+
+    change_institution = "institution_name" in payload.model_fields_set
+    change_information = change_institution or payload.account_type is not None
+    change_sharing = bool(payload.members)
+    if not change_information and not change_sharing and payload.hidden is None:
+        raise HTTPException(400, "请选择要修改的设置")
+    if change_information or change_sharing:
+        for account in accounts:
+            _verify_account_management_permission(user, account, "批量修改账户设置", session)
+    if payload.members:
+        member_ids = [member.user_id for member in payload.members]
+        if len(set(member_ids)) != len(member_ids):
+            raise HTTPException(400, "共享成员不能重复")
+        targets = session.exec(select(User).where(User.id.in_(member_ids))).all()
+        if len(targets) != len(member_ids) or any(target.family_id != user.family_id for target in targets):
+            raise HTTPException(400, "无法共享给非本家庭成员")
+    if payload.account_type and payload.account_type != "credit_card":
+        child = session.exec(select(Account.id).where(Account.parent_account_id.in_(account_ids))).first()
+        if child:
+            raise HTTPException(400, "所选主卡仍有关联的副卡，无法修改为非信用卡类型")
+
+    preferences = session.exec(select(UserPreference).where(UserPreference.username == username)).first()
+    hidden = set(preferences.hidden_sidebar_accounts or []) if preferences else set()
+    if payload.hidden and not payload.confirm_nonzero_balance:
+        nonzero = []
+        for account in accounts:
+            if str(account.id) in hidden:
+                continue
+            balance = get_account_realtime_balance(session, account.id, account.classification,
+                                                  account.balance, current_user=user)
+            if balance != 0:
+                nonzero.append({"account_id": str(account.id), "account_name": account.name,
+                                "balance": str(balance), "currency": account.currency})
+        if nonzero:
+            raise HTTPException(409, {"code": "balance_confirmation_required", "accounts": nonzero})
+
+    previous_parents = {account.id: account.parent_account_id for account in accounts}
+    try:
+        for account in accounts:
+            if change_institution:
+                account.institution_name = (payload.institution_name or "").strip() or None
+            if payload.account_type:
+                account.account_type = payload.account_type
+                account.classification = "liability" if payload.account_type in (
+                    "credit_card", "loan", "other_liability",
+                ) else "asset"
+                if payload.account_type != "credit_card":
+                    account.parent_account_id = None
+            if change_information:
+                account.updated_at = datetime.now(timezone.utc)
+                session.add(account)
+            if payload.members:
+                _apply_account_share_updates(session, account, payload.members)
+        if payload.hidden is not None:
+            if not preferences:
+                preferences = UserPreference(username=username, date_format="DD/MM/YYYY", currency="CAD",
+                                             has_chosen_currency=False, has_chosen_language=False)
+            if payload.hidden:
+                hidden.update(str(account.id) for account in accounts)
+            else:
+                hidden.difference_update(str(account.id) for account in accounts)
+            preferences.hidden_sidebar_accounts = sorted(hidden)
+            session.add(preferences)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return {"status": "ok", "updated_count": len(accounts), "unlinked_account_ids": [
+        str(account.id) for account in accounts
+        if previous_parents[account.id] is not None and account.parent_account_id is None
+    ]}
 
 
 @router.get("")
@@ -673,39 +814,7 @@ def update_account_shares(
         session.add(management_share)
 
     if payload.members is not None:
-        for m in payload.members:
-            if m.user_id == account.owner_id:
-                continue  # 不能共享给自己
-
-            # 严格校验：被共享的目标成员必须属于该账户所在的家庭组
-            target_user = session.get(User, m.user_id)
-            if not target_user or target_user.family_id != account.family_id:
-                raise HTTPException(status_code=400, detail=f"无法共享给非本家庭成员 (user_id={m.user_id})")
-
-            share = session.exec(
-                select(AccountShare).where(
-                    AccountShare.account_id == account_id,
-                    AccountShare.user_id == m.user_id,
-                )
-            ).first()
-
-            if m.shared:
-                if not share:
-                    share = AccountShare(
-                        account_id=account_id,
-                        user_id=m.user_id,
-                        permission=m.permission,
-                        include_in_finances=m.include_in_finances if m.include_in_finances is not None else True,
-                    )
-                else:
-                    share.permission = m.permission
-                    if m.include_in_finances is not None:
-                        share.include_in_finances = m.include_in_finances
-                session.add(share)
-            else:
-                # 关闭共享：删除记录
-                if share:
-                    session.delete(share)
+        _apply_account_share_updates(session, account, payload.members)
 
     if payload.members is not None or (payload.include_in_finances is not None and management_share is not None):
         session.commit()

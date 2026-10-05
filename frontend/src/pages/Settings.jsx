@@ -16,6 +16,7 @@ import { getAccountTypeConfig } from '../utils/accountIcons';
 import { formatDateTime } from '../utils/dates';
 import Avatar from '../components/Avatar';
 import AccountSharingModal from '../components/AccountSharingModal';
+import BulkAccountSettingsModal from '../components/BulkAccountSettingsModal';
 import {
   EditAccountModal,
   TransferOwnershipModal,
@@ -689,6 +690,24 @@ export default function Settings() {
   const [deletingAccount, setDeletingAccount] = useState(null);
   const [sidebarAccountSaving, setSidebarAccountSaving] = useState(null);
   const sidebarAccountSavingRef = useRef(false);
+  const [selectedAccountIds, setSelectedAccountIds] = useState([]);
+  const [bulkAccountSettingsOpen, setBulkAccountSettingsOpen] = useState(false);
+  const selectedAccounts = (sharesMatrix?.accounts || []).filter(account => selectedAccountIds.includes(account.account_id));
+  const toggleAccountSelection = accountId => {
+    setOpenAccountMenuId(null);
+    setSelectedAccountIds(previous => previous.includes(accountId) ? previous.filter(id => id !== accountId) : [...previous, accountId]);
+  };
+  useEffect(() => {
+    if (activeTab !== 'accounts') { setSelectedAccountIds([]); setBulkAccountSettingsOpen(false); }
+  }, [activeTab]);
+  useEffect(() => {
+    if (!openAccountMenuId) return;
+    const closeMenu = event => {
+      if (event.key === 'Escape') { event.preventDefault(); setOpenAccountMenuId(null); }
+    };
+    document.addEventListener('keydown', closeMenu);
+    return () => document.removeEventListener('keydown', closeMenu);
+  }, [openAccountMenuId]);
 
   const handleAccountVisibility = async (account) => {
     if (sidebarAccountSavingRef.current) return;
@@ -977,6 +996,7 @@ export default function Settings() {
       if (res.ok) {
         const json = await res.json();
         setSharesMatrix(json);
+        setSelectedAccountIds(previous => previous.filter(id => json.accounts?.some(account => account.account_id === id)));
       }
     } catch {
       showToast(tx("获取账户共享矩阵失败"), 'error');
@@ -2630,6 +2650,21 @@ export default function Settings() {
                   <div className="py-12 text-center text-xs text-zinc-400">{tx("暂未发现家庭账户数据")}</div>
                 ) : (
                   <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300 cursor-pointer">
+                        <input type="checkbox" data-testid="settings-select-all-accounts"
+                          checked={selectedAccounts.length === sharesMatrix.accounts.length}
+                          ref={input => { if (input) input.indeterminate = selectedAccounts.length > 0 && selectedAccounts.length < sharesMatrix.accounts.length; }}
+                          onChange={event => { setOpenAccountMenuId(null); setSelectedAccountIds(event.target.checked ? sharesMatrix.accounts.map(account => account.account_id) : []); }} />
+                        {tx('全选')}
+                        {selectedAccounts.length > 0 && <span>{tx('已选择 {p0} 个账户', { p0: selectedAccounts.length })}</span>}
+                      </label>
+                      <button type="button" data-testid="settings-bulk-edit-accounts" disabled={selectedAccounts.length === 0}
+                        onClick={() => { setOpenAccountMenuId(null); setBulkAccountSettingsOpen(true); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 text-white dark:bg-blue-600 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                        <Edit2 className="w-3.5 h-3.5" />{tx('批量设置')}
+                      </button>
+                    </div>
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200/80 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-2xs">
                       {sharesMatrix.accounts.map((acc) => {
                         const isOwnAccount = acc.members?.some((member) => member.is_owner && member.username === user?.username);
@@ -2642,9 +2677,12 @@ export default function Settings() {
                           <div
                             key={acc.account_id}
                             data-testid={`settings-account-row-${acc.account_id}`}
-                            onClick={() => setOpenAccountMenuId(isMenuOpen ? null : acc.account_id)}
-                            className="group p-2.5 sm:p-4 flex items-center justify-between gap-2.5 sm:gap-4 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition-colors cursor-pointer relative"
+                            onClick={() => selectedAccountIds.length ? toggleAccountSelection(acc.account_id) : setOpenAccountMenuId(isMenuOpen ? null : acc.account_id)}
+                            className={`group p-2.5 sm:p-4 flex items-center justify-between gap-2.5 sm:gap-4 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition-colors cursor-pointer relative ${selectedAccountIds.includes(acc.account_id) ? 'bg-blue-50/60 dark:bg-blue-950/20' : ''}`}
                           >
+                            <input type="checkbox" aria-label={tx('选择账户 {p0}', { p0: acc.account_name })}
+                              data-testid={`settings-select-account-${acc.account_id}`} checked={selectedAccountIds.includes(acc.account_id)}
+                              onClick={event => event.stopPropagation()} onChange={() => toggleAccountSelection(acc.account_id)} className="shrink-0 w-4 h-4" />
                             {/* 列 1：账户专属分类 Logo 与完整信息 */}
                             <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
                               <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center shrink-0 group-hover:scale-105 transition-all shadow-2xs ${cfg.bgColor} ${cfg.borderColor}`}>
@@ -3611,7 +3649,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Add / Edit OIDC Modal ── */}
       {showAddOidcModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs"
             onClick={() => {
@@ -3796,7 +3834,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 新建家庭组弹窗 */}
       {showCreateFamilyModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowCreateFamilyModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -3866,7 +3904,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 解散家庭组确认弹窗 */}
       {showDeleteFamilyModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowDeleteFamilyModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-red-200 dark:border-red-900/60 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -3917,7 +3955,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 退出家庭组确认弹窗 */}
       {showLeaveFamilyModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowLeaveFamilyModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-amber-200 dark:border-amber-900/60 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -3968,7 +4006,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 拥有者退出提示弹窗（家庭还有其他成员） */}
       {showLeaveOwnerWarningModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowLeaveOwnerWarningModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-amber-200 dark:border-amber-900/60 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4018,7 +4056,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 新增 / 编辑分类模态框 */}
       {showCategoryModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowCategoryModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4148,7 +4186,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 删除分类二次确认弹窗 */}
       {deletingCategory && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setDeletingCategory(null)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-red-200 dark:border-red-900/60 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4188,7 +4226,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* 删除标签二次确认弹窗 */}
       {deletingTag && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setDeletingTag(null)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-red-200 dark:border-red-900/60 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4226,6 +4264,10 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
       )}
 
       {/* ── Modals: 账户管理 (编辑/转移/删除/共享) ── */}
+      <BulkAccountSettingsModal isOpen={bulkAccountSettingsOpen && selectedAccounts.length > 0}
+        accounts={selectedAccounts} members={sharesMatrix?.members || []}
+        onClose={() => setBulkAccountSettingsOpen(false)}
+        onSuccess={() => { setSelectedAccountIds([]); fetchSharesMatrix(); window.dispatchEvent(new CustomEvent('accounts-updated')); }} />
       <EditAccountModal
         isOpen={!!editingAccount}
         onClose={() => setEditingAccount(null)}
@@ -4275,7 +4317,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Modal: 邀请已有账号加入家庭组 ── */}
       {showInviteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowInviteModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4341,7 +4383,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Modal: 新增家庭成员（家庭组管理员/系统管理员） ── */}
       {showAddMemberModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowAddMemberModal(false)} />
           <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -4429,7 +4471,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
       )}
       {/* ── Modal: 移出家庭组确认 ── */}
       {kickingMember && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-950/60 flex items-center justify-center shrink-0">
@@ -4463,7 +4505,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Modal: 系统管理员删除用户（需输入管理员密码） ── */}
       {deletingMember && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950/60 flex items-center justify-center shrink-0">
@@ -4512,7 +4554,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Modal: 系统管理员重置用户密码 ── */}
       {resetPasswordMember && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-950/60 flex items-center justify-center shrink-0">
@@ -4573,7 +4615,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── Create API Key Modal ── */}
       {showCreateApiKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-xs"
             onClick={() => setShowCreateApiKeyModal(false)}
@@ -4637,7 +4679,7 @@ curl -X POST "${window.location.origin}/api/v1/transactions" \\
 
       {/* ── API Key Created Success Modal (Only Shown Once) ── */}
       {newlyCreatedKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div data-settings-modal className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="fixed inset-0 bg-black/60 backdrop-blur-xs"
             onClick={() => setNewlyCreatedKey(null)}

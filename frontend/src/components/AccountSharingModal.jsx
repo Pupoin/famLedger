@@ -98,6 +98,7 @@ export default function AccountSharingModal({
 
   const modal = (
     <div
+      data-settings-modal
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

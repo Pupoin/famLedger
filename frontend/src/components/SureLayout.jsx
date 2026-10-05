@@ -14,10 +14,12 @@ import AccountsPanel from './AccountsPanel';
 import AddTransactionModal from './AddTransactionModal';
 import InitialCurrencySelectModal from './InitialCurrencySelectModal';
 import InitialLanguageSelectModal from './InitialLanguageSelectModal';
+import { useSettingsShortcuts } from '../hooks/useSettingsShortcuts';
 
 
 export default function SureLayout({ children }) {
   useLocale();
+  useSettingsShortcuts();
   const location = useLocation();
   const { t, i18n } = useTranslation();
   const { user, logout } = useAuth();

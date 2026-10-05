@@ -10326,5 +10326,113 @@
   "删除预算分类": {
     "zh": "删除预算分类",
     "en": "Remove budget category"
+  },
+  "批量编辑账户": {
+    "zh": "批量编辑账户",
+    "en": "Edit selected accounts"
+  },
+  "批量设置": {
+    "zh": "批量设置",
+    "en": "Bulk settings"
+  },
+  "已选择 {p0} 个账户": {
+    "zh": "已选择 {p0} 个账户",
+    "en": "{p0} accounts selected"
+  },
+  "已选择 {p0} 个账户，仅应用修改的设置。": {
+    "zh": "已选择 {p0} 个账户，仅应用修改的设置。",
+    "en": "{p0} accounts selected. Only changed settings will be applied."
+  },
+  "选择账户 {p0}": {
+    "zh": "选择账户 {p0}",
+    "en": "Select account {p0}"
+  },
+  "侧边栏显示": {
+    "zh": "侧边栏显示",
+    "en": "Sidebar visibility"
+  },
+  "保持不变": {
+    "zh": "保持不变",
+    "en": "Keep unchanged"
+  },
+  "修改金融机构": {
+    "zh": "修改金融机构",
+    "en": "Change institution"
+  },
+  "留空可清除金融机构": {
+    "zh": "留空可清除金融机构",
+    "en": "Leave blank to clear the institution"
+  },
+  "所选账户包含只读或读写共享账户，仅能批量修改侧边栏显示。": {
+    "zh": "所选账户包含只读或读写共享账户，仅能批量修改侧边栏显示。",
+    "en": "The selection includes read-only or read-write accounts. Only sidebar visibility can be changed for this selection."
+  },
+  "只修改指定成员的共享权限；账户拥有者的权限保持不变。": {
+    "zh": "只修改指定成员的共享权限；账户拥有者的权限保持不变。",
+    "en": "Only the specified members will change. Account owners keep their permissions."
+  },
+  "以下账户仍有余额，是否隐藏并保存全部修改？": {
+    "zh": "以下账户仍有余额，是否隐藏并保存全部修改？",
+    "en": "These accounts have a balance. Hide them and save all changes?"
+  },
+  "返回修改": {
+    "zh": "返回修改",
+    "en": "Back to editing"
+  },
+  "确认隐藏并保存": {
+    "zh": "确认隐藏并保存",
+    "en": "Hide and save"
+  },
+  "每次最多编辑 200 个账户，请减少选择。": {
+    "zh": "每次最多编辑 200 个账户，请减少选择。",
+    "en": "Select up to 200 accounts at a time."
+  },
+  "批量设置保存失败": {
+    "zh": "批量设置保存失败",
+    "en": "Could not save bulk settings"
+  },
+  "已更新 {p0} 个账户": {
+    "zh": "已更新 {p0} 个账户",
+    "en": "Updated {p0} accounts"
+  },
+  "共享或账户类型已修改，相关副卡关系已解除": {
+    "zh": "共享或账户类型已修改，相关副卡关系已解除",
+    "en": "Sharing or account type changed. Affected supplementary cards have been unlinked."
+  },
+  "请选择要修改的设置": {
+    "zh": "请选择要修改的设置",
+    "en": "Choose a setting to change"
+  },
+  "共享成员不能重复": {
+    "zh": "共享成员不能重复",
+    "en": "Sharing members must be unique"
+  },
+  "无法共享给非本家庭成员": {
+    "zh": "无法共享给非本家庭成员",
+    "en": "Cannot share with someone outside this family"
+  },
+  "所选主卡仍有关联的副卡，无法修改为非信用卡类型": {
+    "zh": "所选主卡仍有关联的副卡，无法修改为非信用卡类型",
+    "en": "A selected primary card has supplementary cards and must remain a credit card"
+  },
+  "只有账户拥有者或拥有完全控制权限的成员可以批量修改账户设置": {
+    "zh": "只有账户拥有者或拥有完全控制权限的成员可以批量修改账户设置",
+    "en": "Only account owners or full-control recipients can edit account settings in bulk"
+  },
+  "读写": {
+    "zh": "读写",
+    "en": "Read-write"
+  },
+  "共享权限": {
+    "zh": "共享权限",
+    "en": "Sharing permissions"
+  },
+  "取消共享": {
+    "zh": "取消共享",
+    "en": "Revoke sharing"
+  },
+  "全选": {
+    "zh": "全选",
+    "en": "Select all"
   }
 }

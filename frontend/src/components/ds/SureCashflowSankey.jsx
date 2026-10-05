@@ -36,7 +36,7 @@ export default function SureCashflowSankey({
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
   const isMobile = viewportWidth < 640;
-  const titleFontSize = viewportWidth >= 1536 ? 16 : viewportWidth >= 1280 ? 14 : 12;
+  const titleFontSize = viewportWidth >= 1536 ? 15 : viewportWidth >= 1280 ? 13 : 11;
   const amountFontSize = viewportWidth >= 1536 ? 14 : viewportWidth >= 1280 ? 12 : 11;
   const lineGap = viewportWidth >= 1536 ? 22 : viewportWidth >= 1280 ? 19 : isMobile ? 16 : 15;
 

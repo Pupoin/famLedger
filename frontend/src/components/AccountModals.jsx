@@ -126,7 +126,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
       <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 z-10 animate-in fade-in zoom-in-95 duration-150">
         <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -345,7 +345,7 @@ export function TransferOwnershipModal({ isOpen, onClose, account, onSuccess }) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
       <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
         <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -438,7 +438,7 @@ export function DeleteAccountModal({ isOpen, onClose, account, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
       <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-sm border border-red-200 dark:border-red-900/50 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
         <div className="p-6 space-y-4">
@@ -526,7 +526,7 @@ export function ImportTransactionsModal({ isOpen, onClose, account, onSuccess })
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div data-settings-modal className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
       <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
         <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">

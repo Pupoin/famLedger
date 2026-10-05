@@ -154,6 +154,8 @@ export default function AccountTypeSelectDropdown({
     };
     const handleEscape = (event) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
         setIsOpen(false);
         triggerRef.current?.focus();
       }
