@@ -21,6 +21,8 @@ famLedger manages personal and household finances through account activity, mult
 - **Rules and automation:** nested conditions, categorization, merchant normalization, tags, previews, and full JSON import/export. Lower priority numbers run first; the first category match wins. Unmatched transactions use Other, and manual categories are preserved. Optional Microsoft Graph email-bill ingestion runs as a separate service.
 - **Authentication and preferences:** local login, configurable OIDC sign-in, revocable API keys stored as hashes, language and display-currency preferences, and light, dark, or automatic themes.
 
+When an OIDC identity first matches an existing account's email or username, famLedger asks for that account's password once before linking. Later sign-ins use the stored external identity. You can also link a provider under **Settings → Profile → Single sign-on links**, including when the two accounts use different email addresses.
+
 ### Technology
 
 | Layer | Technology |
@@ -150,6 +152,8 @@ famLedger 通过账户活动、多币种流水、共享账户和定期支付计�
 - **家庭协作**：支持邀请、账户所有权，以及只读、读写、完全控制三档共享权限。信用卡主副卡可分属不同家庭成员；副卡需共享给主卡所有者，保证其能够查看副卡流水。
 - **规则与自动化**：支持嵌套条件、分类、商户名称规范化、标签、预演及完整 JSON 导入导出。优先级数字越小越先执行，分类按首条命中生效，未命中归入「其他」，保留手动分类。可选的 Microsoft Graph 邮件账单抓取由独立服务运行。
 - **认证与偏好**：支持本地登录、可配置的 OIDC 登录、哈希存储且可撤销的 API Key、语言与展示币种设置，以及浅色、深色、自动主题。
+
+首次 OIDC 登录如果与已有账户的邮箱或用户名相同，famLedger 会要求输入一次该本地账户的密码，确认后才关联；之后按已绑定的外部身份登录。也可在 **设置 → 个人资料与身份设置 → 单点登录关联** 中主动关联，支持双方邮箱不同的情况。
 
 ### 技术栈
 

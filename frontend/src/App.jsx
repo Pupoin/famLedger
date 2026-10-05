@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { DateFormatProvider } from "./DateFormatContext";
 import { PageViewProvider } from "./PageViewContext";
@@ -10,6 +10,7 @@ import Login from "./pages/Login";
 import CreateAccount from "./pages/CreateAccount";
 import ForgotPassword from "./pages/ForgotPassword";
 import Settings from "./pages/Settings";
+import OidcLinkPage from "./pages/OidcLinkPage";
 
 import DebtsPage from "./pages/DebtsPage";
 import TransactionsPage from "./pages/TransactionsPage";
@@ -62,6 +63,7 @@ const BudgetsPage = lazyWithReload(() => import("./pages/BudgetsPage"));
 
 export default function App() {
   const { user, loading } = useAuth();
+  const { pathname } = useLocation();
 
   if (loading) {
     return (
@@ -70,6 +72,10 @@ export default function App() {
       </div>
     );
   }
+
+  // Account confirmation must also be reachable if this browser was already
+  // signed into another account before starting the OIDC flow.
+  if (pathname === '/oidc-link') return <OidcLinkPage />;
 
   if (!user?.username) {
     return (

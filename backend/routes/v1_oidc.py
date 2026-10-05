@@ -16,8 +16,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from database import get_session
@@ -27,6 +28,12 @@ from auth import (
     SESSION_TTL,
     COOKIE_SECURE,
     _make_token,
+    _verify_token,
+    _check_password,
+    _check_login_rate_limit,
+    _record_login_failure,
+    _clear_login_failures,
+    get_current_user,
     get_current_user_or_token,
 )
 
@@ -72,6 +79,15 @@ class SSOProviderUpdate(BaseModel):
     client_secret: Optional[str] = None
     enabled: Optional[bool] = None
     settings: Optional[Dict[str, Any]] = None
+
+
+class OIDCLinkRequest(BaseModel):
+    current_password: Optional[str] = Field(default=None, max_length=128)
+
+
+class OIDCLinkComplete(BaseModel):
+    state: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
 
 
 def require_admin_user(
@@ -404,19 +420,7 @@ def _validate_id_token(token, jwks, provider, discovery, nonce, access_token):
     return claims
 
 
-@router.get("/{provider_name}/authorize")
-async def sso_authorize(
-    provider_name: str,
-    request: Request,
-    session: Session = Depends(get_session),
-):
-    """生成 OIDC 授权跳转 URL，动态通过 OIDC Discovery 发现端点。"""
-    provider = session.exec(
-        select(SSOProvider).where(SSOProvider.name == provider_name, SSOProvider.enabled == True)
-    ).first()
-    if not provider:
-        raise HTTPException(status_code=404, detail="SSO Provider not found or disabled")
-
+async def _begin_oidc(provider, request, session, link_user=None):
     oidc_cfg = await _get_oidc_config(provider.issuer)
     auth_endpoint = oidc_cfg.get("authorization_endpoint") or f"{provider.issuer.rstrip('/')}/api/oidc/authorization"
 
@@ -427,17 +431,27 @@ async def sso_authorize(
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     from sqlalchemy import delete
     session.exec(delete(OIDCLogin).where(OIDCLogin.expires_at < int(time.time())))
-    session.add(OIDCLogin(id=state, provider_id=provider.id, issuer=provider.issuer,
-                          client_id=provider.client_id, redirect_uri=redirect_uri,
-                          nonce=nonce, code_verifier=verifier, expires_at=int(time.time()) + 300))
+    login = OIDCLogin(id=state, provider_id=provider.id, issuer=provider.issuer,
+                      client_id=provider.client_id, redirect_uri=redirect_uri,
+                      nonce=nonce, code_verifier=verifier, expires_at=int(time.time()) + 300)
+    if link_user is not None:
+        token = _verify_token(request.cookies.get(SESSION_COOKIE, ""), session)
+        if not token or token["uid"] != str(link_user.id):
+            raise HTTPException(401, "Invalid session")
+        login.link_user_id = link_user.id
+        login.link_session_id = token["sid"]
+        login.link_session_version = link_user.session_version
+    session.add(login)
     session.commit()
     query = urlencode({"client_id": provider.client_id, "redirect_uri": redirect_uri,
                        "response_type": "code", "scope": "openid profile email", "state": state,
                        "nonce": nonce, "code_challenge": challenge, "code_challenge_method": "S256"})
     target_url = auth_endpoint + ("&" if "?" in auth_endpoint else "?") + query
-    res = RedirectResponse(url=target_url)
-    from auth import COOKIE_SECURE
-    res.set_cookie(
+    return target_url, state
+
+
+def _set_oidc_state_cookie(response, state):
+    response.set_cookie(
         key="famledger_oidc_state",
         value=state,
         max_age=300,
@@ -445,7 +459,152 @@ async def sso_authorize(
         secure=COOKIE_SECURE,
         samesite="lax",
     )
-    return res
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _check_link_password(user, password, request):
+    keys = (f"oidc-link:user:{user.id}", f"oidc-link:ip:{request.client.host if request.client else 'unknown'}")
+    for key in keys:
+        _check_login_rate_limit(key)
+    if not user.password_hash or not password or not _check_password(password, user.password_hash):
+        for key in keys:
+            _record_login_failure(key)
+        raise HTTPException(400, "本地账户密码不正确")
+    for key in keys:
+        _clear_login_failures(key)
+
+
+def _link_session_user(login, request, session):
+    provider = session.get(SSOProvider, login.provider_id)
+    if (not provider or not provider.enabled or provider.issuer != login.issuer
+            or provider.client_id != login.client_id):
+        raise HTTPException(400, "OIDC 认证事务已失效或身份源不匹配")
+    token = _verify_token(request.cookies.get(SESSION_COOKIE, ""), session)
+    if (not token or token["uid"] != str(login.link_user_id)
+            or token["sid"] != login.link_session_id or token["sv"] != login.link_session_version):
+        raise HTTPException(401, "绑定会话已失效，请登录原账户后重试")
+    return session.get(User, login.link_user_id)
+
+
+def _check_email_domain(policy, email, userinfo, claims):
+    if not policy["allowed_domains"]:
+        return
+    verified = (userinfo.get("email_verified") is True or
+                (claims.get("email") == email and claims.get("email_verified") is True))
+    if not verified:
+        raise HTTPException(403, "域名准入要求身份源确认邮箱已验证")
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    if domain not in policy["allowed_domains"]:
+        raise HTTPException(403, f"您的邮箱域名 '@{domain}' 不在允许登录的域名白名单中")
+
+
+def _save_identity_link(user, provider, uid, session):
+    identity = session.exec(select(OIDCIdentity).where(
+        OIDCIdentity.provider == provider.name, OIDCIdentity.uid == uid,
+    )).first()
+    if identity and identity.user_id != user.id:
+        raise HTTPException(409, "该外部身份已关联其他账户，不能重复绑定")
+    if identity is None:
+        identity = OIDCIdentity(user_id=user.id, provider=provider.name, uid=uid)
+    identity.issuer = provider.issuer
+    identity.last_authenticated_at = datetime.now(timezone.utc)
+    session.add(identity)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(409, "该外部身份已关联其他账户，不能重复绑定") from None
+
+
+def _pending_link(state, request, session):
+    cookie_state = request.cookies.get("famledger_oidc_state")
+    if not cookie_state or not hmac.compare_digest(cookie_state.encode(), state.encode()):
+        raise HTTPException(400, "关联请求已失效，请重新使用 OIDC 登录")
+    login = session.get(OIDCLogin, state)
+    if (not login or not login.consumed or not login.link_uid or not login.link_user_id
+            or login.link_session_id or login.expires_at < time.time()):
+        raise HTTPException(400, "关联请求已失效，请重新使用 OIDC 登录")
+    provider = session.get(SSOProvider, login.provider_id)
+    user = session.get(User, login.link_user_id)
+    if (not provider or not provider.enabled or provider.issuer != login.issuer
+            or provider.client_id != login.client_id or not user or not user.is_active
+            or user.session_version != login.link_session_version):
+        raise HTTPException(400, "关联请求已失效，请重新使用 OIDC 登录")
+    return login, provider, user
+
+
+@router.get("/link-requests/{state}")
+def get_link_request(state: str, request: Request, response: Response, session: Session = Depends(get_session)):
+    _, provider, user = _pending_link(state, request, session)
+    response.headers["Cache-Control"] = "no-store"
+    return {"username": user.username, "provider_label": provider.label}
+
+
+@router.post("/link-requests/complete")
+def complete_link(data: OIDCLinkComplete, request: Request, response: Response,
+                  session: Session = Depends(get_session)):
+    from services.transaction_lock import lock_mutation
+    lock_mutation(session)
+    login, provider, user = _pending_link(data.state, request, session)
+    _check_link_password(user, data.password, request)
+    uid = login.link_uid
+    claimed = session.exec(update(OIDCLogin).where(
+        OIDCLogin.id == data.state, OIDCLogin.link_uid == uid,
+        OIDCLogin.expires_at >= int(time.time()),
+    ).values(link_uid=None, link_user_id=None, link_session_version=None)).rowcount
+    if claimed != 1:
+        raise HTTPException(400, "关联请求已失效，请重新使用 OIDC 登录")
+    _save_identity_link(user, provider, uid, session)
+    response.delete_cookie("famledger_oidc_state")
+    response.headers["Cache-Control"] = "no-store"
+    response.set_cookie(SESSION_COOKIE, _make_token(user.username, session_version=user.session_version, user_id=user.id),
+                        httponly=True, samesite="lax", secure=COOKIE_SECURE, max_age=SESSION_TTL)
+    return {"status": "linked", "username": user.username}
+
+
+@router.get("/account-links")
+def list_account_links(request: Request, response: Response, session: Session = Depends(get_session)):
+    username = get_current_user(request, response, session)
+    user = session.exec(select(User).where(User.username == username)).one()
+    identities = session.exec(select(OIDCIdentity).where(OIDCIdentity.user_id == user.id)).all()
+    linked = {(identity.provider, identity.issuer) for identity in identities}
+    providers = session.exec(select(SSOProvider).where(SSOProvider.enabled == True)).all()
+    response.headers["Cache-Control"] = "no-store"
+    return {"has_password": bool(user.password_hash), "providers": [
+        {"name": p.name, "label": p.label, "linked": (p.name, p.issuer) in linked}
+        for p in providers
+    ]}
+
+
+@router.post("/{provider_name}/link")
+async def start_account_link(provider_name: str, data: OIDCLinkRequest, request: Request, response: Response,
+                             session: Session = Depends(get_session)):
+    username = get_current_user(request, response, session)
+    user = session.exec(select(User).where(User.username == username)).one()
+    if user.password_hash:
+        _check_link_password(user, data.current_password, request)
+    provider = session.exec(select(SSOProvider).where(
+        SSOProvider.name == provider_name, SSOProvider.enabled == True,
+    )).first()
+    if not provider:
+        raise HTTPException(404, "SSO Provider not found or disabled")
+    target, state = await _begin_oidc(provider, request, session, link_user=user)
+    _set_oidc_state_cookie(response, state)
+    return {"authorize_url": target}
+
+
+@router.get("/{provider_name}/authorize")
+async def sso_authorize(provider_name: str, request: Request, session: Session = Depends(get_session)):
+    """生成 OIDC 授权跳转 URL，动态通过 OIDC Discovery 发现端点。"""
+    provider = session.exec(select(SSOProvider).where(
+        SSOProvider.name == provider_name, SSOProvider.enabled == True,
+    )).first()
+    if not provider:
+        raise HTTPException(404, "SSO Provider not found or disabled")
+    target, state = await _begin_oidc(provider, request, session)
+    response = RedirectResponse(target)
+    _set_oidc_state_cookie(response, state)
+    return response
 
 
 @router.get("/{provider_name}/callback")
@@ -466,7 +625,7 @@ async def sso_callback(
 
     # 防御 CSRF：比对回调 state 与请求 Cookie
     cookie_state = request.cookies.get("famledger_oidc_state")
-    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+    if not state or not cookie_state or not hmac.compare_digest(state.encode(), cookie_state.encode()):
         raise HTTPException(status_code=400, detail="OIDC state 验证失败，可能存在跨站请求伪造 (CSRF) 攻击")
 
     response.delete_cookie(key="famledger_oidc_state")
@@ -483,6 +642,8 @@ async def sso_callback(
             or login.provider_id != provider.id or login.issuer != provider.issuer
             or login.client_id != provider.client_id or login.redirect_uri != redirect_uri):
         raise HTTPException(400, "OIDC 认证事务已失效或身份源不匹配")
+    if login.link_session_id:
+        _link_session_user(login, request, session)
     nonce, verifier = login.nonce, login.code_verifier
     consumed = session.exec(update(OIDCLogin).where(
         OIDCLogin.id == state, OIDCLogin.consumed == False,
@@ -548,6 +709,18 @@ async def sso_callback(
     elif len(username) > 50:
         username = username[:33] + "_" + identity_suffix
 
+    if login.link_session_id:
+        # Re-read after the external HTTP calls: password changes, logout and
+        # provider changes must invalidate an in-flight account link.
+        session.expire_all()
+        user = _link_session_user(login, request, session)
+        _check_email_domain(_jit_policy(provider.settings), email, userinfo, claims)
+        _save_identity_link(user, provider, sub_uid, session)
+        result = RedirectResponse("/settings?tab=profile&sso_link=success", status_code=302)
+        result.delete_cookie("famledger_oidc_state")
+        result.headers["Cache-Control"] = "no-store"
+        return result
+
     # 查找或绑定 Identity
     identity = session.exec(
         select(OIDCIdentity).where(OIDCIdentity.provider == provider_name, OIDCIdentity.uid == sub_uid)
@@ -566,34 +739,33 @@ async def sso_callback(
     else:
         # Provider policies are stored in the settings JSON, not model attributes.
         policy = _jit_policy(provider.settings)
+        # Email selects the suggested local account; the local password is
+        # still required. Never attach an identity using email or name alone.
+        candidates = session.exec(select(User).where(func.lower(User.email) == email.lower())).all()
+        if len(candidates) > 1:
+            raise HTTPException(409, "邮箱对应多个本地账户，请先登录原账户后在个人设置中关联")
+        candidate = candidates[0] if candidates else session.exec(
+            select(User).where(func.lower(User.username) == username.lower())
+        ).first()
+        if candidate:
+            _check_email_domain(policy, email, userinfo, claims)
+            if not candidate.is_active:
+                raise HTTPException(403, "关联账号已停用")
+            if not candidate.password_hash:
+                raise HTTPException(409, "该账户没有本地密码，请使用已有登录方式登录后在个人设置中关联")
+            login.link_user_id = candidate.id
+            login.link_uid = sub_uid
+            login.link_session_version = candidate.session_version
+            login.expires_at = int(time.time()) + 300
+            session.add(login)
+            session.commit()
+            result = RedirectResponse(f"/oidc-link?state={state}", status_code=302)
+            _set_oidc_state_cookie(result, state)
+            return result
         if not policy["allow_jit"]:
             raise HTTPException(status_code=403, detail="该身份源已禁用新用户自动开户 (JIT)，请联系系统管理员")
 
-        if policy["allowed_domains"]:
-            verified_email = (userinfo.get("email_verified") is True or
-                              (claims.get("email") == email and claims.get("email_verified") is True))
-            if not verified_email:
-                raise HTTPException(403, "域名准入要求身份源确认邮箱已验证")
-            domains = policy["allowed_domains"]
-            user_domain = email.split("@")[-1].lower() if "@" in email else ""
-            if domains and user_domain not in domains:
-                raise HTTPException(status_code=403, detail=f"您的邮箱域名 '@{user_domain}' 不在允许登录的域名白名单中")
-
-        # 检查是否已存在同名用户（大小写无关查重：严禁通过外部身份直接接管本地已有账户）
-        existing_user = session.exec(select(User).where(func.lower(User.username) == username.lower())).first()
-        if existing_user:
-            raise HTTPException(
-                status_code=409,
-                detail=f"系统已存在用户名为 '{username}' 的本地账户。为保障账户安全，禁止自动接管。请使用密码登录后前往个人设置完成显式绑定。"
-            )
-
-        if email:
-            existing_email_user = session.exec(select(User).where(func.lower(User.email) == email.lower())).first()
-            if existing_email_user:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"邮箱 '{email}' 已被现有账户绑定。为保障账户安全，请使用原账号登录后在设置中完成 SSO 关联绑定。"
-                )
+        _check_email_domain(policy, email, userinfo, claims)
 
         # JIT: 创建独立新用户与 Identity（原子事务提交）
         user = User(

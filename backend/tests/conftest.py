@@ -340,12 +340,13 @@ def oidc_flow(client, db, monkeypatch):
     from models import SSOProvider, OIDCLogin
     from routes import v1_oidc
     key = JsonWebKey.generate_key('RSA', 2048, is_private=True, options={'kid': 'test-key'})
-    def prepare(policy=None, claims_update=None, userinfo_update=None, name=None):
-        name = name or 'idp_' + uuid.uuid4().hex
+    def prepare(policy=None, claims_update=None, userinfo_update=None, name=None, provider=None, link_client=None):
+        name = provider.name if provider is not None else name or 'idp_' + uuid.uuid4().hex
         username = 'jit_' + uuid.uuid4().hex
-        issuer = 'https://identity.example.com'
-        provider = SSOProvider(name=name, label='Test', issuer=issuer, client_id='client',
-                               client_secret_encrypted='secret', settings=policy or {})
+        issuer = provider.issuer if provider is not None else 'https://identity.example.com'
+        if provider is None:
+            provider = SSOProvider(name=name, label='Test', issuer=issuer, client_id='client',
+                                   client_secret_encrypted='secret', settings=policy or {})
         db.add(provider)
         db.commit()
         discovery = {'issuer': issuer, 'authorization_endpoint': issuer+'/authorize',
@@ -355,9 +356,15 @@ def oidc_flow(client, db, monkeypatch):
             return discovery
         monkeypatch.setattr(v1_oidc, '_get_oidc_config', config)
         monkeypatch.setattr(v1_oidc, 'decrypt_secret', lambda value: value)
-        authorization = client.get(f'/api/v1/auth/sso/{name}/authorize', follow_redirects=False)
-        assert authorization.status_code == 307
-        query = parse_qs(urlsplit(authorization.headers['location']).query)
+        if link_client is not None:
+            authorization = link_client.post(f'/api/v1/auth/sso/{name}/link', json={'current_password': PASSWORD_A})
+            assert authorization.status_code == 200, authorization.text
+            target = authorization.json()['authorize_url']
+        else:
+            authorization = client.get(f'/api/v1/auth/sso/{name}/authorize', follow_redirects=False)
+            assert authorization.status_code == 307
+            target = authorization.headers['location']
+        query = parse_qs(urlsplit(target).query)
         state = query['state'][0]
         login = db.get(OIDCLogin, state)
         calls = []

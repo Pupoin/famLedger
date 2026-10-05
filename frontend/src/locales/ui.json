@@ -10434,5 +10434,113 @@
   "全选": {
     "zh": "全选",
     "en": "Select all"
+  },
+  "关联已有账户": {
+    "zh": "关联已有账户",
+    "en": "Link an existing account"
+  },
+  "关联请求已失效，请重新使用 OIDC 登录": {
+    "zh": "关联请求已失效，请重新使用 OIDC 登录",
+    "en": "This linking request has expired. Start OIDC sign-in again."
+  },
+  "无法加载关联请求": {
+    "zh": "无法加载关联请求",
+    "en": "Unable to load the linking request"
+  },
+  "关联失败，请重试": {
+    "zh": "关联失败，请重试",
+    "en": "Linking failed. Please try again."
+  },
+  "正在确认关联请求…": {
+    "zh": "正在确认关联请求…",
+    "en": "Checking the linking request…"
+  },
+  "确认将 {p0} 登录关联到本地账户 {p1}。": {
+    "zh": "确认将 {p0} 登录关联到本地账户 {p1}。",
+    "en": "Link {p0} sign-in to the local account {p1}."
+  },
+  "首次关联需确认本地密码，之后可直接使用单点登录。": {
+    "zh": "首次关联需确认本地密码，之后可直接使用单点登录。",
+    "en": "Confirm your local password once. Future sign-ins can use SSO directly."
+  },
+  "本地账户密码": {
+    "zh": "本地账户密码",
+    "en": "Local account password"
+  },
+  "正在关联…": {
+    "zh": "正在关联…",
+    "en": "Linking…"
+  },
+  "确认关联并登录": {
+    "zh": "确认关联并登录",
+    "en": "Link and sign in"
+  },
+  "单点登录关联": {
+    "zh": "单点登录关联",
+    "en": "Single sign-on links"
+  },
+  "无法加载单点登录关联": {
+    "zh": "无法加载单点登录关联",
+    "en": "Unable to load single sign-on links"
+  },
+  "单点登录账户已关联": {
+    "zh": "单点登录账户已关联",
+    "en": "Single sign-on account linked"
+  },
+  "关联后可使用第三方账号登录现有账户，保留原有数据。": {
+    "zh": "关联后可使用第三方账号登录现有账户，保留原有数据。",
+    "en": "Use an external account to sign in to your existing account and keep your data."
+  },
+  "管理员尚未配置可用的单点登录服务。": {
+    "zh": "管理员尚未配置可用的单点登录服务。",
+    "en": "No single sign-on services are available yet."
+  },
+  "已关联": {
+    "zh": "已关联",
+    "en": "Linked"
+  },
+  "关联": {
+    "zh": "关联",
+    "en": "Link"
+  },
+  "关联 {p0}": {
+    "zh": "关联 {p0}",
+    "en": "Link {p0}"
+  },
+  "接下来将跳转到认证服务验证第三方账号。": {
+    "zh": "接下来将跳转到认证服务验证第三方账号。",
+    "en": "Continue to the identity provider to verify your external account."
+  },
+  "继续关联": {
+    "zh": "继续关联",
+    "en": "Continue linking"
+  },
+  "本地账户密码不正确": {
+    "zh": "本地账户密码不正确",
+    "en": "The local account password is incorrect."
+  },
+  "绑定会话已失效，请登录原账户后重试": {
+    "zh": "绑定会话已失效，请登录原账户后重试",
+    "en": "The linking session has expired. Sign in to the original account and try again."
+  },
+  "该外部身份已关联其他账户，不能重复绑定": {
+    "zh": "该外部身份已关联其他账户，不能重复绑定",
+    "en": "This external identity is already linked to another account."
+  },
+  "邮箱对应多个本地账户，请先登录原账户后在个人设置中关联": {
+    "zh": "邮箱对应多个本地账户，请先登录原账户后在个人设置中关联",
+    "en": "This email matches multiple local accounts. Sign in to the original account and link it in your profile."
+  },
+  "该账户没有本地密码，请使用已有登录方式登录后在个人设置中关联": {
+    "zh": "该账户没有本地密码，请使用已有登录方式登录后在个人设置中关联",
+    "en": "This account has no local password. Use its existing sign-in method, then link it in your profile."
+  },
+  "正在加载…": {
+    "zh": "正在加载…",
+    "en": "Loading…"
+  },
+  "返回登录": {
+    "zh": "返回登录",
+    "en": "Back to sign in"
   }
 }

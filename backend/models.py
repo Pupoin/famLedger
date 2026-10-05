@@ -92,6 +92,10 @@ class OIDCLogin(SQLModel, table=True):
     code_verifier: str
     expires_at: int
     consumed: bool = Field(default=False)
+    link_user_id: Optional[uuid.UUID] = Field(default=None)
+    link_uid: Optional[str] = Field(default=None, max_length=255)
+    link_session_id: Optional[str] = Field(default=None, max_length=64)
+    link_session_version: Optional[int] = Field(default=None)
 
 
 class ExchangeRateSnapshot(SQLModel, table=True):

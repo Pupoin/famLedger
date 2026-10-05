@@ -17,6 +17,7 @@ import { formatDateTime } from '../utils/dates';
 import Avatar from '../components/Avatar';
 import AccountSharingModal from '../components/AccountSharingModal';
 import BulkAccountSettingsModal from '../components/BulkAccountSettingsModal';
+import OidcAccountLinks from '../components/OidcAccountLinks';
 import {
   EditAccountModal,
   TransferOwnershipModal,
@@ -3412,6 +3413,7 @@ export default function Settings() {
                   </button>
                 </div>
               </form>
+              <OidcAccountLinks />
             </div>
           )}
 
