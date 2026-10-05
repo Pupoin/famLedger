@@ -1,6 +1,7 @@
 import { tx, useLocale } from "../localization.js";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { CircleAlert, LockKeyhole, LogIn, UserRound } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { API_BASE } from "../config";
 import config from "../config";
@@ -60,7 +61,7 @@ export default function Login() {
 
           {error && (
             <div className="bg-error-container/20 border border-error/20 text-error px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
-              <span className="material-symbols-outlined text-sm">error</span>
+              <CircleAlert className="w-4 h-4 shrink-0" aria-hidden="true" />
               {tx(error)}
             </div>
           )}
@@ -69,15 +70,13 @@ export default function Login() {
             <div className="flex flex-col">
               <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Username")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
-                <span className="material-symbols-outlined text-primary/60 mr-3">
-                  person
-                </span>
+                <UserRound className="w-6 h-6 shrink-0 text-primary/60 mr-3" aria-hidden="true" />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={tx("Enter your username")}
-                  className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
+                  className="bg-transparent border-none focus:ring-0 focus:outline-none w-full min-w-0 font-medium text-on-surface"
                   autoFocus
                   required
                 />
@@ -87,15 +86,13 @@ export default function Login() {
             <div className="flex flex-col">
               <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold mb-2 ml-1">{tx("Password")}</label>
               <div className="bg-surface-container-high rounded-xl px-4 py-3 flex items-center focus-within:bg-surface-container-lowest transition-colors">
-                <span className="material-symbols-outlined text-primary/60 mr-3">
-                  lock
-                </span>
+                <LockKeyhole className="w-6 h-6 shrink-0 text-primary/60 mr-3" aria-hidden="true" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={tx("Enter your password")}
-                  className="bg-transparent border-none focus:ring-0 focus:outline-none w-full font-medium text-on-surface"
+                  className="bg-transparent border-none focus:ring-0 focus:outline-none w-full min-w-0 font-medium text-on-surface"
                   required
                 />
               </div>
@@ -106,7 +103,7 @@ export default function Login() {
               disabled={submitting}
               className="w-full h-14 rounded-full bg-gradient-to-r from-primary to-primary-dim text-on-primary font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60 mt-2"
             >
-              <span className="material-symbols-outlined">login</span>
+              <LogIn className="w-6 h-6 shrink-0" aria-hidden="true" />
               {submitting ? tx("Signing in...") : tx("Sign In")}
             </button>
           </form>
