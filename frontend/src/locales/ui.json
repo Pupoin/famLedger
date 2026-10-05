@@ -2895,6 +2895,10 @@
     "zh": "色块面积按商户支出金额占比显示（未扣退款）。",
     "en": "Tile area represents each merchant’s share of spending, before refunds."
   },
+  "方块列示所选时段内各商户的消费支出（未扣退款），面积不表示金额比例。": {
+    "zh": "方块列示所选时段内各商户的消费支出（未扣退款），面积不表示金额比例。",
+    "en": "Tiles show merchant spending before refunds. Tile sizes do not represent spending proportions."
+  },
   "无 (独立主卡)": {
     "zh": "无 (独立主卡)",
     "en": "None (independent main card)"
