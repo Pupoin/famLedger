@@ -85,10 +85,10 @@ export default function SureMerchantSpending({
                 title={`${item.is_other ? tx(item.name) : item.name} · ${formatAmount(item.amount)}`}
                 aria-label={`${item.is_other ? tx(item.name) : item.name} · ${formatAmount(item.amount)}`}
               >
-                <p className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-tight">
+                <p className="text-[11px] sm:text-xs font-semibold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-tight">
                   {item.is_other ? tx(item.name) : item.name}
                 </p>
-                <p className="text-xs sm:text-sm font-bold font-mono text-zinc-600 dark:text-zinc-300 mt-1 truncate">
+                <p className="text-[11px] sm:text-xs font-bold font-mono text-zinc-600 dark:text-zinc-300 mt-1 truncate">
                   {formatAmount(item.amount)}
                 </p>
               </Link>
