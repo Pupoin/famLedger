@@ -111,18 +111,22 @@ export const renderAccountDisplayName = (acc, isChild = false) => {
 };
 
 /**
- * 将账户列表按“主账户 -> 附属卡紧随其后”排序组织，返回带有 isChildInTree 属性的列表
+ * 按名称排序，同一主账户的附属卡紧随其后，并保留层级标记。
  */
-export const organizeAccountsWithSubAccounts = (accList) => {
+export const organizeAccountsWithSubAccounts = (accList, locale = 'zh-CN') => {
   if (!accList || accList.length === 0) return [];
+  const collator = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' });
+  const sortedAccounts = [...accList].sort((a, b) =>
+    collator.compare(formatAccountDisplayName(a), formatAccountDisplayName(b)) ||
+    String(a.id).localeCompare(String(b.id)));
   const idMap = new Map();
-  accList.forEach((a) => idMap.set(a.id, a));
+  sortedAccounts.forEach((a) => idMap.set(a.id, a));
 
   const result = [];
   const visited = new Set();
 
   // 1. 遍历所有独立主账户（parent_account_id 为空，或者其父账户不在当前列表分组中）
-  accList.forEach((acc) => {
+  sortedAccounts.forEach((acc) => {
     const parentInList = acc.parent_account_id && idMap.has(acc.parent_account_id);
     if (!parentInList) {
       // 主卡不在当前分组时平级显示，不能用缩进暗示属于前一张无关账户。
@@ -130,7 +134,7 @@ export const organizeAccountsWithSubAccounts = (accList) => {
       visited.add(acc.id);
 
       // 紧接着找出所有挂在它下面的附属卡
-      accList.forEach((child) => {
+      sortedAccounts.forEach((child) => {
         if (child.parent_account_id === acc.id) {
           result.push({ ...child, isChildInTree: true });
           visited.add(child.id);
@@ -140,7 +144,7 @@ export const organizeAccountsWithSubAccounts = (accList) => {
   });
 
   // 2. 兜底未包含的（防止意外遗漏）
-  accList.forEach((acc) => {
+  sortedAccounts.forEach((acc) => {
     if (!visited.has(acc.id)) {
       result.push({ ...acc, isChildInTree: false });
     }
@@ -156,7 +160,7 @@ export default function AccountsPanel({
   onClose,
   isMobileDrawer = false,
 }) {
-  useLocale();
+  const locale = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -449,6 +453,10 @@ export default function AccountsPanel({
   // Compute Hierarchical Tree based on groupBy
   const groupedTree = useMemo(() => {
     const defaultOwner = user?.displayName || user?.username || '当前用户';
+    const collator = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' });
+    const sortGroups = (groups, translateTitles = false) => groups.sort((a, b) =>
+      collator.compare(translateTitles ? tx(a.title) : a.title, translateTitles ? tx(b.title) : b.title) ||
+      String(a.id).localeCompare(String(b.id)));
 
     const groupBalance = (a) => Number(a.report_own_balance ?? a.report_balance ?? a.balance ?? 0);
 
@@ -488,14 +496,14 @@ export default function AccountsPanel({
         }
       });
 
-      return Object.values(groups).map((g) => ({
+      return sortGroups(Object.values(groups).map((g) => ({
         ...g,
-        subgroups: Object.values(g.subgroups),
-      }));
+        subgroups: sortGroups(Object.values(g.subgroups)),
+      })));
     }
 
     if (groupBy === 'owner_by_type') {
-      // Group by Owner -> 9 Account Types
+      // Group by Owner -> Account Types
       const groups = {};
       filteredAccounts.forEach((acc) => {
         const owner = acc.owner || defaultOwner;
@@ -530,31 +538,15 @@ export default function AccountsPanel({
         }
       });
 
-      return Object.values(groups).map((g) => ({
+      return sortGroups(Object.values(groups).map((g) => ({
         ...g,
-        subgroups: Object.values(g.subgroups),
-      }));
+        subgroups: sortGroups(Object.values(g.subgroups), true),
+      })));
     }
 
     if (groupBy === 'by_type') {
-      // Group by 9 official account types
+      // Group by account type, ordered by its displayed label.
       const groups = {};
-      const typeOrder =
-        activeTab === 'asset'
-          ? ['现金', '借据', '投资', '加密资产', '房产', '车辆', '其他资产']
-          : activeTab === 'liability'
-          ? ['信用卡', '贷款', '其他负债']
-          : ['现金', '借据', '投资', '加密资产', '房产', '车辆', '其他资产', '信用卡', '贷款', '其他负债'];
-
-      typeOrder.forEach((t) => {
-        groups[t] = {
-          id: `type-${t}`,
-          title: t,
-          accounts: [],
-          total: 0,
-          changePercent: 0.0,
-        };
-      });
 
       filteredAccounts.forEach((acc) => {
         const typeLabel = normalizeAccountType(acc);
@@ -574,7 +566,7 @@ export default function AccountsPanel({
         }
       });
 
-      return Object.values(groups).filter((g) => g.accounts.length > 0);
+      return sortGroups(Object.values(groups), true);
     }
 
     if (groupBy === 'by_institution') {
@@ -597,7 +589,7 @@ export default function AccountsPanel({
           groups[inst].total += (activeTab === 'all' && isLiabilityAccount(acc) ? -1 : 1) * groupBalance(acc);
         }
       });
-      return Object.values(groups);
+      return sortGroups(Object.values(groups));
     }
 
     // Default: by_owner
@@ -619,8 +611,8 @@ export default function AccountsPanel({
         groups[owner].total += (activeTab === 'all' && isLiabilityAccount(acc) ? -1 : 1) * groupBalance(acc);
       }
     });
-    return Object.values(groups);
-  }, [filteredAccounts, groupBy, user, activeTab]);
+    return sortGroups(Object.values(groups));
+  }, [filteredAccounts, groupBy, user, activeTab, locale]);
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 select-none border-r border-zinc-200/80 dark:border-zinc-800">
@@ -961,7 +953,7 @@ export default function AccountsPanel({
                           {/* Subgroup Accounts */}
                           {isSubExpanded && sub.accounts && (
                             <div className="space-y-0.5 pl-3">
-                              {organizeAccountsWithSubAccounts(sub.accounts).map((acc) => {
+                              {organizeAccountsWithSubAccounts(sub.accounts, locale).map((acc) => {
                                 const isCurrent =
                                   selectedAccountId === acc.id ||
                                   location.pathname === `/accounts/${acc.id}` ||
@@ -1069,7 +1061,7 @@ export default function AccountsPanel({
                   ) : (
                     // Flat Accounts inside Group (e.g. by_type or by_institution)
                     group.accounts &&
-                    organizeAccountsWithSubAccounts(group.accounts).map((acc) => {
+                    organizeAccountsWithSubAccounts(group.accounts, locale).map((acc) => {
                       const isCurrent =
                         selectedAccountId === acc.id ||
                         location.pathname === `/accounts/${acc.id}` ||
