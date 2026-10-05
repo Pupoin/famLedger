@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from services.request_validation import CurrencyCode
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select, func, or_
 
 from database import get_session
@@ -20,6 +20,7 @@ from models import (
 from auth import get_current_user_or_token, get_current_user
 from services.card_sharing import primary_owner_can_read
 from services.account_permissions import account_capabilities, can_manage_sharing
+from services.account_types import normalize_account_type, account_classification, change_account_type, financial_classification
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +233,12 @@ def get_account_realtime_balance(
       1. 主卡 (Master Card): 承接全户综合账单，余额 = 全户总消费 - 全户总还款 (对齐银行月度总账单)
       2. 附属卡 (Child Card): 忠实反映副卡自身实际刷卡额 (方便一眼看清副卡花了多少)
     """
+    acc = session.get(Account, account_id)
+    classification = financial_classification(acc) if acc else classification
     raw_bal = _calc_raw_account_balance(session, account_id, classification, stored_balance)
 
     # 仅负债类/信用卡参与主副卡统筹逻辑
-    acc = session.get(Account, account_id)
-    if not acc or getattr(acc, "classification", classification) != "liability":
+    if not acc or classification != "liability":
         return raw_bal
 
     parent_id = getattr(acc, "parent_account_id", None)
@@ -283,6 +285,11 @@ class AccountCreate(BaseModel):
     icon: Optional[str] = None
     parent_account_id: Optional[str] = None
 
+    @field_validator('account_type', mode='before')
+    @classmethod
+    def validate_account_type(cls, value):
+        return normalize_account_type(value)
+
 
 class AccountUpdate(BaseModel):
     historical_settlement_policy: Optional[str] = None
@@ -296,6 +303,11 @@ class AccountUpdate(BaseModel):
     icon: Optional[str] = None
     is_archived: Optional[bool] = None
     parent_account_id: Optional[str] = None
+
+    @field_validator('account_type', mode='before')
+    @classmethod
+    def validate_account_type(cls, value):
+        return normalize_account_type(value) if value is not None else None
 
 
 class AccountShareMemberIn(BaseModel):
@@ -329,6 +341,11 @@ class BulkAccountSettingsUpdate(BaseModel):
         "credit_card", "loan", "other_liability", "checking", "savings", "other",
     ]] = None
     members: Optional[List[BulkAccountShareUpdate]] = Field(default=None, max_length=200)
+
+    @field_validator('account_type', mode='before')
+    @classmethod
+    def validate_account_type(cls, value):
+        return normalize_account_type(value) if value is not None else None
 
 
 def _apply_account_share_updates(session, account, members):
@@ -421,10 +438,7 @@ def update_bulk_account_settings(
             if change_institution:
                 account.institution_name = (payload.institution_name or "").strip() or None
             if payload.account_type:
-                account.account_type = payload.account_type
-                account.classification = "liability" if payload.account_type in (
-                    "credit_card", "loan", "other_liability",
-                ) else "asset"
+                change_account_type(session, account, payload.account_type)
                 if payload.account_type != "credit_card":
                     account.parent_account_id = None
             if change_information:
@@ -542,20 +556,20 @@ def list_accounts(
         shared_with_count = len(acc_shares)
 
         # 依据该账户所有交易明细动态计算并严格反映实时余额，只读接口不执行数据库写回
-        realtime_bal = get_account_realtime_balance(session, a.id, getattr(a, "classification", "asset"), a.balance, current_user=current_user, cache_independently=True)
+        realtime_bal = get_account_realtime_balance(session, a.id, financial_classification(a), a.balance, current_user=current_user, cache_independently=True)
 
         items.append({
             "id": str(a.id),
             "name": a.name,
             "mask": mask,
             "account_type": a.account_type,
-            "classification": getattr(a, "classification", "asset"),
+            "classification": financial_classification(a),
             "currency": a.currency,
             "institution_name": a.institution_name,
             "external_identifier": a.external_identifier,
             "balance": str(realtime_bal),
             "report_balance": str(report_money.amount(realtime_bal, a.currency)) if report_money else str(realtime_bal),
-            "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(_calc_raw_account_balance(session, a.id, a.classification, a.balance)),
+            "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(_calc_raw_account_balance(session, a.id, financial_classification(a), a.balance)),
             "report_included": a.id in report_ids if current_user else not a.exclude_from_reports,
             "report_currency": report_money.currency if report_money else a.currency,
             "owner": owner_name,
@@ -860,7 +874,7 @@ def create_account(
         owner = session.exec(select(User).where(User.family_id == family.id, User.is_active == True)).first()
         owner_id = owner.id if owner else None
 
-    classification = "liability" if (data.account_type or "").lower() in ("credit_card", "credit", "loan", "mortgage", "other_liability", "信用卡", "贷款", "其他负债") else "asset"
+    classification = account_classification(data.account_type)
     p_id = None
     if data.parent_account_id:
         if (data.account_type or "").lower() not in ("credit_card", "信用卡"):
@@ -1001,7 +1015,7 @@ def get_account_detail(
     accessible_acc_ids = get_user_visible_account_ids(session, current_user, family_id=account.family_id)
 
     target_acc_ids = [account_id]
-    if getattr(account, "classification", "asset") == "liability":
+    if financial_classification(account) == "liability":
         children = session.exec(select(Account.id).where(Account.parent_account_id == account_id)).all()
         for cid in children:
             if cid in accessible_acc_ids:
@@ -1026,9 +1040,9 @@ def get_account_detail(
         displayed.append(txn)
     txns = displayed
 
-    realtime_bal = get_account_realtime_balance(session, account.id, getattr(account, "classification", "asset"), account.balance, current_user=current_user, cache_independently=True)
+    realtime_bal = get_account_realtime_balance(session, account.id, financial_classification(account), account.balance, current_user=current_user, cache_independently=True)
     current_balance = float(realtime_bal)
-    is_liability = getattr(account, "classification", "asset") == "liability"
+    is_liability = financial_classification(account) == "liability"
 
     # 预加载 transfer 记录，用于判断每笔 transfer 的方向
     from models import Transfer as TransferModel
@@ -1162,13 +1176,13 @@ def get_account_detail(
             "name": account.name,
             "mask": mask,
             "account_type": account.account_type,
-            "classification": getattr(account, "classification", "asset"),
+            "classification": financial_classification(account),
             "institution_name": account.institution_name,
             "external_identifier": account.external_identifier,
             "currency": account.currency or "CNY",
             "balance": str(realtime_bal),
-            "own_balance": str(_calc_raw_account_balance(session, account.id, account.classification, account.balance)),
-            "subcard_settlement_balance": str(realtime_bal - _calc_raw_account_balance(session, account.id, account.classification, account.balance)),
+            "own_balance": str(_calc_raw_account_balance(session, account.id, financial_classification(account), account.balance)),
+            "subcard_settlement_balance": str(realtime_bal - _calc_raw_account_balance(session, account.id, financial_classification(account), account.balance)),
             "owner": owner_name,
             "owner_id": str(account.owner_id) if account.owner_id else None,
             "is_owner": is_owner,
@@ -1242,8 +1256,7 @@ def update_account(
                 raise HTTPException(status_code=400, detail="该账户下仍有关联的附属卡，无法修改为非信用卡类型")
             if account.parent_account_id and data.parent_account_id is None:
                 account.parent_account_id = None
-        account.account_type = new_type
-        account.classification = "liability" if account.account_type.lower() in ("credit_card", "credit", "loan", "mortgage", "other_liability", "信用卡", "贷款", "其他负债") else "asset"
+        change_account_type(session, account, new_type)
     if data.currency is not None:
         account.currency = data.currency.strip()
     if data.parent_account_id is not None:
@@ -1281,7 +1294,7 @@ def update_account(
                 raise HTTPException(status_code=400, detail="无效的父账户ID")
 
     if data.balance is not None:
-        classification = getattr(account, "classification", "asset")
+        classification = financial_classification(account)
         current_realtime = get_account_realtime_balance(session, account.id, classification, account.balance, current_user=current_user)
         target_balance = Decimal(str(data.balance))
         diff = target_balance - current_realtime
@@ -1535,7 +1548,7 @@ def reconcile_balance(
             raise HTTPException(status_code=400, detail="跨币种转账需要明确兑换金额，当前不支持")
         _verify_account_write_permission(session, user_or_ctx, counterparty.id, "转账对账")
 
-    classification = getattr(account, "classification", "asset")
+    classification = financial_classification(account)
     current_balance = get_account_realtime_balance(session, account.id, classification, account.balance, current_user=current_user)
     old_balance = current_balance
     new_balance = Decimal(str(payload.new_balance if payload.new_balance is not None else old_balance))

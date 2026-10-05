@@ -1,20 +1,9 @@
 import { tx, useLocale } from "../localization.js";
 import React, { useState, useEffect, useLayoutEffect, useRef, useId } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  ChevronDown,
-  Check,
-  Wallet,
-  HandCoins,
-  TrendingUp,
-  Bitcoin,
-  Building2,
-  Car,
-  Gem,
-  CreditCard,
-  Landmark,
-  BadgePercent,
-} from 'lucide-react';
+import { ChevronDown, Check } from 'lucide-react';
+import { ACCOUNT_TYPE_CONFIGS } from '../utils/accountIcons';
+import { normalizeAccountTypeKey, getAccountClassification } from '../utils/accountTypes';
 
 /**
  * 预定义的账户类型完整配置表（区分资产类与负债类）
@@ -27,7 +16,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '现金 (活期 / 借记卡 / 储蓄)',
     shortLabel: '现金',
-    Icon: Wallet,
     color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200/60',
   },
   {
@@ -36,7 +24,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '借据 (借出款 / 应收款项)',
     shortLabel: '借据',
-    Icon: HandCoins,
     color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 border-amber-200/60',
   },
   {
@@ -45,7 +32,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '投资 (股票 / 基金 / 证券理财)',
     shortLabel: '投资',
-    Icon: TrendingUp,
     color: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border-blue-200/60',
   },
   {
@@ -54,7 +40,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '加密资产 (数字货币 / Web3)',
     shortLabel: '加密资产',
-    Icon: Bitcoin,
     color: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/60 border-orange-200/60',
   },
   {
@@ -63,7 +48,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '房产 (住宅 / 商业不动产)',
     shortLabel: '房产',
-    Icon: Building2,
     color: 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200/60',
   },
   {
@@ -72,7 +56,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '车辆 (汽车 / 机动车)',
     shortLabel: '车辆',
-    Icon: Car,
     color: 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/60 border-cyan-200/60',
   },
   {
@@ -81,7 +64,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '资产类账户',
     label: '其他资产 (贵金属 / 收藏品等)',
     shortLabel: '其他资产',
-    Icon: Gem,
     color: 'text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/60 border-teal-200/60',
   },
 
@@ -92,7 +74,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '负债类账户',
     label: '信用卡 (信用卡 / 花呗 / 白条)',
     shortLabel: '信用卡',
-    Icon: CreditCard,
     color: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 border-purple-200/60',
   },
   {
@@ -101,7 +82,6 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '负债类账户',
     label: '贷款 (房贷 / 车贷 / 信用贷)',
     shortLabel: '贷款',
-    Icon: Landmark,
     color: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border-rose-200/60',
   },
   {
@@ -110,10 +90,13 @@ export const ACCOUNT_TYPE_OPTIONS = [
     groupLabel: '负债类账户',
     label: '其他负债 (借款 / 欠款等)',
     shortLabel: '其他负债',
-    Icon: BadgePercent,
     color: 'text-stone-600 dark:text-stone-400 bg-stone-100 dark:bg-stone-800 border-stone-200',
   },
-];
+].map(option => ({
+  ...option,
+  group: getAccountClassification(option.value),
+  Icon: ACCOUNT_TYPE_CONFIGS[option.value].icon,
+}));
 
 /**
  * 针对手机端与桌面端统一设计的账户类型高质感自定义下拉组件
@@ -141,7 +124,7 @@ export default function AccountTypeSelectDropdown({
   const menuId = useId();
 
   const selectedOption =
-    ACCOUNT_TYPE_OPTIONS.find((opt) => opt.value === value) || ACCOUNT_TYPE_OPTIONS[0];
+    ACCOUNT_TYPE_OPTIONS.find((opt) => opt.value === normalizeAccountTypeKey(value)) || ACCOUNT_TYPE_OPTIONS[0];
 
   const assetOptions = ACCOUNT_TYPE_OPTIONS.filter((opt) => opt.group === 'asset');
   const liabilityOptions = ACCOUNT_TYPE_OPTIONS.filter((opt) => opt.group === 'liability');
@@ -227,7 +210,7 @@ export default function AccountTypeSelectDropdown({
   };
 
   const renderOptionItem = (opt) => {
-    const isSelected = opt.value === value;
+    const isSelected = opt.value === selectedOption.value;
     const Icon = opt.Icon;
     return (
       <button
@@ -265,7 +248,7 @@ export default function AccountTypeSelectDropdown({
       {/* 隐藏原生 select 保持兼容 */}
       <select
         name={name}
-        value={value}
+        value={selectedOption.value}
         onChange={onChange}
         className="sr-only"
         tabIndex={-1}

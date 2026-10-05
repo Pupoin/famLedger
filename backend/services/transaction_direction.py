@@ -1,5 +1,6 @@
 """One interpretation of the direction of a stored transaction."""
 from models import Transfer
+from services.account_types import financial_classification
 
 
 def transaction_direction(txn, session=None, account=None):
@@ -23,7 +24,7 @@ def transaction_direction(txn, session=None, account=None):
         return "outflow"
     text = f"{txn.narration or ''} {txn.notes or ''}".lower()
     incoming = ["转入", "收到", "存入", "收款", "入账", "汇入", "转自", "inflow", "transfer from"]
-    if getattr(account, "classification", None) == "liability":
+    if financial_classification(account) == "liability":
         incoming += ["还款", "扣缴", "偿还", "还清", "冲减", "结清"]
     if getattr(account, "account_type", None) == "iou":
         incoming += ["借据", "借出", "出具", "放款"]

@@ -12,6 +12,7 @@ import uuid
 from sqlmodel import Session, select
 
 from models import Account, Category, Family, Transaction
+from services.account_types import financial_classification
 
 OTHER_CATEGORY_DEF = {"id": "cat_other", "name": "其他", "icon": "📦", "color": "#f97316"}
 
@@ -160,7 +161,7 @@ def is_genuine_income(t: Transaction, account_map: Dict[uuid.UUID, Account]) -> 
     if t.excluded_from_stats:
         return False
     acc = account_map.get(t.account_id)
-    if acc and getattr(acc, "classification", "asset") == "liability":
+    if acc and financial_classification(acc) == "liability":
         return False
     return True
 
@@ -320,5 +321,5 @@ def get_report_account_balances(session, accounts, money):
             balance = master_contribution(session, account, parent)
             values[account.id] = float(money.amount(balance, parent.currency))
         else:
-            values[account.id] = float(money.amount(_calc_raw_account_balance(session, account.id, account.classification, account.balance), account.currency))
+            values[account.id] = float(money.amount(_calc_raw_account_balance(session, account.id, financial_classification(account), account.balance), account.currency))
     return values

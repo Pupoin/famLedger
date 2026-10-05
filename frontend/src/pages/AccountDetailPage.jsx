@@ -26,6 +26,7 @@ import ReimbursementBadge from '../components/ReimbursementBadge';
 import ScheduledPlans from '../components/ScheduledPlans';
 import { formatDateTime } from '../utils/dates';
 import { getAccountTypeConfig, getTransactionInitialBadge } from '../utils/accountIcons';
+import { isLiabilityAccount } from '../utils/accountTypes';
 
 export default function AccountDetailPage() {
   useLocale();
@@ -319,10 +320,7 @@ export default function AccountDetailPage() {
     );
   }
 
-  const isLiability =
-    account.classification === 'liability' ||
-    account.account_type === 'credit_card' ||
-    account.account_type === 'loan';
+  const isLiability = isLiabilityAccount(account);
 
   const changePct = metrics?.change_percent || 0.0;
   const isPositiveChange = changePct >= 0;

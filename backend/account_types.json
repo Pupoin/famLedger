@@ -1,0 +1,14 @@
+{
+  "cash": {"display_type": "cash", "classification": "asset", "aliases": ["cash", "现金", "借记卡"]},
+  "checking": {"display_type": "cash", "classification": "asset", "aliases": ["checking", "活期"]},
+  "savings": {"display_type": "cash", "classification": "asset", "aliases": ["savings", "储蓄", "储蓄卡"]},
+  "iou": {"display_type": "iou", "classification": "asset", "aliases": ["iou", "receivable", "loan_receivable", "借据", "借出款", "借出", "借条", "欠条"]},
+  "investment": {"display_type": "investment", "classification": "asset", "aliases": ["investment", "brokerage", "mutual_fund", "stock", "投资", "投资理财", "证券", "理财", "基金", "股票"]},
+  "crypto": {"display_type": "crypto", "classification": "asset", "aliases": ["crypto", "cryptocurrency", "btc", "eth", "加密资产", "数字货币", "加密"]},
+  "real_estate": {"display_type": "real_estate", "classification": "asset", "aliases": ["real_estate", "property", "house", "房产", "不动产", "房屋"]},
+  "vehicle": {"display_type": "vehicle", "classification": "asset", "aliases": ["vehicle", "car", "车辆", "汽车", "机动车"]},
+  "other_asset": {"display_type": "other_asset", "classification": "asset", "aliases": ["other_asset", "other", "其他", "其他资产"]},
+  "credit_card": {"display_type": "credit_card", "classification": "liability", "aliases": ["credit_card", "credit", "信用卡", "贷记卡", "花呗", "白条"]},
+  "loan": {"display_type": "loan", "classification": "liability", "aliases": ["loan", "mortgage", "贷款", "抵押贷款", "借款", "微粒贷", "借呗"]},
+  "other_liability": {"display_type": "other_liability", "classification": "liability", "aliases": ["other_liability", "其他负债"]}
+}

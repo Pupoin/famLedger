@@ -6,6 +6,7 @@ from sqlmodel import select, or_
 
 from models import Account, AccountShare, Transaction
 from services.transaction_direction import transaction_direction
+from services.account_types import financial_classification
 
 
 def visible_balance_accounts(session, user, owner_filter=None):
@@ -72,10 +73,10 @@ def ledger_net_worth_history(session, accounts, report_money, periods):
                     balance += amount if transaction_direction(row, session, account) == 'inflow' else -amount
                 elif row.transaction_type == 'adjustment':
                     decrease = (row.extra or {}).get('direction') == 'decrease'
-                    positive = decrease if account.classification == 'liability' else not decrease
+                    positive = decrease if financial_classification(account) == 'liability' else not decrease
                     balance += amount if positive else -amount
             if not history and account.created_at.date() <= cutoff:
-                balance = account.balance * (-1 if account.classification == 'liability' else 1)
+                balance = account.balance * (-1 if financial_classification(account) == 'liability' else 1)
             total += report_money.amount(balance, currency, cutoff)
         points.append({'date': label, 'as_of': cutoff.isoformat(), 'value': round(float(total), 2)})
     return points

@@ -8,6 +8,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
+COPY backend/account_types.json /app/backend/account_types.json
 RUN npm run build
 
 # Stage 2: backend + the built frontend it serves

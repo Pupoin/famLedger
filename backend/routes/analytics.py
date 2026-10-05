@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from database import get_session
 from auth import get_current_user_or_token
 from models import User
+from services.account_types import account_type_is, financial_classification
 
 router = APIRouter()
 
@@ -247,12 +248,12 @@ def get_comprehensive_report(
             "icon": (a.institution_name or a.name or "银")[0],
         }
 
-        if a.classification == "liability":
+        if financial_classification(a) == "liability":
             if a.account_type.lower() in ("credit_card", "credit", "信用卡"):
                 credit_accounts.append(acc_obj)
             else:
                 loan_accounts.append(acc_obj)
-        elif a.account_type in ("investment", "brokerage", "mutual_fund") or "理财" in a.name or "证券" in a.name or "基金" in a.name or "投资" in a.name:
+        elif account_type_is(a.account_type, 'investment'):
             investment_accounts.append(acc_obj)
         else:
             cash_accounts.append(acc_obj)

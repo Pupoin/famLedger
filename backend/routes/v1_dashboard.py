@@ -432,6 +432,7 @@ def get_dashboard_summary(
     # Balance Sheet from DB accounts with real-time transaction balance verification
     from services.stats_engine import get_report_account_balances
     from services.balance_sheet import visible_balance_accounts
+    from services.account_types import financial_classification
     acc_list = visible_balance_accounts(session, user_or_ctx if isinstance(user_or_ctx, str)
                                         and user_or_ctx.startswith('service:') else user_db,
                                         target_user_obj.id if target_user_obj else None)
@@ -451,15 +452,15 @@ def get_dashboard_summary(
             "name": a.name,
             "mask": mask,
             "account_type": a.account_type,
-            "classification": a.classification,
+            "classification": financial_classification(a),
             "institution_name": a.institution_name,
             "owner": user_map.get(a.owner_id, display_name or "当前用户"),
             "balance": round(bal, 2),
             "weight": weight,
         }
 
-    asset_accs = [a for a in acc_list if a.classification == "asset"]
-    liab_accs = [a for a in acc_list if a.classification == "liability"]
+    asset_accs = [a for a in acc_list if financial_classification(a) == "asset"]
+    liab_accs = [a for a in acc_list if financial_classification(a) == "liability"]
 
     # 报表只累计各参与账户自身活动；卡片详情的合并账单不参与重复累加。
     total_assets = round(sum(realtime_map.get(a.id, float(a.balance or 0)) for a in asset_accs), 2)
@@ -476,6 +477,7 @@ def get_dashboard_summary(
         "其他": "#8b5cf6",
     }
     TYPE_NAMES = {
+        "cash": "活期储蓄",
         "checking": "活期储蓄",
         "savings": "活期储蓄",
         "iou": "借据",
@@ -483,8 +485,13 @@ def get_dashboard_summary(
         "loan_receivable": "借据",
         "借据": "借据",
         "investment": "投资理财",
+        "crypto": "加密资产",
+        "real_estate": "房产",
+        "vehicle": "车辆",
+        "other_asset": "其他资产",
         "credit_card": "信用卡",
         "loan": "贷款",
+        "other_liability": "其他负债",
         "other": "其他",
     }
     INST_COLORS = {
@@ -561,15 +568,12 @@ def get_dashboard_summary(
     }
 
     # Real investment calculation based on visible active asset accounts
-    INVESTMENT_KEYWORDS = ("理财", "证券", "基金", "投资", "股票", "朝朝宝", "余额宝")
+    from services.account_types import account_type_is, financial_classification
     total_investment = round(
         sum(
             realtime_map.get(a.id, float(a.balance or 0))
             for a in asset_accs
-            if (
-                a.account_type in ("investment", "brokerage", "mutual_fund", "投资理财")
-                or any(k in (a.name or "") for k in INVESTMENT_KEYWORDS)
-            )
+            if account_type_is(a.account_type, 'investment')
         ),
         2,
     )

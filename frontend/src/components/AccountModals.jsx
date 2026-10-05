@@ -9,6 +9,7 @@ import { toLocalISODate } from '../utils/dates';
 import AccountSelectDropdown from './AccountSelectDropdown';
 import AccountTypeSelectDropdown from './AccountTypeSelectDropdown';
 import ExternalIdentifierField from './ExternalIdentifierField';
+import { normalizeAccountTypeKey } from '../utils/accountTypes';
 
 /**
  * 1. 编辑账户基本信息弹窗
@@ -34,21 +35,6 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
   const [candidateParents, setCandidateParents] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const normalizeAccountTypeForSelect = (val) => {
-    const t = String(val || '').toLowerCase();
-    if (['cash', 'checking', 'savings', '现金'].includes(t)) return 'cash';
-    if (['iou', 'receivable', 'loan_receivable', '借据', '借出款'].includes(t)) return 'iou';
-    if (['investment', 'brokerage', 'mutual_fund', 'stock', '投资'].includes(t)) return 'investment';
-    if (['crypto', 'cryptocurrency', '加密资产'].includes(t)) return 'crypto';
-    if (['real_estate', 'property', 'house', '房产'].includes(t)) return 'real_estate';
-    if (['vehicle', 'car', '车辆'].includes(t)) return 'vehicle';
-    if (['other_asset', '其他资产'].includes(t)) return 'other_asset';
-    if (['credit_card', 'credit', '信用卡'].includes(t)) return 'credit_card';
-    if (['loan', 'mortgage', '贷款'].includes(t)) return 'loan';
-    if (['other_liability', '其他负债'].includes(t)) return 'other_liability';
-    return 'cash';
-  };
-
   useEffect(() => {
     let cancelled = false;
     if (account?.can_manage === true && isOpen) {
@@ -56,7 +42,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
       setInstitutionName(account.institution_name || '');
       setExternalIdentifier(account.external_identifier || '');
       externalIdentifierEdited.current = false;
-      setAccountType(normalizeAccountTypeForSelect(account.account_type));
+      setAccountType(normalizeAccountTypeKey(account));
       setAccountTypeEdited(false);
       setCurrency(account.currency || 'CNY');
       setCurrencyEdited(false);

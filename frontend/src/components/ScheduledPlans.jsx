@@ -6,6 +6,7 @@ import { useToast } from '../ToastContext';
 import { useCurrency } from '../CurrencyContext';
 import { toLocalISODate } from '../utils/dates';
 import AccountSelectDropdown from './AccountSelectDropdown';
+import { getAccountClassification } from '../utils/accountTypes';
 
 const methods = {equal_installment:'等额本息',equal_principal:'等额本金',interest_only:'仅还利息',principal_only:'只还本金',custom:'自定义还款'};
 const statuses = {active:'执行中',paused:'已暂停',cancelled:'已取消',planned:'计划中',awaiting:'待确认扣款',posted:'已记账',reconciled:'已关联银行流水',skipped:'已跳过',failed:'执行失败',undone:'已撤销'};
@@ -87,7 +88,7 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
     } catch(error) {showToast(error.message,'error');} finally {setBusy(false);}
   };
   const writable = accounts.filter(a=>a.can_edit===true&&a.is_active!==false);
-  const sourceOptions = form.kind==='loan'?writable.filter(a=>a.classification==='asset'):writable;
+  const sourceOptions = form.kind==='loan'?writable.filter(a=>getAccountClassification(a)==='asset'):writable;
   return createPortal(<div ref={modalRef} className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center sm:p-5" role="dialog" aria-modal="true" aria-label={tx(form.kind==='loan'?'配置还款计划':'定期转账')}>
     <div className="flex flex-col w-full max-w-2xl h-full sm:h-auto sm:max-h-[90dvh] bg-white dark:bg-zinc-900 sm:rounded-2xl shadow-xl">
       <header className="flex justify-between items-center gap-3 p-4 border-b border-zinc-200 dark:border-zinc-800">

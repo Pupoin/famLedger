@@ -182,6 +182,11 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     sync_schema(engine)
     set_db_schema_version(engine)
+    from services.account_types import repair_account_types
+    with Session(engine) as account_session:
+        repaired_accounts = repair_account_types(account_session)
+        if repaired_accounts:
+            logger.info('Normalized %s account types and financial classifications', repaired_accounts)
     from services.rules.defaults import initialize_existing_families
     with Session(engine) as rules_session:
         initialize_existing_families(rules_session)

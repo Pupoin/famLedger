@@ -1,4 +1,12 @@
 {
+  "账户类别变更余额调整": {
+    "zh": "账户类别变更余额调整",
+    "en": "Balance adjustment after changing account type"
+  },
+  "不支持的账户类别，请选择有效的账户类别": {
+    "zh": "不支持的账户类别，请选择有效的账户类别",
+    "en": "Unsupported account type. Select a valid account type."
+  },
   "账户范围": {
     "zh": "账户范围",
     "en": "Account scope"

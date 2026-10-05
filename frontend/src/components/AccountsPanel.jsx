@@ -10,6 +10,7 @@ import { EditAccountModal } from './AccountModals';
 import AccountSelectDropdown from './AccountSelectDropdown';
 import AccountTypeSelectDropdown from './AccountTypeSelectDropdown';
 import ExternalIdentifierField from './ExternalIdentifierField';
+import { normalizeAccountTypeKey, isLiabilityAccount, accountMatchesScope, accountOutsideScope } from '../utils/accountTypes';
 import { useCurrency } from '../CurrencyContext';
 import { formatCurrency } from '../utils/currency';
 const accountCurrencySymbols = {USD:'$', EUR:'€', GBP:'£', CAD:'C$', AUD:'A$', INR:'₹', JPY:'¥', CNY:'¥', CHF:'CHF', SGD:'S$', HKD:'HK$'};
@@ -32,112 +33,8 @@ export const ACCOUNT_TYPES = [
 
 
 
-export const normalizeAccountType = (acc) => {
-  if (!acc) return '现金';
-  const type = String(acc.account_type || '').trim().toLowerCase();
-  const name = String(acc.name || acc.account_name || '').toLowerCase();
-  const classification = String(acc.classification || '').toLowerCase();
-
-  // 1. 信用卡 (credit_card)
-  if (
-    ['信用卡', 'credit_card', 'credit', '贷记卡', '花呗', '白条'].includes(type) ||
-    name.includes('信用卡') ||
-    name.includes('花呗') ||
-    name.includes('白条')
-  ) {
-    return '信用卡';
-  }
-
-  // 2. 贷款 (loan)
-  if (
-    ['贷款', 'loan', 'mortgage', '抵押贷款', '借款', '微粒贷', '借呗'].includes(type) ||
-    name.includes('贷款') ||
-    name.includes('房贷') ||
-    name.includes('车贷') ||
-    name.includes('借呗') ||
-    name.includes('微粒贷')
-  ) {
-    return '贷款';
-  }
-
-  // 3. 其他负债 (other_liability)
-  if (['其他负债', 'other_liability'].includes(type) || (classification === 'liability' && !['credit_card', 'loan'].includes(type))) {
-    return '其他负债';
-  }
-
-  // 3.5 借据 (iou / receivable) - 别人向我借的钱 (资产)
-  if (
-    ['借据', 'iou', 'receivable', 'loan_receivable', '借出款', '借出', '借条', '欠条'].includes(type) ||
-    name.includes('借据') ||
-    name.includes('借出款') ||
-    name.includes('借条') ||
-    name.includes('欠条') ||
-    name.includes('借给')
-  ) {
-    return '借据';
-  }
-
-  // 4. 加密资产 (crypto)
-  if (
-    ['加密资产', 'crypto', 'cryptocurrency', 'btc', 'eth', '数字货币', '加密'].includes(type) ||
-    name.includes('加密') ||
-    name.includes('数字货币') ||
-    name.includes('btc') ||
-    name.includes('eth')
-  ) {
-    return '加密资产';
-  }
-
-  // 5. 房产 (real_estate)
-  if (
-    ['房产', 'real_estate', 'property', 'house', '不动产', '房屋'].includes(type) ||
-    name.includes('房产') ||
-    name.includes('住宅') ||
-    name.includes('公寓')
-  ) {
-    return '房产';
-  }
-
-  // 6. 车辆 (vehicle)
-  if (
-    ['车辆', 'vehicle', 'car', '汽车', '机动车'].includes(type) ||
-    name.includes('车辆') ||
-    name.includes('汽车') ||
-    name.includes('私家车')
-  ) {
-    return '车辆';
-  }
-
-  // 7. 投资 (investment)
-  if (
-    ['投资', 'investment', 'brokerage', 'mutual_fund', 'stock', '证券', '理财', '基金', '股票'].includes(type) ||
-    name.includes('理财') ||
-    name.includes('证券') ||
-    name.includes('基金') ||
-    name.includes('股票') ||
-    name.includes('投资')
-  ) {
-    return '投资';
-  }
-
-  // 8. 其他资产 (other_asset)
-  if (['其他资产', 'other_asset'].includes(type)) {
-    return '其他资产';
-  }
-
-  // 9. 现金 (cash / checking / savings)
-  if (
-    ['现金', 'cash', 'checking', 'savings', '活期', '借记卡', '储蓄', '储蓄卡'].includes(type) ||
-    name.includes('借记卡') ||
-    name.includes('活期') ||
-    name.includes('储蓄') ||
-    name.includes('现金')
-  ) {
-    return '现金';
-  }
-
-  return classification === 'liability' ? '其他负债' : '现金';
-};
+export const normalizeAccountType = (acc) =>
+  ACCOUNT_TYPES.find(type => type.code === normalizeAccountTypeKey(acc))?.label || '其他资产';
 
 export const getAccountCategory = (typeLabel) => {
   if (['信用卡', '贷款', '其他负债'].includes(typeLabel)) return 'liability';
@@ -271,6 +168,11 @@ export default function AccountsPanel({
   const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, accountCurrencySymbols[accounts[0]?.report_currency] || symbol);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'asset' | 'liability'
+  useEffect(() => {
+    if (!loading && accountOutsideScope(accounts, location.pathname, activeTab)) {
+      navigate('/', { replace: true });
+    }
+  }, [accounts, loading, activeTab, location.pathname, navigate]);
   const [accountSearch, setAccountSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [sharingModalAccountId, setSharingModalAccountId] = useState(null);
@@ -303,7 +205,7 @@ export default function AccountsPanel({
 
   // 新建账户时可选的主账户候选集（仅限信用卡主卡，区分我的账户与家人共享账户）
   const parentCandidates = useMemo(() => {
-    return accounts.filter((a) => !a.parent_account_id && (a.account_type === 'credit_card' || a.classification === 'liability'));
+    return accounts.filter((a) => !a.parent_account_id && normalizeAccountTypeKey(a) === 'credit_card');
   }, [accounts]);
   const myParentCandidates = useMemo(() => {
     return parentCandidates.filter((a) => a.is_owner !== false);
@@ -536,7 +438,7 @@ export default function AccountsPanel({
     const query = accountSearch.trim().toLocaleLowerCase();
     return accounts.filter((account) => {
       if (account.hidden_in_sidebar) return false;
-      if (activeTab !== 'all' && (account.classification || getAccountCategory(normalizeAccountType(account))) !== activeTab) return false;
+      if (activeTab !== 'all' && !accountMatchesScope(account, activeTab)) return false;
       if (!query) return true;
       return [account.name, account.account_name, account.institution_name, account.external_identifier,
               account.owner, account.owner_username, account.owner_display_name]
@@ -577,7 +479,7 @@ export default function AccountsPanel({
         }
         groups[owner].subgroups[inst].accounts.push(acc);
         const bal = groupBalance(acc);
-        const isLiab = acc.classification === 'liability';
+        const isLiab = isLiabilityAccount(acc);
         const netBal = activeTab === 'all' && isLiab ? -bal : bal;
         // 按可见账户自身余额计算，主副卡各累计一次。
         {
@@ -619,7 +521,7 @@ export default function AccountsPanel({
         }
         groups[owner].subgroups[typeLabel].accounts.push(acc);
         const bal = groupBalance(acc);
-        const isLiab = acc.classification === 'liability';
+        const isLiab = isLiabilityAccount(acc);
         const netBal = activeTab === 'all' && isLiab ? -bal : bal;
         // 按可见账户自身余额计算，主副卡各累计一次。
         {
@@ -668,7 +570,7 @@ export default function AccountsPanel({
         groups[typeLabel].accounts.push(acc);
         // 按可见账户自身余额计算，主副卡各累计一次。
         {
-          groups[typeLabel].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
+          groups[typeLabel].total += (activeTab === 'all' && isLiabilityAccount(acc) ? -1 : 1) * groupBalance(acc);
         }
       });
 
@@ -692,7 +594,7 @@ export default function AccountsPanel({
         groups[inst].accounts.push(acc);
         // 按可见账户自身余额计算，主副卡各累计一次。
         {
-          groups[inst].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
+          groups[inst].total += (activeTab === 'all' && isLiabilityAccount(acc) ? -1 : 1) * groupBalance(acc);
         }
       });
       return Object.values(groups);
@@ -714,7 +616,7 @@ export default function AccountsPanel({
       groups[owner].accounts.push(acc);
       // 按可见账户自身余额计算，主副卡各累计一次。
       {
-        groups[owner].total += (activeTab === 'all' && acc.classification === 'liability' ? -1 : 1) * groupBalance(acc);
+        groups[owner].total += (activeTab === 'all' && isLiabilityAccount(acc) ? -1 : 1) * groupBalance(acc);
       }
     });
     return Object.values(groups);
@@ -774,7 +676,10 @@ export default function AccountsPanel({
                 key={tItem.id}
                 data-testid={`account-scope-${tItem.id}`}
                 aria-pressed={activeTab === tItem.id}
-                onClick={() => setActiveTab(tItem.id)}
+                onClick={() => {
+                  setActiveTab(tItem.id);
+                  if (accountOutsideScope(accounts, location.pathname, tItem.id)) navigate('/');
+                }}
                 className={`flex-1 min-w-0 py-2 text-[13px] font-semibold rounded-lg text-center transition-colors ${
                   activeTab === tItem.id
                     ? 'bg-blue-600 dark:bg-blue-500 text-white shadow-sm'
@@ -1127,7 +1032,7 @@ export default function AccountsPanel({
                                       )}
                                       {(() => {
                                         const isSubCard = Boolean(acc.parent_account_id) || acc.isChildInTree;
-                                        if (acc.classification === 'liability' && Number(acc.balance) < 0) {
+                                        if (isLiabilityAccount(acc) && Number(acc.balance) < 0) {
                                           return (
                                             <div className="flex items-center gap-1" title={isSubCard ? tx("附属卡溢缴款（已合并入主卡统筹）") : tx("账户溢缴款")}>
                                               <span className={`rounded font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 leading-none ${acc.isChildInTree ? 'text-[10px] px-1 py-0.5' : 'text-[11px] px-1.5 py-0.5'}`}>{tx("溢")}</span>
@@ -1235,7 +1140,7 @@ export default function AccountsPanel({
                             )}
                             {(() => {
                               const isSubCard = Boolean(acc.parent_account_id) || acc.isChildInTree;
-                              if (acc.classification === 'liability' && Number(acc.balance) < 0) {
+                              if (isLiabilityAccount(acc) && Number(acc.balance) < 0) {
                                 return (
                                   <div className="flex items-center gap-1" title={isSubCard ? tx("附属卡溢缴款（已合并入主卡统筹）") : tx("账户溢缴款")}>
                                     <span className={`rounded font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 leading-none ${acc.isChildInTree ? 'text-[10px] px-1 py-0.5' : 'text-[11px] px-1.5 py-0.5'}`}>{tx("溢")}</span>
@@ -1388,7 +1293,6 @@ export default function AccountsPanel({
               <div className="flex items-center gap-2 min-w-0 pr-2">
                 {renderAccountIcon({
                   account_type: form.account_type,
-                  classification: activeTab,
                   parent_account_id: form.parent_account_id,
                 })}
                 <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate">
@@ -1472,7 +1376,7 @@ export default function AccountsPanel({
               </div>
               <div className="text-right shrink-0">
                 <div className={`font-mono text-sm font-semibold ${
-                  actionSheetAccount.classification === 'liability' && Number(actionSheetAccount.balance) < 0
+                  isLiabilityAccount(actionSheetAccount) && Number(actionSheetAccount.balance) < 0
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : 'text-zinc-900 dark:text-zinc-100'
                 }`}>

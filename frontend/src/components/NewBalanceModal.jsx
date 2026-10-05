@@ -12,6 +12,7 @@ import { currencySymbol } from '../utils/currency';
 import { useToast } from '../ToastContext';
 import { toLocalISODate, toLocalISOTime, localToUTCISO } from '../utils/dates';
 import { formatAccountWithEmoji } from '../utils/accountIcons';
+import { isLiabilityAccount, normalizeAccountTypeKey } from '../utils/accountTypes';
 
 export default function NewBalanceModal({
   isOpen,
@@ -73,7 +74,7 @@ export default function NewBalanceModal({
     return allCategories.filter((c) => (c.category_type || 'expense') === targetType);
   }, [allCategories, reason]);
 
-  const isLiab = account?.classification === 'liability';
+  const isLiab = isLiabilityAccount(account);
   const currentBal = parseFloat(account?.balance || 0);
   const targetBal = parseFloat(newBalance || 0);
   const diff = targetBal - currentBal;
@@ -152,11 +153,11 @@ export default function NewBalanceModal({
   };
 
   const accountTypeName =
-    account.account_type === 'credit_card'
+    normalizeAccountTypeKey(account) === 'credit_card'
       ? '信用卡'
-      : account.account_type === 'loan'
+      : normalizeAccountTypeKey(account) === 'loan'
       ? '贷款'
-      : account.classification === 'liability'
+      : isLiab
       ? '负债'
       : '借记卡';
 
