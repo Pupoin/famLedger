@@ -1,4 +1,6 @@
 from services.refund_money import report_offsets, refund_report_summary, spending_refund
+from services.dashboard_scope import dashboard_scope
+from services.merchant_spending import ranked_merchants, MERCHANT_TILE_LIMIT
 import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -13,6 +15,125 @@ from auth import get_current_user_or_token
 from models import Account, Category, Family, PersonalDebt, Transaction, TransactionSplit, User
 
 router = APIRouter(tags=["v1-dashboard"])
+
+
+def _spending_calendar(session, start_date, end_date, activities, account_ids, report_money):
+    """One accounting contract for the selected and expanded calendars."""
+    cal_start = start_date - datetime.timedelta(days=start_date.weekday())
+    cal_end_week = end_date + datetime.timedelta(days=6 - end_date.weekday())
+    daily_spend = {}
+    daily_names = {}
+    for activity in activities:
+        tat, ttype, tname = activity.transacted_at, activity.transaction_type, activity.narration
+        amt = spending_refund(session, activity, account_ids, report_money) if ttype == "refund" else activity.amount
+        if isinstance(tat, datetime.date):
+            tat_str = tat.isoformat()
+        else:
+            tat_str = str(tat)
+        if ttype == "expense":
+            daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) + float(amt)
+            if tname:
+                daily_names.setdefault(tat_str, []).append(tname)
+        elif ttype == "refund":
+            daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) - float(amt)
+            if tname:
+                daily_names.setdefault(tat_str, []).append(f"退款: {tname}")
+
+    # Spending and net refunds share one magnitude scale, including refund-only periods.
+    daily_magnitudes = sorted(abs(value) for value in daily_spend.values() if value != 0)
+    if daily_magnitudes:
+        n = len(daily_magnitudes)
+        q1 = daily_magnitudes[int(n * 0.25)]
+        q2 = daily_magnitudes[int(n * 0.50)]
+        q3 = daily_magnitudes[int(n * 0.75)]
+        thresholds = [q1, q2, q3]
+    else:
+        thresholds = [50.0, 150.0, 300.0]
+
+    # Build weeks array (Monday to Sunday = 7 rows)
+    weeks = []
+    curr = cal_start
+    while curr <= cal_end_week:
+        week_days = []
+        for _ in range(7):
+            d_str = curr.isoformat()
+            if d_str in daily_spend:
+                amt = daily_spend[d_str]
+                is_refund = amt < 0
+                if amt == 0:
+                    level = 0
+                elif abs(amt) <= thresholds[0]:
+                    level = 1
+                elif abs(amt) <= thresholds[1]:
+                    level = 2
+                elif abs(amt) <= thresholds[2]:
+                    level = 3
+                else:
+                    level = 4
+            else:
+                amt = 0.0
+                level = 0
+                is_refund = False
+
+            names_for_day = daily_names.get(d_str, [])
+            desc = names_for_day[0] if names_for_day else ""
+
+            week_days.append({
+                "date": d_str,
+                "amount": round(amt, 2),
+                "level": level,
+                "is_refund": is_refund,
+                "outside": curr > end_date or curr < start_date,
+                "description": desc,
+            })
+            curr += datetime.timedelta(days=1)
+        weeks.append(week_days)
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "weeks": weeks,
+        "period_dates": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+    }
+
+
+@router.get("/v1/dashboard/spending-calendar")
+def get_spending_calendar(
+    start_date: str,
+    end_date: str,
+    minimum_weeks: int = Query(default=1, ge=1, le=520),
+    account_id: Optional[uuid.UUID] = Query(default=None),
+    user_filter: Optional[str] = Query(default=None, alias="user"),
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """Load earlier authorized spending when a short selection cannot fill the chart."""
+    from services.report_period import resolve_period
+    from services.report_currency import ReportCurrency, persist_fx_cache
+    from services.stats_engine import is_genuine_expense, is_genuine_refund
+
+    start, end, *_ = resolve_period("custom", start_date=start_date, end_date=end_date)
+    minimum_start = end - datetime.timedelta(days=end.weekday() + (minimum_weeks - 1) * 7)
+    start = min(start, minimum_start)
+    user_db, _, _, accounts, all_accounts, _ = dashboard_scope(session, user_or_ctx, user_filter)
+    account_ids = {a.id for a in accounts}
+    if account_id:
+        account_ids &= {account_id}
+    money = ReportCurrency(session, user_db, cache_independently=True)
+    money.account_ids = account_ids
+    stmt = select(Transaction).where(
+        Transaction.transacted_at >= start, Transaction.transacted_at <= end,
+        Transaction.excluded_from_stats == False,
+        Transaction.account_id.in_(account_ids) if account_ids else False,
+    )
+    account_map = {a.id: a for a in all_accounts}
+    # Do not request exchange rates for incomes/transfers absent from this chart.
+    original = [t for t in session.exec(stmt).all()
+                if is_genuine_expense(t, account_map) or is_genuine_refund(t)]
+    activities = money.transactions(original)
+    result = _spending_calendar(session, start, end, activities, account_ids, money)
+    persist_fx_cache(session)
+    return {**result, **money.metadata()}
 
 
 @router.get("/v1/dashboard/summary")
@@ -36,77 +157,9 @@ def get_dashboard_summary(
     - Spending heatmap calendar
     - Investment total
     """
-    # 1. Resolve current user name & family members
-    current_user_name = None
-    if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
-        current_user_name = user_or_ctx
-    elif isinstance(user_or_ctx, dict):
-        current_user_name = user_or_ctx.get("username")
-
-    user_db = None
-    if current_user_name:
-        user_db = session.exec(select(User).where(User.username == current_user_name)).first()
-
-    if not user_db:
-        # 服务端 Key 情况下找第一个拥有 family 的用户或首个有效用户
-        user_db = session.exec(select(User).where(User.family_id != None)).first()
-
-    current_user = user_db.username if user_db else (current_user_name or "user")
-    display_name = user_db.display_name if user_db and user_db.display_name else current_user
-
-    # Fetch family members
-    family_id = user_db.family_id if user_db else None
-
-    family_members = []
-    if family_id:
-        all_m = session.exec(select(User).where(User.family_id == family_id)).all()
-        for m in all_m:
-            family_members.append({
-                "id": str(m.id),
-                "username": m.username,
-                "display_name": m.display_name or m.username,
-                "is_current": m.username == current_user,
-            })
-
-    # 2. Determine allowed and filtered accounts
-    from models import AccountShare
-    shares = session.exec(select(AccountShare)).all()
-    user_shares = {s.account_id: s for s in shares if user_db and s.user_id == user_db.id}
-
-    from services.stats_engine import (
-        get_family_active_account_ids,
-        is_genuine_income,
-        is_genuine_expense,
-        is_genuine_refund,
-        compute_netted_category_distribution,
+    user_db, display_name, family_members, active_accounts, all_family_accounts, target_user_obj = dashboard_scope(
+        session, user_or_ctx, user_filter
     )
-
-    family_active_ids = get_family_active_account_ids(session, family_id)
-    all_family_accounts = session.exec(
-        select(Account).where(Account.id.in_(family_active_ids)) if family_active_ids else select(Account).where(False)
-    ).all()
-
-    # Permissions filter for current user: 严格基于自己拥有或他人授权共享，杜绝越权
-    visible_accounts = []
-    for a in all_family_accounts:
-        is_my_acc = user_db and a.owner_id == user_db.id
-        sh = user_shares.get(a.id)
-        if (is_my_acc or sh or (user_db and user_db.role == "admin")) and not a.exclude_from_reports and (not sh or sh.include_in_finances):
-            visible_accounts.append(a)
-
-    # If user_filter is given (e.g. 'alice', 'qq', or a user uuid) and not '全部'/'ALL'
-    target_user_obj = None
-    if user_filter and user_filter not in ("全部", "ALL", "all", ""):
-        for m in (all_m if family_id else []):
-            if m.username == user_filter or m.display_name == user_filter or str(m.id) == user_filter:
-                target_user_obj = m
-                break
-
-    if target_user_obj:
-        active_accounts = [a for a in visible_accounts if a.owner_id == target_user_obj.id]
-    else:
-        active_accounts = visible_accounts
-
     active_account_ids = [a.id for a in active_accounts]
 
     from services.report_period import resolve_period
@@ -117,8 +170,8 @@ def get_dashboard_summary(
 
     # 3. Query transactions within period (scoped strictly to valid accounts)
     txn_stmt = select(Transaction).where(
-        Transaction.transacted_at >= start_date.isoformat(),
-        Transaction.transacted_at <= end_date.isoformat(),
+        Transaction.transacted_at >= start_date,
+        Transaction.transacted_at <= end_date,
         Transaction.excluded_from_stats == False,
     )
     real_account_id = None
@@ -291,14 +344,7 @@ def get_dashboard_summary(
     }
 
     # 6. Merchant Spending (TreeMap & Top 10 Ranking from real transactions)
-    merchant_counts = {}
-    merchant_amounts = {}
-    for t in expense_txns:
-        mname = t.narration or "其他"
-        merchant_counts[mname] = merchant_counts.get(mname, 0) + 1
-        merchant_amounts[mname] = merchant_amounts.get(mname, 0.0) + float(t.amount)
-
-    sorted_merchants = sorted(merchant_amounts.items(), key=lambda x: x[1], reverse=True)
+    sorted_merchants, merchant_counts = ranked_merchants(expense_txns)
     ranking_data = []
     for rank_idx, (mname, amt) in enumerate(sorted_merchants[:10], start=1):
         cnt = merchant_counts[mname]
@@ -311,26 +357,13 @@ def get_dashboard_summary(
         })
 
     # Treemap (Top merchants + Other)
-    grid_placements = [
-        ("1 / 1 / 5 / 4", "bg-red-100/70 dark:bg-red-950/30", "border-red-200 dark:border-red-900/50"),
-        ("1 / 4 / 4 / 6", "bg-orange-100/70 dark:bg-orange-950/30", "border-orange-200 dark:border-orange-900/50"),
-        ("1 / 6 / 4 / 7", "bg-emerald-100/70 dark:bg-emerald-950/30", "border-emerald-200 dark:border-emerald-900/50"),
-        ("4 / 4 / 7 / 5", "bg-red-50/70 dark:bg-red-950/20", "border-red-200 dark:border-red-900/40"),
-        ("4 / 5 / 7 / 7", "bg-orange-50/70 dark:bg-orange-950/20", "border-orange-200 dark:border-orange-900/40"),
-        ("5 / 1 / 7 / 2", "bg-emerald-50/70 dark:bg-emerald-950/20", "border-emerald-200 dark:border-emerald-900/40"),
-        ("5 / 2 / 7 / 3", "bg-zinc-50 dark:bg-zinc-800/60", "border-zinc-200 dark:border-zinc-700"),
-    ]
     treemap_data = []
-    other_sum = 0.0
+    other_sum = Decimal(0)
     for idx, (mname, amt) in enumerate(sorted_merchants):
-        if idx < len(grid_placements):
-            placement, bg, border = grid_placements[idx]
+        if idx < MERCHANT_TILE_LIMIT:
             treemap_data.append({
                 "name": mname,
                 "amount": round(amt, 2),
-                "placement": placement,
-                "bg": bg,
-                "border": border,
             })
         else:
             other_sum += amt
@@ -340,90 +373,14 @@ def get_dashboard_summary(
             "name": "其他",
             "is_other": True,
             "amount": round(other_sum, 2),
-            "placement": "5 / 3 / 7 / 4",
-            "bg": "bg-zinc-50 dark:bg-zinc-800/60",
-            "border": "border-zinc-200 dark:border-zinc-700",
         })
 
-    # Calendar and trend share the exact authorized, period-filtered ledger
-    # used by cashflow and outflows. Whole-week padding contains no activity.
     calendar_start = start_date
     if start_date == datetime.date.min:
         calendar_start = min((t.transacted_at for t in original_txns), default=end_date)
-    cal_start = calendar_start - datetime.timedelta(days=calendar_start.weekday())
-    cal_end = end_date
-    cal_end_week = end_date + datetime.timedelta(days=6 - end_date.weekday())
-    all_cal_txns = expense_txns + refund_txns
-
-    daily_spend = {}
-    daily_names = {}
-    for activity in all_cal_txns:
-        tat, ttype, tname = activity.transacted_at, activity.transaction_type, activity.narration
-        amt = spending_refund(session, activity, set(active_account_ids), report_money) if ttype == "refund" else activity.amount
-        if isinstance(tat, datetime.date):
-            tat_str = tat.isoformat()
-        else:
-            tat_str = str(tat)
-        if ttype == "expense":
-            daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) + float(amt)
-            if tname:
-                daily_names.setdefault(tat_str, []).append(tname)
-        elif ttype == "refund":
-            daily_spend[tat_str] = daily_spend.get(tat_str, 0.0) - float(amt)
-            if tname:
-                daily_names.setdefault(tat_str, []).append(f"退款: {tname}")
-
-    # 计算 Sure 风格分位数阈值
-    positive_spends = sorted([v for v in daily_spend.values() if v > 0])
-    if positive_spends:
-        n = len(positive_spends)
-        q1 = positive_spends[int(n * 0.25)]
-        q2 = positive_spends[int(n * 0.50)]
-        q3 = positive_spends[int(n * 0.75)]
-        thresholds = [q1, q2, q3]
-    else:
-        thresholds = [50.0, 150.0, 300.0]
-
-    # Build weeks array (Monday to Sunday = 7 rows)
-    weeks = []
-    curr = cal_start
-    while curr <= cal_end_week:
-        week_days = []
-        for _ in range(7):
-            d_str = curr.isoformat()
-            if d_str in daily_spend:
-                amt = daily_spend[d_str]
-                is_refund = amt < 0
-                if amt == 0:
-                    level = 0
-                elif amt < 0:
-                    level = 2
-                elif amt <= thresholds[0]:
-                    level = 1
-                elif amt <= thresholds[1]:
-                    level = 2
-                elif amt <= thresholds[2]:
-                    level = 3
-                else:
-                    level = 4
-            else:
-                amt = 0.0
-                level = 0
-                is_refund = False
-
-            names_for_day = daily_names.get(d_str, [])
-            desc = names_for_day[0] if names_for_day else ""
-
-            week_days.append({
-                "date": d_str,
-                "amount": round(amt, 2),
-                "level": level,
-                "is_refund": is_refund,
-                "outside": curr > end_date or curr < calendar_start,
-                "description": desc,
-            })
-            curr += datetime.timedelta(days=1)
-        weeks.append(week_days)
+    spending_calendar = _spending_calendar(
+        session, calendar_start, end_date, expense_txns + refund_txns, set(active_account_ids), report_money
+    )
 
     # Independent 6/12-month trend, ending in the selected period's month.
     # The summary below still follows the top-level period selection.
@@ -432,8 +389,8 @@ def get_dashboard_summary(
     earliest_month = month_shift(last_month, -11)
     next_month = month_shift(last_month, 1)
     trend_stmt = select(Transaction).where(
-        Transaction.transacted_at >= earliest_month.isoformat(),
-        Transaction.transacted_at < next_month.isoformat(),
+        Transaction.transacted_at >= earliest_month,
+        Transaction.transacted_at < next_month,
         Transaction.excluded_from_stats == False,
     )
     if real_account_id:
@@ -496,7 +453,7 @@ def get_dashboard_summary(
             "mask": mask,
             "account_type": a.account_type,
             "classification": a.classification,
-            "institution_name": a.institution_name or "中国招商银行",
+            "institution_name": a.institution_name,
             "owner": user_map.get(a.owner_id, display_name or "当前用户"),
             "balance": round(bal, 2),
             "weight": weight,
@@ -647,12 +604,7 @@ def get_dashboard_summary(
             "treemap": treemap_data,
             "ranking": ranking_data,
         },
-        "spending_calendar": {
-            "start_date": calendar_start.strftime("%Y年%m月%d日"),
-            "end_date": cal_end.strftime("%Y年%m月%d日"),
-            "weeks": weeks,
-            "period_dates": {"start": calendar_start.isoformat(), "end": end_date.isoformat()},
-        },
+        "spending_calendar": spending_calendar,
         "money_in_out": {
             "period_label": f"{start_date.strftime('%Y年%m月%d日')} 至 {end_date.strftime('%Y年%m月%d日')}",
             "period_dates": {

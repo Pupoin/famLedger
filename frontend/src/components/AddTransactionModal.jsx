@@ -8,23 +8,9 @@ import { fetchWithAuth } from '../api/fetchWithAuth';
 import { useCurrency } from '../CurrencyContext';
 import { useToast } from '../ToastContext';
 import { toLocalISODate, toLocalISOTime, localToUTCISO } from '../utils/dates';
+import { createTransactionExternalId } from '../utils/transactionIds';
 import { formatAccountDisplayName } from '../utils/accountIcons';
 import AccountSelectDropdown from './AccountSelectDropdown';
-
-// 基础兜底分类（当网络异常时降级使用）
-const FALLBACK_CATEGORIES = [
-  { id: 'fb-exp-1', name: '餐饮美食', icon: '🍴', category_type: 'expense' },
-  { id: 'fb-exp-2', name: '超市便利', icon: '🛒', category_type: 'expense' },
-  { id: 'fb-exp-3', name: '生活缴费', icon: '⚡', category_type: 'expense' },
-  { id: 'fb-exp-4', name: '交通出行', icon: '🚗', category_type: 'expense' },
-  { id: 'fb-exp-5', name: '购物消费', icon: '🛍️', category_type: 'expense' },
-  { id: 'fb-exp-6', name: '其他', icon: '🍪', category_type: 'expense' },
-  { id: 'fb-inc-1', name: '工资薪酬', icon: '💰', category_type: 'income' },
-  { id: 'fb-inc-2', name: '理财收益', icon: '📈', category_type: 'income' },
-  { id: 'fb-inc-3', name: '奖金补贴', icon: '🧧', category_type: 'income' },
-  { id: 'fb-inc-4', name: '兼职副业', icon: '💼', category_type: 'income' },
-  { id: 'fb-inc-5', name: '其他收入', icon: '🪙', category_type: 'income' },
-];
 
 // 四种交易类型 tab 配置
 const TABS = [
@@ -50,7 +36,9 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
   useEffect(() => { setBankAmount(''); setMasterBankAmount(''); }, [open]);
   const descRef = useRef(null);
   const externalId = useRef(null);
-  useEffect(() => { if (open) externalId.current = `manual:${crypto.randomUUID()}`; }, [open]);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => { if (open) externalId.current = createTransactionExternalId(); }, [open]);
 
   const [form, setForm] = useState(() => {
     const now = new Date();
@@ -96,7 +84,7 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
 
     const handlePopState = () => {
       closedByPop = true;
-      onClose();
+      onCloseRef.current();
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -107,13 +95,13 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
         window.history.back();
       }
     };
-  }, [open, onClose]);
+  }, [open]);
 
   // 根据当前 activeTab (支出/退款 vs 收入) 联动筛选展示分类
   const visibleCategories = React.useMemo(() => {
-    const pool = categories.length > 0 ? categories : FALLBACK_CATEGORIES;
+    const pool = categories;
     const targetType = activeTab === 'income' ? 'income' : 'expense';
-    return pool.filter((c) => (c.category_type || 'expense') === targetType);
+    return pool.filter((c) => c.name === '其他' || (c.category_type || 'expense') === targetType);
   }, [categories, activeTab]);
 
   const currentSelectedAccount = React.useMemo(() => {
@@ -344,7 +332,7 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
       // 分类（单选分类：仅支出和收入）
       if (activeTab !== 'transfer' && (form.category || form.category_id)) {
         if (form.category) payload.category_name = form.category;
-        if (form.category_id && !String(form.category_id).startsWith('fb-')) {
+        if (form.category_id) {
           payload.category_id = form.category_id;
         }
       }
@@ -753,7 +741,7 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
                   value={form.category_id || (categories.find((c) => c.name === form.category)?.id) || ''}
                   onChange={(e) => {
                     const selectedVal = e.target.value;
-                    const pool = categories.length > 0 ? categories : FALLBACK_CATEGORIES;
+                    const pool = categories;
                     const selectedCat = pool.find(
                       (c) => String(c.id) === String(selectedVal) || c.name === selectedVal
                     );
@@ -859,11 +847,12 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
                     key={item.id}
                     type="button"
                     data-testid={`reimb-type-${item.id}`}
+                    aria-pressed={reimbursementType === item.id}
                     onClick={() => setReimbursementType(item.id)}
                     className={`min-w-0 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 py-2 px-2.5 rounded-xl border text-xs font-medium leading-tight transition cursor-pointer ${
                       reimbursementType === item.id
-                        ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent shadow-xs font-bold'
-                        : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50'
+                        ? 'bg-zinc-900 text-white border-transparent dark:bg-blue-950/50 dark:text-blue-200 dark:border-blue-500 shadow-xs font-bold'
+                        : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700'
                     }`}
                   >
                     <span>{item.icon}</span>
@@ -996,12 +985,12 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
             className={`w-full py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all shadow-sm active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed ${
               isCurrentAccountReadOnly
                 ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                : 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100'
+                : 'bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-700'
             }`}
           >
             {submitting ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin dark:border-zinc-900/40 dark:border-t-zinc-900" /> {tx("正在提交...")}</span>
+                <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> {tx("正在提交...")}</span>
             ) : isCurrentAccountReadOnly ? (
               tx("⚠️ 所选账户仅有只读权限 (无法添加)")
             ) : (

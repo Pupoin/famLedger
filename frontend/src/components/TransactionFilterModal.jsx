@@ -316,17 +316,14 @@ export default function TransactionFilterModal({
                           }
                           className="flex items-center justify-between p-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer text-sm select-none"
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             <input
                               type="checkbox"
                               checked={isChecked}
                               readOnly
-                              className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 pointer-events-none"
+                              className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 pointer-events-none shrink-0"
                             />
-                            <span className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
-                              {acc.mask}
-                            </span>
-                            <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                            <span title={acc.name} className="text-sm font-medium text-zinc-800 dark:text-zinc-200 min-w-0 break-words">
                               {acc.name}
                             </span>
                           </div>

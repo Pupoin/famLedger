@@ -41,6 +41,7 @@ export default function TransactionsPage() {
   const hasRefundFilter = searchParams.get('has_refund') === 'true';
   const tagFilter = searchParams.get('tag') || '';
   const merchantFilter = searchParams.get('merchant') || '';
+  const merchantGroupFilter = searchParams.get('merchant_group') || '';
   const statusFilter = searchParams.get('status') || '';
   const minAmountFilter = searchParams.get('min_amount') || '';
   const maxAmountFilter = searchParams.get('max_amount') || '';
@@ -175,6 +176,7 @@ export default function TransactionsPage() {
     if (hasRefundFilter) count++;
     if (tagFilter) count += tagFilter.split(',').filter(Boolean).length;
     if (merchantFilter) count += merchantFilter.split(',').filter(Boolean).length;
+    if (merchantGroupFilter) count++;
     if (statusFilter) count += statusFilter.split(',').filter(Boolean).length;
     if (minAmountFilter || maxAmountFilter) count++;
     if (startDateFilter || endDateFilter) count++;
@@ -190,6 +192,7 @@ export default function TransactionsPage() {
     hasRefundFilter,
     tagFilter,
     merchantFilter,
+    merchantGroupFilter,
     statusFilter,
     minAmountFilter,
     maxAmountFilter,
@@ -223,6 +226,7 @@ export default function TransactionsPage() {
         if (hasRefundFilter) params.append('has_refund', 'true');
         if (tagFilter) params.append('tag', tagFilter);
         if (merchantFilter) params.append('merchant', merchantFilter);
+        if (merchantGroupFilter) params.append('merchant_group', merchantGroupFilter);
         if (statusFilter) params.append('status', statusFilter);
         if (minAmountFilter) params.append('min_amount', minAmountFilter);
         if (maxAmountFilter) params.append('max_amount', maxAmountFilter);
@@ -264,6 +268,7 @@ export default function TransactionsPage() {
       hasRefundFilter,
       tagFilter,
       merchantFilter,
+      merchantGroupFilter,
       statusFilter,
       minAmountFilter,
       maxAmountFilter,
@@ -286,6 +291,7 @@ export default function TransactionsPage() {
     hasRefundFilter,
     tagFilter,
     merchantFilter,
+    merchantGroupFilter,
     statusFilter,
     minAmountFilter,
     maxAmountFilter,
@@ -358,7 +364,10 @@ export default function TransactionsPage() {
     if (draft.tag) nextParams.set('tag', draft.tag);
     else nextParams.delete('tag');
 
-    if (draft.merchant) nextParams.set('merchant', draft.merchant);
+    if (draft.merchant) {
+      nextParams.set('merchant', draft.merchant);
+      nextParams.delete('merchant_group');
+    }
     else nextParams.delete('merchant');
 
     if (draft.status) nextParams.set('status', draft.status);
@@ -720,6 +729,7 @@ export default function TransactionsPage() {
           hasRefundFilter ||
           tagFilter ||
           merchantFilter ||
+          merchantGroupFilter ||
           statusFilter ||
           minAmountFilter ||
           maxAmountFilter) && (
@@ -880,13 +890,14 @@ export default function TransactionsPage() {
             )}
 
             {/* 商户 */}
-            {merchantFilter && (
+            {(merchantFilter || merchantGroupFilter) && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 font-medium border border-orange-200 dark:border-orange-800">
-                <span>{tx("🏬 商户:")} {merchantFilter}</span>
+                <span>{tx("🏬 商户:")} {merchantGroupFilter === 'other' ? tx('其他商户（合计）') : merchantFilter}</span>
                 <button
                   onClick={() => {
                     const p = new URLSearchParams(searchParams);
                     p.delete('merchant');
+                    p.delete('merchant_group');
                     setSearchParams(p);
                   }}
                   className="hover:text-orange-900 dark:hover:text-orange-100 font-bold ml-0.5 cursor-pointer"

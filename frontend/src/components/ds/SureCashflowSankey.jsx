@@ -4,6 +4,18 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCurrency } from '../../CurrencyContext';
 
+function wrapMobileLabel(text, width, fontSize) {
+  const lines = [];
+  let line = '', used = 0;
+  for (const char of Array.from(text)) {
+    const size = fontSize * (char.charCodeAt(0) > 255 ? 1.1 : 0.7);
+    if (line && used + size > width) { lines.push(line.trim()); line = ''; used = 0; }
+    line += char; used += size;
+  }
+  if (line) lines.push(line.trim());
+  return lines;
+}
+
 export default function SureCashflowSankey({
   data,
   currencySymbol: reportSymbol,
@@ -18,17 +30,18 @@ export default function SureCashflowSankey({
   const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
   const navigate = useNavigate();
   const [hoveredLink, setHoveredLink] = useState(null);
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < 640;
-    }
-    return false;
-  });
+  const chartRef = React.useRef(null);
+  const [chartWidth, setChartWidth] = useState(300);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 1024 : window.innerWidth
+  );
+  const isMobile = viewportWidth < 640;
+  const titleFontSize = viewportWidth >= 1536 ? 16 : viewportWidth >= 1280 ? 14 : 12;
+  const amountFontSize = viewportWidth >= 1536 ? 14 : viewportWidth >= 1280 ? 12 : 11;
+  const lineGap = viewportWidth >= 1536 ? 22 : viewportWidth >= 1280 ? 19 : isMobile ? 16 : 15;
 
   React.useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 640);
-    };
+    const handleResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -36,6 +49,15 @@ export default function SureCashflowSankey({
   const incomes = Array.isArray(data?.income_sources) ? data.income_sources : [];
   const pool = data?.pool || { name: 'Cash Flow', amount: 0, color: '#10A861' };
   const expenses = Array.isArray(data?.expense_destinations) ? data.expense_destinations : [];
+  const hasData = incomes.length > 0 || expenses.length > 0;
+  React.useEffect(() => {
+    if (!chartRef.current) return;
+    const measure = () => { if (chartRef.current?.clientWidth) setChartWidth(chartRef.current.clientWidth); };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(chartRef.current);
+    return () => observer.disconnect();
+  }, [hasData]);
 
   const buildUrl = (extraParams = {}) => {
     const params = new URLSearchParams();
@@ -90,13 +112,15 @@ export default function SureCashflowSankey({
 
   const leftX = isMobile ? 14 : 20;
   const leftNodeW = isMobile ? 12 : 14;
-  const poolX = isMobile ? 180 : 460;
+  const poolX = isMobile ? chartWidth / 2 - 6 : 460;
   const poolWidth = isMobile ? 12 : 14;
-  const rightX = isMobile ? 354 : 865;
+  const rightX = isMobile ? chartWidth - 26 : 865;
   const rightNodeW = isMobile ? 12 : 14;
 
-  const topPad = isMobile ? 8 : 28;
+  const topPad = isMobile ? 52 : 28;
   const bottomPad = isMobile ? 12 : 40;
+  const mobileLabelWidth = Math.max(40, chartWidth * 0.42 - 28);
+  const labelLines = (name, icon) => isMobile ? wrapMobileLabel(`${icon} ${categoryLabel(name)}`, mobileLabelWidth, titleFontSize) : [`${icon} ${categoryLabel(name)}`];
 
   // 自适应初始高度预估
   const baseEstimateHeight = Math.max(
@@ -120,6 +144,7 @@ export default function SureCashflowSankey({
       id: exp.id || `exp_${idx}`,
       fraction,
       flowH,
+      labelLines: labelLines(exp.name, exp.icon || '🍪'),
     };
   });
 
@@ -132,7 +157,8 @@ export default function SureCashflowSankey({
   expItems.forEach((exp) => {
     exp.targetY = currentTargetY;
     exp.targetH = exp.flowH;
-    currentTargetY += Math.max(exp.flowH + gapRight, minExpSlotH);
+    exp.labelY = isMobile ? exp.targetY + Math.max(titleFontSize, (exp.flowH - (exp.labelLines.length + 1) * lineGap) / 2 + titleFontSize) : exp.targetY + exp.flowH / 2 - 2;
+    currentTargetY += Math.max(exp.flowH + gapRight, minExpSlotH, isMobile ? (exp.labelLines.length + 1) * lineGap + 10 : 0);
   });
   const totalExpHeight = currentTargetY - topPad;
 
@@ -158,13 +184,14 @@ export default function SureCashflowSankey({
   let currentSourceY = isMobile ? topPad + 4 : Math.max(topPad, poolY - 10);
 
   const incItems = incomes.map((inc, idx) => {
+    const lines = labelLines(inc.name, inc.icon || '💰');
     const fraction = inc.amount / totalInc;
     const flowH = Math.max(isMobile ? 12 : 14, fraction * totalIncFlowH);
     const poolStartY = currentLeftPoolY;
     currentLeftPoolY += flowH;
 
     const sourceY = currentSourceY;
-    currentSourceY += Math.max(flowH + incGap, minIncSlotH);
+    currentSourceY += Math.max(flowH + incGap, minIncSlotH, isMobile ? (lines.length + 1) * lineGap + 10 : 0);
 
     return {
       ...inc,
@@ -174,30 +201,31 @@ export default function SureCashflowSankey({
       poolH: flowH,
       sourceY,
       sourceH: flowH, // 左端与流入端严格等厚！
+      labelLines: lines,
     };
   });
 
   // ── 安全保障：动态检测右侧文字与节点实际占用的最大 Y 坐标，确保绝对不发生截断 ──
   const maxExpContentY = expItems.reduce((max, exp) => {
-    const textBottom = exp.targetY + exp.flowH / 2 + 13 + 14;
+    const textBottom = exp.labelY + lineGap * exp.labelLines.length + amountFontSize;
     const blockBottom = exp.targetY + exp.targetH;
     return Math.max(max, textBottom, blockBottom);
   }, 0);
 
   const maxIncContentY = incItems.reduce((max, inc) => {
-    const textBottom = inc.sourceY + 29 + 14;
+    const textBottom = inc.sourceY + (isMobile ? 15 : 13) + lineGap * inc.labelLines.length + amountFontSize;
     const blockBottom = inc.sourceY + inc.sourceH;
     return Math.max(max, textBottom, blockBottom);
   }, 0);
 
-  const maxPoolContentY = poolY + poolH + (isMobile ? 12 : 20);
+  const maxPoolContentY = Math.max(poolY + poolH, poolY + (isMobile ? -3 : 40 + lineGap) + amountFontSize);
 
   const requiredBottomY = Math.max(maxExpContentY, maxIncContentY, maxPoolContentY) + (isMobile ? 6 : 24);
-  const svgWidth = isMobile ? 380 : 900;
+  const svgWidth = isMobile ? chartWidth : 900;
   const svgHeight = Math.ceil(requiredBottomY);
 
   return (
-    <div className="w-full max-w-4xl mx-auto relative select-none overflow-visible pb-0">
+    <div ref={chartRef} data-testid="cashflow-sankey" className="w-full max-w-4xl mx-auto relative select-none overflow-visible pb-0">
       <svg
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
         className="w-full h-auto overflow-visible"
@@ -270,18 +298,22 @@ export default function SureCashflowSankey({
               <text
                 x={leftX + leftNodeW + 6}
                 y={y0_top + (isMobile ? 15 : 13)}
-                className={`text-[13.5px] sm:text-[13px] font-bold transition-colors select-none ${
+                data-testid="sankey-node-label"
+                style={{ fontSize: titleFontSize }}
+                className={`font-bold transition-colors select-none ${
                   isHovered
                     ? 'fill-emerald-600 dark:fill-emerald-400'
                     : 'fill-zinc-900 dark:fill-zinc-100'
                 }`}
               >
-                {inc.icon || '💰'} {categoryLabel(inc.name)}
+                {inc.labelLines.map((line, index) => <tspan key={index} x={leftX + leftNodeW + 6} dy={index === 0 ? 0 : lineGap}>{line}</tspan>)}
               </text>
               <text
                 x={leftX + leftNodeW + 6}
-                y={y0_top + (isMobile ? 31 : 28)}
-                className="text-[12px] sm:text-[12px] font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
+                y={y0_top + (isMobile ? 15 : 13) + lineGap * inc.labelLines.length}
+                data-testid="sankey-node-amount"
+                style={{ fontSize: amountFontSize }}
+                className="font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
               >
                 {formatAmount(inc.amount)}
               </text>
@@ -326,21 +358,25 @@ export default function SureCashflowSankey({
               {/* Destination label right-aligned before the colored block */}
               <text
                 x={rightX - (isMobile ? 8 : 10)}
-                y={exp.targetY + exp.flowH / 2 - 2}
+                y={exp.labelY}
                 textAnchor="end"
-                className={`text-[13.5px] sm:text-[13px] font-bold transition-colors select-none ${
+                data-testid="sankey-node-label"
+                style={{ fontSize: titleFontSize }}
+                className={`font-bold transition-colors select-none ${
                   isHovered
                     ? 'fill-blue-600 dark:fill-blue-400'
                     : 'fill-zinc-900 dark:fill-zinc-100'
                 }`}
               >
-                {exp.icon || '🍪'} {categoryLabel(exp.name)}
+                {exp.labelLines.map((line, index) => <tspan key={index} x={rightX - (isMobile ? 8 : 10)} dy={index === 0 ? 0 : lineGap}>{line}</tspan>)}
               </text>
               <text
                 x={rightX - (isMobile ? 8 : 10)}
-                y={exp.targetY + exp.flowH / 2 + 13}
+                y={exp.labelY + lineGap * exp.labelLines.length}
                 textAnchor="end"
-                className="text-[12px] sm:text-[12px] font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
+                data-testid="sankey-node-amount"
+                style={{ fontSize: amountFontSize }}
+                className="font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
               >
                 {formatAmount(exp.amount)}
               </text>
@@ -375,15 +411,19 @@ export default function SureCashflowSankey({
           {/* Label: 移动端居中置于柱体正上方，桌面端置于柱体右侧 */}
           <text
             x={isMobile ? poolX + poolWidth / 2 : poolX + 18}
-            y={isMobile ? poolY - 17 : poolY + 40}
+            y={isMobile ? 15 : poolY + 40}
             textAnchor={isMobile ? 'middle' : 'start'}
-            className="text-[13px] sm:text-[13px] font-bold fill-zinc-900 dark:fill-zinc-100 select-none"
+            data-testid="sankey-node-label"
+            style={{ fontSize: titleFontSize }}
+            className="font-bold fill-zinc-900 dark:fill-zinc-100 select-none"
           >{tx("Cash Flow")}</text>
           <text
             x={isMobile ? poolX + poolWidth / 2 : poolX + 18}
-            y={isMobile ? poolY - 3 : poolY + 56}
+            y={isMobile ? 31 : poolY + 40 + lineGap}
             textAnchor={isMobile ? 'middle' : 'start'}
-            className="text-[12px] sm:text-[13px] font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
+            data-testid="sankey-node-amount"
+            style={{ fontSize: amountFontSize }}
+            className="font-mono font-medium fill-zinc-500 dark:fill-zinc-400 select-none"
           >
             {formatAmount(pool.amount)}
           </text>

@@ -240,7 +240,7 @@ def test_loan_positive_liability_balance(client: TestClient, service_family):
     assert Decimal(str(acc_detail["balance"])) == Decimal("1800000.00")
 
 
-def test_debts_contract_items_and_rules_patch(client: TestClient, service_family):
+def test_debts_contract_items_and_rules_patch(client: TestClient, service_family, db):
     """验证借贷列表返回 items 契约字段，且规则路由支持 PATCH。"""
     headers = {"X-Api-Key": "dev-token"}
 
@@ -250,10 +250,12 @@ def test_debts_contract_items_and_rules_patch(client: TestClient, service_family
     assert isinstance(d_list["items"], list)
 
     # 2. 规则 PATCH 更新
+    category = Category(family_id=service_family.id, name='餐饮美食')
+    db.add(category); db.commit()
     r_create = client.post("/api/v1/rules", json={
         "name": "自动打标测试规则",
-        "conditions": {"rules": [{"field": "narration", "op": "contains", "value": "星巴克"}]},
-        "actions": [{"type": "set_category", "value": "cat_dining"}],
+        "conditions": {"operator": "AND", "rules": [{"field": "narration", "operator": "contains", "value": "星巴克"}]},
+        "actions": [{"type": "set_category", "value": str(category.id)}],
         "priority": 10,
     }, headers=headers)
     assert r_create.status_code == 200

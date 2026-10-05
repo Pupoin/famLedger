@@ -1,9 +1,10 @@
 import { chartMoney } from '../../utils/chartMoney';
 import { dateLabel, tx, useLocale, currentLocale } from "../../localization.js";
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useCurrency } from '../../CurrencyContext';
+import { usePageViewState } from '../../PageViewContext';
 
 export default function SureMoneyInOut({
   data,
@@ -16,7 +17,7 @@ export default function SureMoneyInOut({
   const currencySymbol = reportSymbol ?? symbol ?? '';
   const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
   const navigate = useNavigate();
-  const [trendRange, setTrendRange] = useState('6m');
+  const [trendRange, setTrendRange] = usePageViewState('moneyInOut.trendRange', '6m');
 
   const periodLabel = data?.period_label || '';
   const startDate = data?.period_dates?.start;

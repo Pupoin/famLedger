@@ -238,7 +238,8 @@ def test_edit_name_clear_category_and_rejected_pair_deletion(auth_client_a, db):
     response = auth_client_a.patch(f'/api/v1/transactions/{first.id}', json={'name':'Renamed','category_id':None})
     assert response.status_code == 200, response.text
     db.refresh(first)
-    assert first.narration == 'Renamed' and first.category_id is None
+    assert first.narration == 'Renamed' and db.get(Category, first.category_id).name == '其他'
+    assert first.category_source == 'manual'
     response = auth_client_a.patch(f'/api/v1/transactions/{first.id}', json={'category_id':str(uuid.uuid4())})
     assert response.status_code == 400
     assert auth_client_a.delete(f'/api/v1/transactions/{first.id}').status_code == 200
@@ -545,6 +546,7 @@ def test_development_lifespan_does_not_create_backups(monkeypatch):
     monkeypatch.setattr(main,'create_db_and_tables',lambda:None)
     monkeypatch.setattr(main,'sync_schema',lambda engine:None)
     monkeypatch.setattr(main,'set_db_schema_version',lambda engine:None)
+    monkeypatch.setattr('services.rules.defaults.initialize_existing_families',lambda session:None)
     def forbidden(*args,**kwargs): raise AssertionError('Development must not create backups')
     monkeypatch.setattr(main.BackupManager,'create_backup',forbidden)
     monkeypatch.setattr(main,'_assert_backup_mirror_usable',forbidden)

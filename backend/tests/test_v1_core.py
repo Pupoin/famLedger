@@ -234,11 +234,11 @@ def test_explicit_refund_matching_and_candidates(client):
     assert res_refund.status_code == 200
     refund_id = res_refund.json()["id"]
 
-    # 4. 验证退款流水成功关联 orig_id，并且自动继承了原消费的分类
+    # 4. 退款关联成功；未显式设置分类且未命中规则时归入其他。
     txns = client.get("/api/v1/transactions", headers=headers).json()["items"]
     refund_txn = next(t for t in txns if t["id"] == refund_id)
     assert refund_txn["refund_of_transaction_id"] == orig_id
-    assert refund_txn["category_name"] == "数码电器"
+    assert refund_txn["category_name"] == "其他"
 
     # 5. 再次查询候选消费，剩余可退额度应已减为 499.00
     res_candidates_2 = client.get("/api/v1/refunds/candidates?search=Apple", headers=headers)

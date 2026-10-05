@@ -1,13 +1,18 @@
 import { tx, useLocale } from "../localization.js";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { SlidersHorizontal, Plus, Play, Trash2, Edit2, AlertCircle, ArrowRight, ShieldAlert, X, Sparkles, Filter } from 'lucide-react';
+import { SlidersHorizontal, Plus, Play, Trash2, Edit2, AlertCircle, ArrowRight, ShieldAlert, X, Sparkles, Filter, ArrowUp, ArrowDown, Loader2, CheckCircle2 } from 'lucide-react';
+import RulesTransfer from '../components/RulesTransfer';
+import RuleConditionEditor from '../components/RuleConditionEditor';
+import RuleActionValue from '../components/RuleActionValue';
+import { apiErrorMessage } from '../api/errorMessages';
+import { categoryLabel } from '../localization';
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { useToast } from '../ToastContext';
 
 export const formatConditionSummary = (node) => {
-  if (!node) return '无匹配条件';
+  if (!node) return tx('无匹配条件');
   if (node.field !== undefined) {
     const fieldMap = {
       merchant: '商户',
@@ -20,7 +25,7 @@ export const formatConditionSummary = (node) => {
       type: '类型',
       category: '分类',
     };
-    const f = fieldMap[node.field] || node.field;
+    const f = tx(fieldMap[node.field] || node.field);
     const opMap = {
       contains: '包含',
       not_contains: '不包含',
@@ -36,20 +41,20 @@ export const formatConditionSummary = (node) => {
       '<': '<',
       '<=': '<=',
     };
-    const op = opMap[node.operator] || node.operator;
+    const op = tx(opMap[node.operator] || node.operator);
     return `${f} ${op} "${node.value ?? ''}"`;
   }
   const op = (node.operator || 'AND').toUpperCase();
-  const opLabel = op === 'OR' ? ' 或 ' : ' 且 ';
+  const opLabel = op === 'OR' ? ` ${tx('或')} ` : ` ${tx('且')} `;
   const subRules = node.rules || [];
-  if (subRules.length === 0) return '无匹配条件';
+  if (subRules.length === 0) return tx('无匹配条件');
   const parts = subRules.map((r) => {
     if (r.rules && Array.isArray(r.rules)) {
       return `(${formatConditionSummary(r)})`;
     }
     return formatConditionSummary(r);
   });
-  return parts.join(opLabel);
+  return op === 'NOT' ? `${tx('非')} (${parts.join(` ${tx('或')} `)})` : parts.join(opLabel);
 };
 
 export default function RulesPage({ embedded = false }) {
@@ -57,9 +62,13 @@ export default function RulesPage({ embedded = false }) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const [rules, setRules] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingRule, setEditingRule] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [historyApplication, setHistoryApplication] = useState(null);
+  const applyingHistoryRef = useRef(false);
+  const applyingHistory = historyApplication?.status === 'pending';
 
   // Dry-run modal state
   const [dryRunModalOpen, setDryRunModalOpen] = useState(false);
@@ -97,6 +106,7 @@ export default function RulesPage({ embedded = false }) {
 
   useEffect(() => {
     fetchRules();
+    fetchWithAuth('/api/v1/categories').then(response => response.json()).then(data => setCategories(data.categories || [])).catch(() => {});
   }, []);
 
   const openNewRule = () => {
@@ -151,7 +161,7 @@ export default function RulesPage({ embedded = false }) {
         fetchRules();
       } else {
         const err = await res.json();
-        showToast(tx(err.detail || '保存失败'), 'error');
+        showToast(apiErrorMessage(err.detail, '保存失败'), 'error');
       }
     } catch {
       showToast(tx("请求失败"), 'error');
@@ -171,116 +181,17 @@ export default function RulesPage({ embedded = false }) {
     }
   };
 
-  // ── 嵌套条件组（Composite Condition Groups）操作方法 ──
-  const handleTopOperatorChange = (op) => {
-    setRuleForm((prev) => ({
-      ...prev,
-      conditions: { ...prev.conditions, operator: op },
-    }));
-  };
-
-  const handleAddTopRule = () => {
-    setRuleForm((prev) => ({
-      ...prev,
-      conditions: {
-        ...prev.conditions,
-        rules: [
-          ...(prev.conditions.rules || []),
-          { field: 'merchant', operator: 'contains', value: '' },
-        ],
-      },
-    }));
-  };
-
-  const handleAddTopGroup = () => {
-    setRuleForm((prev) => ({
-      ...prev,
-      conditions: {
-        ...prev.conditions,
-        rules: [
-          ...(prev.conditions.rules || []),
-          {
-            operator: 'OR',
-            rules: [
-              { field: 'merchant', operator: 'contains', value: '' },
-              { field: 'merchant', operator: 'contains', value: '' },
-            ],
-          },
-        ],
-      },
-    }));
-  };
-
-  const handleDeleteTopItem = (topIdx) => {
-    setRuleForm((prev) => {
-      const list = [...(prev.conditions.rules || [])];
-      list.splice(topIdx, 1);
-      return {
-        ...prev,
-        conditions: { ...prev.conditions, rules: list },
-      };
-    });
-  };
-
-  const handleUpdateCondition = (topIdx, subIdx, patch) => {
-    setRuleForm((prev) => {
-      const list = [...(prev.conditions.rules || [])];
-      if (subIdx === null || subIdx === undefined) {
-        list[topIdx] = { ...list[topIdx], ...patch };
-      } else {
-        const group = { ...list[topIdx] };
-        const subRules = [...(group.rules || [])];
-        subRules[subIdx] = { ...subRules[subIdx], ...patch };
-        group.rules = subRules;
-        list[topIdx] = group;
-      }
-      return {
-        ...prev,
-        conditions: { ...prev.conditions, rules: list },
-      };
-    });
-  };
-
-  const handleGroupOperatorChange = (topIdx, op) => {
-    setRuleForm((prev) => {
-      const list = [...(prev.conditions.rules || [])];
-      list[topIdx] = { ...list[topIdx], operator: op };
-      return {
-        ...prev,
-        conditions: { ...prev.conditions, rules: list },
-      };
-    });
-  };
-
-  const handleAddSubRule = (topIdx) => {
-    setRuleForm((prev) => {
-      const list = [...(prev.conditions.rules || [])];
-      const group = { ...list[topIdx] };
-      group.rules = [
-        ...(group.rules || []),
-        { field: 'merchant', operator: 'contains', value: '' },
-      ];
-      list[topIdx] = group;
-      return {
-        ...prev,
-        conditions: { ...prev.conditions, rules: list },
-      };
-    });
-  };
-
-  const handleDeleteSubRule = (topIdx, subIdx) => {
-    setRuleForm((prev) => {
-      const list = [...(prev.conditions.rules || [])];
-      const group = { ...list[topIdx] };
-      const subRules = [...(group.rules || [])];
-      subRules.splice(subIdx, 1);
-      group.rules = subRules;
-      list[topIdx] = group;
-      return {
-        ...prev,
-        conditions: { ...prev.conditions, rules: list },
-      };
-    });
+  const moveRule = async (index, delta) => {
+    const reordered = [...rules];
+    [reordered[index], reordered[index + delta]] = [reordered[index + delta], reordered[index]];
+    try {
+      const response = await fetchWithAuth('/api/v1/rules/reorder', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reordered.map((rule, i) => ({ id: rule.id, priority: (i + 1) * 10 }))),
+      });
+      if (!response.ok) throw new Error();
+      await fetchRules();
+    } catch { showToast(tx('更新失败'), 'error'); }
   };
 
   const handleToggleActive = async (rule) => {
@@ -329,15 +240,31 @@ export default function RulesPage({ embedded = false }) {
   };
 
   const handleApplyRetroactive = async () => {
+    if (applyingHistoryRef.current) return;
     if (!window.confirm(tx("确定要将当前启用的规则应用到历史全部交易吗？已手动修改的分类不会被覆盖。"))) return;
+    applyingHistoryRef.current = true;
+    setHistoryApplication({ status: 'pending' });
     try {
       const res = await fetchWithAuth('/api/v1/rules/apply-retroactive', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        showToast(tx("已成功评估历史交易，共应用更新 {p0} 笔流水", {p0: (data.updated_count || 0)}), 'success');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const error = apiErrorMessage(data?.detail, '执行失败');
+        setHistoryApplication({ status: 'error', error });
+        showToast(error, 'error');
+        return;
       }
+      if (!Number.isInteger(data?.evaluated_count) || !Number.isInteger(data?.modified_count)) throw new Error();
+      setHistoryApplication({ status: 'success', evaluated: data.evaluated_count, modified: data.modified_count });
+      showToast(tx('历史应用已完成：检查 {p0} 笔，更新 {p1} 笔。', {
+        p0: data.evaluated_count, p1: data.modified_count,
+      }), 'success');
+      window.dispatchEvent(new Event('transactions-updated'));
     } catch {
-      showToast(tx("执行失败"), 'error');
+      const error = tx('未能确认执行结果，请检查网络后刷新或重试。');
+      setHistoryApplication({ status: 'error', error });
+      showToast(error, 'error');
+    } finally {
+      applyingHistoryRef.current = false;
     }
   };
 
@@ -367,11 +294,13 @@ export default function RulesPage({ embedded = false }) {
 
             <button
               onClick={handleApplyRetroactive}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors shadow-2xs cursor-pointer"
+              disabled={applyingHistory}
+              aria-busy={applyingHistory}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors shadow-2xs cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               title={tx("回溯应用到历史流水")}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>{tx("应用到历史")}</span>
+              {applyingHistory ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-500" />}
+              <span>{applyingHistory ? tx('应用中…') : tx("应用到历史")}</span>
             </button>
 
             <button
@@ -387,7 +316,7 @@ export default function RulesPage({ embedded = false }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 sm:pb-4 border-b border-zinc-100 dark:border-zinc-800">
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{tx("规则引擎流水线 (Rules Pipeline)")}</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">{tx("配置自动分类、打标签及商户标准化流水线规则，支持拖拽排序与单笔实时预演")}</p>
+            <p className="text-xs text-zinc-500 mt-0.5">{tx("配置自动分类、标签和商户规则，支持调整优先级及历史预演")}</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
@@ -402,11 +331,13 @@ export default function RulesPage({ embedded = false }) {
 
             <button
               onClick={handleApplyRetroactive}
-              className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap text-center"
+              disabled={applyingHistory}
+              aria-busy={applyingHistory}
+              className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap text-center disabled:opacity-60 disabled:cursor-wait"
               title={tx("回溯应用到历史流水")}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>{tx("应用到历史")}</span>
+              {applyingHistory ? <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+              <span>{applyingHistory ? tx('应用中…') : tx("应用到历史")}</span>
             </button>
 
             <button
@@ -419,6 +350,37 @@ export default function RulesPage({ embedded = false }) {
           </div>
         </div>
       )}
+
+      {historyApplication && (
+        <div
+          role={historyApplication.status === 'error' ? 'alert' : 'status'}
+          aria-live="polite"
+          className={`flex items-start gap-2.5 p-3 rounded-xl border text-sm ${
+            historyApplication.status === 'error'
+              ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
+              : historyApplication.status === 'success'
+                ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
+                : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200'
+          }`}
+        >
+          {applyingHistory ? <Loader2 className="w-4 h-4 mt-0.5 shrink-0 animate-spin" />
+            : historyApplication.status === 'success' ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+              : <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+          <div className="min-w-0 break-words">
+            <p>{applyingHistory ? tx('正在处理历史交易，请等待完成提示。')
+              : historyApplication.status === 'success'
+                ? tx('历史应用已完成：检查 {p0} 笔，更新 {p1} 笔。', {
+                  p0: historyApplication.evaluated, p1: historyApplication.modified,
+                }) : historyApplication.error}</p>
+            {historyApplication.status !== 'error' && (
+              <p className="text-xs mt-1 opacity-80">{tx('仅处理你有编辑权限的账户；手动分类会保留。')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <RulesTransfer onImported={() => { fetchRules(); fetchWithAuth('/api/v1/categories').then(r => r.json()).then(data => setCategories(data.categories || [])); }} />
+      <p className="text-xs text-zinc-500">{tx('优先级数字越小越先执行。分类以首条命中为准；未命中归入其他，保留手动分类。')}</p>
 
       {/* ── 2. Sure Info Notice Banner ── */}
       <div className="flex items-center gap-2.5 p-3 sm:p-3.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-800/40 text-xs text-zinc-600 dark:text-zinc-400">
@@ -448,7 +410,7 @@ export default function RulesPage({ embedded = false }) {
             </button>
           </div>
         ) : (
-          rules.map((rule) => {
+          rules.map((rule, ruleIndex) => {
             const condList = rule.conditions?.rules || [];
             const actionList = rule.actions || [];
 
@@ -464,7 +426,7 @@ export default function RulesPage({ embedded = false }) {
                       #{rule.priority}
                     </span>
                     <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 break-words line-clamp-1">
-                      {rule.name}
+                      {categoryLabel(rule.name)}
                     </h3>
                     {rule.stop_processing && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 shrink-0">
@@ -494,7 +456,7 @@ export default function RulesPage({ embedded = false }) {
                           key={i}
                           className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium border border-emerald-200/60 dark:border-emerald-800/40 truncate max-w-full"
                         >
-                          {a.type}: {a.value || a.tag || tx("Active")}
+                          {tx({set_category: '设置分类', set_merchant: '设置商户', set_narration: '设置商户描述', set_description: '设置描述', set_transaction_type: '变更类型', add_tag: '追加标签', exclude_from_statistics: '不计入统计', set_note: '设置备注'}[a.type] || a.type)}: {a.type === 'set_category' ? categoryLabel(categories.find(c => c.id === a.value)?.name || String(a.value)) : String(a.value ?? a.tag ?? tx('Active'))}
                         </span>
                       ))}
                     </div>
@@ -502,7 +464,9 @@ export default function RulesPage({ embedded = false }) {
                 </div>
 
                 {/* Right: Actions & Toggle */}
-                <div className="flex items-center gap-3 self-end sm:self-center">
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  <button disabled={ruleIndex === 0} aria-label={tx('提高优先级')} title={tx('提高优先级')} onClick={() => moveRule(ruleIndex, -1)} className="p-1.5 disabled:opacity-20"><ArrowUp size={16} /></button>
+                  <button disabled={ruleIndex === rules.length - 1} aria-label={tx('降低优先级')} title={tx('降低优先级')} onClick={() => moveRule(ruleIndex, 1)} className="p-1.5 disabled:opacity-20"><ArrowDown size={16} /></button>
                   <button
                     onClick={() => handleDryRun(rule)}
                     className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
@@ -585,7 +549,7 @@ export default function RulesPage({ embedded = false }) {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
                   {editingRule ? t('rules.editRule', tx("Edit Rule")) : t('rules.newRule', tx("New Rule"))}
                 </h2>
-                <p className="text-xs text-zinc-500 mt-0.5">{tx("Specification + Composite pattern rule definition")}</p>
+                <p className="text-xs text-zinc-500 mt-0.5">{tx("按条件自动分类和执行动作")}</p>
               </div>
               <button
                 onClick={() => setDrawerOpen(false)}
@@ -640,257 +604,9 @@ export default function RulesPage({ embedded = false }) {
                 </label>
               </div>
 
-              {/* Conditions Block (Composite Groups Supported) */}
-              <div className="space-y-3 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50/30 dark:bg-zinc-800/20">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <span className="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 shrink-0">
-                    <Filter className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>{t('rules.conditions', tx("匹配条件 (Conditions)"))}</span>
-                  </span>
-                  <div className="flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
-                    <span className="text-[11px] text-zinc-500 font-medium whitespace-nowrap">{tx("主规则关系:")}</span>
-                    <select
-                      value={ruleForm.conditions.operator || 'AND'}
-                      onChange={(e) => handleTopOperatorChange(e.target.value)}
-                      className="px-2 py-1 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-semibold outline-none text-zinc-900 dark:text-zinc-100 shadow-2xs"
-                    >
-                      <option value="AND">{tx("AND (且 - 必须满足所有项)")}</option>
-                      <option value="OR">{tx("OR (或 - 满足任一项即可)")}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5 pt-1">
-                  {(ruleForm.conditions.rules || []).map((item, idx) => {
-                    const isGroup = Boolean(item.rules && Array.isArray(item.rules));
-
-                    if (isGroup) {
-                      return (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-xl bg-amber-50/40 dark:bg-amber-950/20 border border-dashed border-amber-300 dark:border-amber-700/60 space-y-2.5"
-                        >
-                          <div className="flex items-center justify-between gap-1.5 flex-wrap">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-200/80 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">{tx("条件组")}</span>
-                              <select
-                                value={item.operator || 'OR'}
-                                onChange={(e) => handleGroupOperatorChange(idx, e.target.value)}
-                                className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-amber-300 dark:border-amber-700 rounded-md text-[11px] font-bold text-amber-900 dark:text-amber-200 outline-none"
-                              >
-                                <option value="OR">{tx("OR (组内任一满足即可)")}</option>
-                                <option value="AND">{tx("AND (组内必须全部满足)")}</option>
-                              </select>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTopItem(idx)}
-                              className="text-xs text-rose-500 hover:text-rose-700 flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition-colors"
-                              title={tx("删除此条件组")}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>{tx("删除组")}</span>
-                            </button>
-                          </div>
-
-                          <div className="space-y-2 pl-2 border-l-2 border-amber-300/70 dark:border-amber-700/70">
-                            {(item.rules || []).map((subCond, subIdx) => {
-                              const isSubNum = subCond.field === 'amount';
-                              return (
-                                <div key={subIdx} className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/90 border border-zinc-200/80 dark:border-zinc-700/80 space-y-2">
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <select
-                                      value={subCond.field === 'description' ? 'merchant' : subCond.field || 'merchant'}
-                                      onChange={(e) => {
-                                        const newF = e.target.value;
-                                        handleUpdateCondition(idx, subIdx, {
-                                          field: newF,
-                                          operator: newF === 'amount' ? '>' : 'contains',
-                                        });
-                                      }}
-                                      className="w-full px-2 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs font-medium text-zinc-900 dark:text-zinc-100"
-                                    >
-                                      <option value="merchant">{tx("商户 / 交易名称 (Narration)")}</option>
-                                      <option value="amount">{tx("金额 (Amount)")}</option>
-                                      <option value="account">{tx("所属账户 (Account)")}</option>
-                                      <option value="notes">{tx("备注说明 (Notes)")}</option>
-                                      <option value="type">{tx("交易类型 (Type)")}</option>
-                                    </select>
-
-                                    <select
-                                      value={subCond.operator || (isSubNum ? '>' : 'contains')}
-                                      onChange={(e) => handleUpdateCondition(idx, subIdx, { operator: e.target.value })}
-                                      className="w-full px-2 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs text-zinc-800 dark:text-zinc-200"
-                                    >
-                                      {isSubNum ? (
-                                        <>
-                                          <option value=">">{tx("大于 (>)")}</option>
-                                          <option value=">=">{tx("大于等于 (>=)")}</option>
-                                          <option value="<">{tx("小于 (<)")}</option>
-                                          <option value="<=">{tx("小于等于 (<=)")}</option>
-                                          <option value="equals">{tx("等于 (==)")}</option>
-                                          <option value="!=">{tx("不等于 (!=)")}</option>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <option value="contains">{tx("包含 (contains)")}</option>
-                                          <option value="not_contains">{tx("不包含 (not contains)")}</option>
-                                          <option value="equals">{tx("等于 (equals)")}</option>
-                                          <option value="starts_with">{tx("开头是 (starts_with)")}</option>
-                                          <option value="ends_with">{tx("结尾是 (ends_with)")}</option>
-                                          <option value="regex">{tx("正则匹配 (regex)")}</option>
-                                        </>
-                                      )}
-                                    </select>
-                                  </div>
-
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type={isSubNum ? 'number' : 'text'}
-                                      step={isSubNum ? 'any' : undefined}
-                                      value={subCond.value ?? ''}
-                                      onChange={(e) => handleUpdateCondition(idx, subIdx, { value: e.target.value })}
-                                      placeholder={
-                                        subCond.field === 'amount'
-                                          ? tx("如：30 或 100.5")
-                                          : subCond.field === 'type'
-                                          ? tx("expense (支出) / income (收入)")
-                                          : tx("匹配目标值或关键词")
-                                      }
-                                      required
-                                      className="flex-1 px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs min-w-0 text-zinc-900 dark:text-zinc-100 font-mono"
-                                    />
-
-                                    {(item.rules || []).length > 1 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteSubRule(idx, subIdx)}
-                                        className="p-1.5 text-zinc-400 hover:text-rose-500 rounded-lg shrink-0 cursor-pointer transition-colors"
-                                        title={tx("删除此子条件")}
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-
-                            <button
-                              type="button"
-                              onClick={() => handleAddSubRule(idx)}
-                              className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 font-medium flex items-center gap-1 pt-1 cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>{tx("在此组添加条件")}</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // 顶层单条条件
-                    const isNum = item.field === 'amount';
-                    return (
-                      <div key={idx} className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/80 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <select
-                            value={item.field === 'description' ? 'merchant' : item.field || 'merchant'}
-                            onChange={(e) => {
-                              const newF = e.target.value;
-                              handleUpdateCondition(idx, null, {
-                                field: newF,
-                                operator: newF === 'amount' ? '>' : 'contains',
-                              });
-                            }}
-                            className="w-full px-2 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs font-medium text-zinc-900 dark:text-zinc-100"
-                          >
-                            <option value="merchant">{tx("商户 / 交易名称 (Narration)")}</option>
-                            <option value="amount">{tx("金额 (Amount)")}</option>
-                            <option value="account">{tx("所属账户 (Account)")}</option>
-                            <option value="notes">{tx("备注说明 (Notes)")}</option>
-                            <option value="type">{tx("交易类型 (Type)")}</option>
-                          </select>
-
-                          <select
-                            value={item.operator || (isNum ? '>' : 'contains')}
-                            onChange={(e) => handleUpdateCondition(idx, null, { operator: e.target.value })}
-                            className="w-full px-2 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs text-zinc-800 dark:text-zinc-200"
-                          >
-                            {isNum ? (
-                              <>
-                                <option value=">">{tx("大于 (>)")}</option>
-                                <option value=">=">{tx("大于等于 (>=)")}</option>
-                                <option value="<">{tx("小于 (<)")}</option>
-                                <option value="<=">{tx("小于等于 (<=)")}</option>
-                                <option value="equals">{tx("等于 (==)")}</option>
-                                <option value="!=">{tx("不等于 (!=)")}</option>
-                              </>
-                            ) : (
-                              <>
-                                <option value="contains">{tx("包含 (contains)")}</option>
-                                <option value="not_contains">{tx("不包含 (not contains)")}</option>
-                                <option value="equals">{tx("等于 (equals)")}</option>
-                                <option value="starts_with">{tx("开头是 (starts_with)")}</option>
-                                <option value="ends_with">{tx("结尾是 (ends_with)")}</option>
-                                <option value="regex">{tx("正则匹配 (regex)")}</option>
-                              </>
-                            )}
-                          </select>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <input
-                            type={isNum ? 'number' : 'text'}
-                            step={isNum ? 'any' : undefined}
-                            value={item.value ?? ''}
-                            onChange={(e) => handleUpdateCondition(idx, null, { value: e.target.value })}
-                            placeholder={
-                              item.field === 'amount'
-                                ? tx("如：30 或 100.5")
-                                : item.field === 'type'
-                                ? tx("expense (支出) / income (收入)")
-                                : tx("匹配目标值或关键词")
-                            }
-                            required
-                            className="flex-1 px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs min-w-0 text-zinc-900 dark:text-zinc-100 font-mono"
-                          />
-
-                          {(ruleForm.conditions.rules || []).length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTopItem(idx)}
-                              className="p-1.5 text-zinc-400 hover:text-rose-500 rounded-lg shrink-0 cursor-pointer transition-colors"
-                              title={tx("删除此条件")}
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Actions for Conditions */}
-                  <div className="flex items-center gap-2 pt-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={handleAddTopRule}
-                      className="text-xs text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white font-medium flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{tx("添加单条条件")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddTopGroup}
-                      className="text-xs text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 font-medium flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-amber-300 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/20 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{tx("添加条件组 (OR / AND 嵌套)")}</span>
-                    </button>
-                  </div>
-                </div>
+              <div className="space-y-2">
+                <span className="font-bold">{tx('匹配条件 (Conditions)')}</span>
+                <RuleConditionEditor categories={categories} value={ruleForm.conditions} onChange={conditions => setRuleForm({ ...ruleForm, conditions })} />
               </div>
 
               {/* Actions Block */}
@@ -907,7 +623,7 @@ export default function RulesPage({ embedded = false }) {
                         value={act.type}
                         onChange={(e) => {
                           const list = [...ruleForm.actions];
-                          list[idx].type = e.target.value;
+                          list[idx] = { type: e.target.value, value: e.target.value === 'exclude_from_statistics' ? true : '' };
                           setRuleForm({ ...ruleForm, actions: list });
                         }}
                         className="w-full px-2 py-1.5 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs"
@@ -916,22 +632,14 @@ export default function RulesPage({ embedded = false }) {
                         <option value="set_merchant">{tx("清洗标准化商户 (set_merchant)")}</option>
                         <option value="set_transaction_type">{tx("变更类型 (set_type)")}</option>
                         <option value="add_tag">{tx("追加标签 (add_tag)")}</option>
+                        <option value="set_note">{tx('设置备注')}</option>
+                        <option value="set_narration">{tx('设置商户描述')}</option>
+                        <option value="set_description">{tx('设置描述')}</option>
                         <option value="exclude_from_statistics">{tx("免计入统计 (exclude)")}</option>
                       </select>
 
                       <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={act.value || ''}
-                          onChange={(e) => {
-                            const list = [...ruleForm.actions];
-                            list[idx].value = e.target.value;
-                            setRuleForm({ ...ruleForm, actions: list });
-                          }}
-                          placeholder={tx("分类名称、商户名或标签")}
-                          required={act.type !== 'exclude_from_statistics'}
-                          className="flex-1 px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg outline-none text-xs min-w-0"
-                        />
+                        <RuleActionValue action={act} categories={categories} onChange={patch => setRuleForm({ ...ruleForm, actions: ruleForm.actions.map((action, i) => i === idx ? { ...action, ...patch } : action) })} />
 
                         {ruleForm.actions.length > 1 && (
                           <button
@@ -1014,22 +722,23 @@ export default function RulesPage({ embedded = false }) {
                       {t('rules.matchedCount', tx("Total matched transactions"))}:
                     </span>
                     <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
-                      {dryRunResults.matched_count || dryRunResults.results?.length || 0} {tx("笔")}</span>
+                      {dryRunResults.total_affected || 0} {tx("笔")}</span>
                   </div>
 
                   <div className="space-y-1.5 divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {(dryRunResults.results || []).slice(0, 30).map((r, i) => (
+                    {(dryRunResults.affected_transactions || []).slice(0, 30).map((r, i) => (
                       <div key={i} className="pt-2 flex items-center justify-between gap-2">
                         <div>
                           <span className="font-semibold text-zinc-900 dark:text-zinc-100 block">
-                            {r.narration || tx("未命名交易")}
+                            {r.transaction.narration || tx("未命名交易")}
                           </span>
                           <span className="text-[11px] text-zinc-400">
-                            {r.date} {tx("· 命中规则: #")} {r.matched_rule_priority} {r.matched_rule_name}
+                            {r.transaction.transacted_at} · {r.matched_rules.map(match => `${match.priority == null ? '' : '#' + match.priority + ' '}${match.rule_name}`).join(', ')}
+                            {r.matched_rules.filter(match => match.changes.category_id).map((match, index) => <span key={index} className="block text-emerald-600">{tx('分类')}: {categoryLabel(categories.find(c => c.id === match.changes.category_id.old)?.name || '其他')} → {categoryLabel(categories.find(c => c.id === match.changes.category_id.new)?.name || '其他')}</span>)}
                           </span>
                         </div>
                         <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                          {r.amount}
+                          {r.transaction.amount}
                         </span>
                       </div>
                     ))}

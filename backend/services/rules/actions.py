@@ -17,6 +17,7 @@ class ActionExecutor:
         txn: Transaction,
         dry_run: bool = False,
         session=None,
+        category_resolver=None,
     ) -> Dict[str, Any]:
         """
         对交易执行动作列表。
@@ -34,7 +35,9 @@ class ActionExecutor:
                 # 防护：若用户已手动指定过分类，规则不得静默覆盖
                 if getattr(txn, "category_source", "import") != "manual":
                     try:
-                        if session is not None:
+                        if category_resolver is not None:
+                            cat_uuid = category_resolver(val)
+                        elif session is not None:
                             from models import Account
                             from .categories import resolve_category
                             account = session.get(Account, txn.account_id)
@@ -47,7 +50,10 @@ class ActionExecutor:
                             changes["category_id"] = {"old": str(txn.category_id) if txn.category_id else None, "new": str(cat_uuid) if cat_uuid else None}
                             if not dry_run:
                                 txn.category_id = cat_uuid
-                                txn.category_source = "rule"
+                        if not dry_run:
+                            if txn.category_source != 'rule':
+                                changes['category_source'] = {'old': txn.category_source, 'new': 'rule'}
+                            txn.category_source = "rule"
                     except (ValueError, TypeError):
                         pass
 
@@ -61,6 +67,8 @@ class ActionExecutor:
                             txn.merchant_source = "rule"
 
             elif action_type == "set_transaction_type":
+                if (txn.extra or {}).get('transaction_type_source') == 'manual':
+                    continue
                 if txn.transfer_id or txn.refund_of_transaction_id or txn.is_split:
                     continue
                 if session is not None:

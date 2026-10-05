@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+.env*
+.git/
+data/
+backups/
+.pytest_cache/
+tests/
+tmp*
+**/msal*cache*.json*
+**/*token_cache*.json*
+**/auth_state.json*

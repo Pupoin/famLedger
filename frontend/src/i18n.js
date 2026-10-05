@@ -470,7 +470,7 @@ function updateDocumentLanguage(language) {
   if (typeof document === 'undefined') return;
   const chinese = language.startsWith('zh');
   document.documentElement.lang = chinese ? 'zh-CN' : 'en';
-  document.title = chinese ? 'famLedger - 家庭财富与财务协作' : 'famLedger - Family wealth and finance';
+  document.title = 'famledger';
 }
 updateDocumentLanguage(i18n.language);
 i18n.on('languageChanged', updateDocumentLanguage);

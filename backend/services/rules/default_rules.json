@@ -1,0 +1,3045 @@
+{
+  "format": "famledger.rules",
+  "schema_version": 1,
+  "categories": [
+    {
+      "path": [
+        "餐饮美食"
+      ],
+      "name": "餐饮美食",
+      "icon": "🍴",
+      "color": "#8b5cf6",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "超市便利"
+      ],
+      "name": "超市便利",
+      "icon": "🛒",
+      "color": "#10b981",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "交通出行"
+      ],
+      "name": "交通出行",
+      "icon": "🚗",
+      "color": "#06b6d4",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "购物消费"
+      ],
+      "name": "购物消费",
+      "icon": "🛍️",
+      "color": "#eab308",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "生活缴费"
+      ],
+      "name": "生活缴费",
+      "icon": "⚡",
+      "color": "#ef4444",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "医疗健康"
+      ],
+      "name": "医疗健康",
+      "icon": "🏥",
+      "color": "#ec4899",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "休闲娱乐"
+      ],
+      "name": "休闲娱乐",
+      "icon": "🎡",
+      "color": "#a855f7",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "教育培训"
+      ],
+      "name": "教育培训",
+      "icon": "🎓",
+      "color": "#6366f1",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "金融保险"
+      ],
+      "name": "金融保险",
+      "icon": "💰",
+      "color": "#14b8a6",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "其他"
+      ],
+      "name": "其他",
+      "icon": "📦",
+      "color": "#f97316",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "退款"
+      ],
+      "name": "退款",
+      "icon": "↩️",
+      "color": "#f43f5e",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "个人/转账"
+      ],
+      "name": "个人/转账",
+      "icon": "👤",
+      "color": "#0ea5e9",
+      "category_type": "expense"
+    },
+    {
+      "path": [
+        "工资薪酬"
+      ],
+      "name": "工资薪酬",
+      "icon": "💰",
+      "color": "#10b981",
+      "category_type": "income"
+    },
+    {
+      "path": [
+        "理财收益"
+      ],
+      "name": "理财收益",
+      "icon": "📈",
+      "color": "#06b6d4",
+      "category_type": "income"
+    },
+    {
+      "path": [
+        "奖金补贴"
+      ],
+      "name": "奖金补贴",
+      "icon": "🧧",
+      "color": "#f59e0b",
+      "category_type": "income"
+    },
+    {
+      "path": [
+        "兼职副业"
+      ],
+      "name": "兼职副业",
+      "icon": "💼",
+      "color": "#8b5cf6",
+      "category_type": "income"
+    },
+    {
+      "path": [
+        "其他收入"
+      ],
+      "name": "其他收入",
+      "icon": "🪙",
+      "color": "#64748b",
+      "category_type": "income"
+    }
+  ],
+  "rules": [
+    {
+      "name": "餐饮美食",
+      "description": "从 category_rules.json 导入",
+      "priority": 1000,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "餐饮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "饭店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "餐厅"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "小吃"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "粥"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "面食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "火锅"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鸭脖"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "炸鸡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "梅花糕"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "舒芙蕾"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麻辣烫"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烧烤"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "甜品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "咖啡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "炒饭"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "米粉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鸡脚"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "比萨"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "汉堡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "肯德基"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麦当劳"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "必胜客"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "喜茶"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "蜜雪冰城"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "霸王茶姬"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "古茗"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "瑞幸"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "奈雪"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "茶百道"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "奶茶"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "陕味食族"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "海淀食堂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "杏园餐厅"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "橡苑餐厅"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "合作食堂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "食堂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "牛肉面"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "羊肉馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鸭梨餐饮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "涮肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烤肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "煎饼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "酱牛腱"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "老味蒸饼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "冰浆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "炸串"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卤串"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "砂锅粥"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "淮扬菜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "顺德来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "三快"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "拉扎斯"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "饿了么"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "知味"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "绝味"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "恰义"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "里脊肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "牛贝贝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "阿婆牛杂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "回味鸭血"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "小厨娘"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "源香"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "塔斯汀"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "九十三街"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "虎头军"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "味美香"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卢小卢"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "襄阳牛肉面"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烘培"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "包饭"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "亦庄鱼你在一起"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "巴蜀王婆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "利福缘"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "易帆枫顺"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "兰熊餐饮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "刘记百年"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "圆缘涮肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "庆丰包子"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "土家鲜肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "罍街"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "玉壶春"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "菜蔬园"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "巴莉甜甜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "荞面饸饹"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "薯里薯气"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "何俊楠"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "吉茶阿布"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "曾记板井"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "五壮餐饮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "芒果青年"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鼎流"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "何昌健"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "徐安锦"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麒麟大口茶"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "茄彩餐饮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "黔州小吃"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "肥螺姐"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "西昌市船城羊肉馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大盘鸡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "所见所得"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "笨豆腐"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "三鲜粉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "茶苑"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "熟食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "面食馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "南瓜糕"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "一头牛"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烧洋芋"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "食品店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美食广场"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美团"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "稻香村"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "副食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "好利来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "肉夹馍"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麻糍"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "粉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烧饼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "凉皮"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "肉夹"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "紫燕食品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "百味鸡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "笨罗卜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "早点"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "驴肉火烧"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "钵钵鸡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "糖油粑粑"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "莫椒急"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "啫煲"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中大北门店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "家常菜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "米线"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "冰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卤味"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鲜花饼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "太古可口可乐"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "PIZZAHUT"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "同庆楼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大包"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "山西面馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "手擀面"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美食城"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "湘下佬"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "牛肉饼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "客语"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "白糕"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "便民主食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卤味世家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "锅和"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "百胜咨询"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大榕树下"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "顺得来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "牛肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "杨国福"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麻辣香锅"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "半天妖"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "赵记传承"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "丁家脆哨"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "福客来烘焙"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "杨黑黑石磨"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "艺达筷线"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "上海路团科技有限公司"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "上海拉扎斯信息科技"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "酸奶芭蕾"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "棠棠萌果"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大苏小薄"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "曲靖开发区栗子"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "桃花元扬州包子"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "小仙肉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "詹记"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "南京市冬禧饮品有限公司"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "餐饮美食"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "超市便利",
+      "description": "从 category_rules.json 导入",
+      "priority": 1001,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "超市"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "便利店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "物美"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "永辉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "沃尔玛"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "盒马"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "7-11"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "柒一拾壹"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "Lawson"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "罗森"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "全家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美宜佳"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "多点"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "新鲜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "屈臣氏"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "零食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "零食很忙"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "果壳优鲜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "优悦生鲜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "今日卖场"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鲜客来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鲜多来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卜蜂莲花"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华联"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "百家超市"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "友宝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "自动售货机"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "贩卖机"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "优日新"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "尚京生活"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "万逸之家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "福美多"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "国启万家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "超市发"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "联华快客"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "步步高"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中商超市"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中百便利"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "忠桂副食"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "艳英水果"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "依铭水果"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "买乐食品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "九五食品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "微笑一直在"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "供销e家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "零食很能嗨"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "闫记蔬菜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "叶锡秀"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "覃力烤脑花"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "宜家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "名创优品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "福百樂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "哈哈便利"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "雀巢"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "好想来"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "麦芽破土"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "无人售货机"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "好美鲜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "好又多"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "七号门水"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "烟酒"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "久久便利"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "山客便利"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "水果店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "顺客隆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "凯辉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "每一天连锁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "桃林食品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "星力优品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "统一超商"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "品诚聚合"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "薄利店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "售货"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "智能售货"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "农夫山泉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大润发"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美宜多"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中粮智尚"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "象鲜(.*科技)?(.*公司)?"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "果满满鲜生"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "昆明真果美农业科技有限公司"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华润万家有限公司"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "超市便利"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "交通出行",
+      "description": "从 category_rules.json 导入",
+      "priority": 1002,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "铁路"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "12306"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中铁网络"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "公交"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "地铁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "打车"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "高德打车"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "滴滴"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "顺风车"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美团骑行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "骑行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "哈啰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "摩拜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "货拉拉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "货运"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "航空"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "机票"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "东方航空"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "南方航空"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中国国际航空"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "阿斯兰航空"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "飞猪"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "去哪儿"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "去哪儿网"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "携程"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "智行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "同程"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "租车"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "神州租车"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "岭南通"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "合肥城市通卡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "路网"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大唐公共出行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "彩虹出行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "锂市民"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "锂享"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "轨道交通"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "嘉信浩远"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "雪球科技"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "上海雪球数智科技"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "公共交通"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "哈啰普惠"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "凯路创新"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "途易会展"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "驴充充"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "济铁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "高德信息技术"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "鸿通运输"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "龙骧"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "橘子洲"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "首都机场"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大兴"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "机场"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "神州汽车租赁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "嘀嘀.*.*公司"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "北京黑狗科技有限公司"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "飞驰行科技有限公司"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "交通出行"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "购物消费",
+      "description": "从 category_rules.json 导入",
+      "priority": 1003,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "京东"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "淘宝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "天猫"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "拼多多"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "抖音电商"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "唯品会"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "严选"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "小米"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "迪卡侬"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "优衣库"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "迅销"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "极客"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "电子"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "苏宁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "珠宝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "周六福"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "灵犀珠宝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "克徕帝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "青野作"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "晨德鞋业"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "雅诗服饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华秀服饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "晨睿服饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "红聿服饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "无锡红聿"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "德力西"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中兴"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "JUHOR"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "努比亚"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "花不香"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "维森莫"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "朗科"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "清奢"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "京造"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "兰考县文友"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "诗帛母婴"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "九阳"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "GGFUSHI"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "杜东升"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "女鞋"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "文具"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "快团团"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "四川网络技术"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "格物致品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "百度"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "临期"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "清仓"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "闪云信息技术"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "百货"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "花房"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "饰品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "家纺"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "消费券"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "Maca"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "红星前进"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "卡C诺"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "宝洁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "宝岛"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "商行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "工福（北京）科技"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "淘特(.*科技)?(.*公司)?"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "服装"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "服饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "郑州宝岛"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "杭州灵饰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "100%感觉"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "阿里(.*)?网络技术"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "(.*)?商贸(有限公司|中心)"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "(.*)?贸易(有限公司|中心)"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "购物消费"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "生活缴费",
+      "description": "从 category_rules.json 导入",
+      "priority": 1004,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "电力"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "电费"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "燃气"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "水费"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "自来水"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "国家电网"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "缴纳"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "缴费"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "话费"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "充值"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "电信"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "移动"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "联通"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "燃气费"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "景盟呈贡"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "石化"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "石油"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "生活缴费"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "医疗健康",
+      "description": "从 category_rules.json 导入",
+      "priority": 1005,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "门诊"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中医"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "药房"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "药店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "医药"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大药房"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "叮当"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "阿里健康"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "诊所"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "医疗"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "附属医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "朝阳医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中西医结合医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "中心医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "孙逸仙纪念医院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "九十三街"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "康健"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "健康"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "医康臣"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "水卫士"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "泽生堂"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "库博光学"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "海王神辰"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "白云山健康"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "网银国际购Health"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "医疗健康"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "休闲娱乐",
+      "description": "从 category_rules.json 导入",
+      "priority": 1006,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "景区"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "公园"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "植物园"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "故宫"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "博物院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "电影"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "影票"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "影院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "影铁"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "游乐"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "网咖"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "网鱼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "米哈游"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "叠纸"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "玩具"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "浪浪山"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "旅游"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "水族馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "天坛"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "秦始皇帝"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "兵马俑"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华山"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华清宫"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "长白山"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "捞渔河"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "虫虫幻想"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "体育文化"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "阳宗海"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "酒店"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "宾馆"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "客栈"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "民宿"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "度假"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "尚品"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "风景名胜"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "管理处"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "抖音生活服务商家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "生活服务"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "生活服务商家"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "智能潮拍"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "观光"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "Hi-Up"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "运营开发"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "华住会"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "飞云楼"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "宽娱数码(科技)?(有限公司)?"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "休闲娱乐"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "教育培训",
+      "description": "从 category_rules.json 导入",
+      "priority": 1007,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "大学"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "学院"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "学校"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "考试"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "出版社"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "一卡通"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "知网"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "打印"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "教育部"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "文泉体育"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "数码图文"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "国科大"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "综合服务中心"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "智者天下"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "教育培训"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "金融保险",
+      "description": "从 category_rules.json 导入",
+      "priority": 1008,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "理财"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "基金"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "蚂蚁基金"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "分行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "还款"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "小额贷款"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "保险"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "银行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "月付"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "实时转至他行"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "收到本行转入"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "金融保险"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "其他",
+      "description": "从 category_rules.json 导入",
+      "priority": 1009,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "快递"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "自如"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "租房"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "摄影"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "洗浴"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美容"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "美发"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "派出所"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "税务"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "顺丰速运"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "贝壳找房"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "趴圈"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "扫二维码付款"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "菜鸟"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "服务站"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "SWIFTPASS"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "Birdland"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "邮政速递"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "京邦达"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "其他"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "退款",
+      "description": "从 category_rules.json 导入",
+      "priority": 1010,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "退款"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "退货"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "退款"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "个人/转账",
+      "description": "从 category_rules.json 导入",
+      "priority": 1011,
+      "is_active": true,
+      "stop_processing": false,
+      "conditions": {
+        "operator": "OR",
+        "rules": [
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "^(?!.*(公司|店|大学|一卡通|充充|团团|邦达|宜多|有限|平台|美食|餐饮|科技|服务|打车|网咖|通|香锅))[\\u4e00-\\u9fff\\*]{2,3}(快捷支付)?$"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "^商户_(?!.*(公司|店|大学|一卡通|充充|团团|邦达|宜多|有限|平台|美食|餐饮|科技|服务|打车|网咖|通|香锅))[\\u4e00-\\u9fff\\*]{2,3}(快捷支付)?$"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "^[\\u4e00-\\u9fff\\*]{2,5}市(?!.*(公司|店|大学|一卡通|充充|团团|邦达|宜多|有限|平台|美食|餐饮|科技|服务|打车|网咖|通|香锅))[\\u4e00-\\u9fff\\*]{2,3}$"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "转账"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "红包"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "收款"
+          },
+          {
+            "field": "merchant",
+            "operator": "regex",
+            "value": "群收款"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "set_category",
+          "value": {
+            "path": [
+              "个人/转账"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

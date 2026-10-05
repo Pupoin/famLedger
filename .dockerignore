@@ -16,6 +16,8 @@ backend/__pycache__
 backend/**/__pycache__
 
 # Runtime data must not enter the build context or the application image.
+postgres-data/
+famledger-data/
 backend/backups/
 backend/audit/
 backend/*.db
@@ -38,9 +40,11 @@ backend/config.py
 .env.*
 **/.env
 **/.env.*
-services/bill/data/
-services/bill/backups/
-services/bill/logs/
+**/msal*cache*.json*
+**/*token_cache*.json*
+**/auth_state.json*
+services/mailbridge/data/
+services/mailbridge/backups/
 .playwright-mcp/
 
 # Node

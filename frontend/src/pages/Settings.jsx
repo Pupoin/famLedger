@@ -2,7 +2,7 @@ import { categoryLabel, tx, useLocale } from "../localization.js";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, Sliders, User, Shield, KeyRound, SlidersHorizontal, Database, Plus, Trash2, ExternalLink, CheckCircle2, XCircle, ArrowRight, ArrowRightLeft, Sparkles, Layers, Users, Edit2, Check, FolderTree, Tag as TagIcon, ChevronRight, Lock, MoreHorizontal, Building2, LogOut, Key, Copy, Terminal, UserPlus, Inbox, Send } from 'lucide-react';
+import { ChevronLeft, Sliders, User, Shield, KeyRound, SlidersHorizontal, Database, Plus, Trash2, ExternalLink, CheckCircle2, XCircle, ArrowRight, ArrowRightLeft, Sparkles, Layers, Users, Edit2, Check, FolderTree, Tag as TagIcon, ChevronRight, Lock, MoreHorizontal, Building2, LogOut, Key, Copy, Terminal, UserPlus, Inbox, Send, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../ThemeContext';
 import { useCurrency } from '../CurrencyContext';
@@ -10,7 +10,8 @@ import { useDateFormat } from '../DateFormatContext';
 import { useToast } from '../ToastContext';
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { uploadAvatar } from '../api/client';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrency, currencySymbol } from '../utils/currency';
+import { apiErrorMessage } from '../api/errorMessages';
 import { getAccountTypeConfig } from '../utils/accountIcons';
 import { formatDateTime } from '../utils/dates';
 import Avatar from '../components/Avatar';
@@ -686,6 +687,47 @@ export default function Settings() {
   const [openAccountMenuId, setOpenAccountMenuId] = useState(null);
   const [transferringAccount, setTransferringAccount] = useState(null);
   const [deletingAccount, setDeletingAccount] = useState(null);
+  const [sidebarAccountSaving, setSidebarAccountSaving] = useState(null);
+  const sidebarAccountSavingRef = useRef(false);
+
+  const handleAccountVisibility = async (account) => {
+    if (sidebarAccountSavingRef.current) return;
+    sidebarAccountSavingRef.current = true;
+    setSidebarAccountSaving(account.account_id);
+    setOpenAccountMenuId(null);
+    const hidden = !account.hidden_in_sidebar;
+    const save = (confirmed = false) => fetchWithAuth(`/api/v1/accounts/${account.account_id}/sidebar`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden, confirm_nonzero_balance: confirmed }),
+    });
+    try {
+      let response = await save();
+      let data = await response.json().catch(() => ({}));
+      if (response.status === 409 && data.detail?.code === 'balance_confirmation_required') {
+        const balance = `${formatCurrency(data.detail.balance, currencySymbol(data.detail.currency))} ${data.detail.currency}`;
+        if (!window.confirm(tx('账户“{p0}”的当前余额为 {p1}，是否仍要隐藏？已有交易和统计设置不会改变。', {
+          p0: account.account_name, p1: balance,
+        }))) return;
+        response = await save(true);
+        data = await response.json().catch(() => ({}));
+      }
+      if (!response.ok) throw new Error(apiErrorMessage(data.detail, '账户显示设置保存失败'));
+      setSharesMatrix(previous => previous ? {
+        ...previous,
+        accounts: previous.accounts.map(item => item.account_id === account.account_id
+          ? { ...item, hidden_in_sidebar: data.hidden_in_sidebar } : item),
+      } : previous);
+      window.dispatchEvent(new CustomEvent('accounts-updated', {
+        detail: { accountId: account.account_id, hiddenInSidebar: data.hidden_in_sidebar },
+      }));
+      showToast(hidden ? tx('账户已从侧边栏隐藏') : tx('账户已恢复显示'), 'success');
+    } catch (error) {
+      showToast(error.message || tx('账户显示设置保存失败'), 'error');
+    } finally {
+      sidebarAccountSavingRef.current = false;
+      setSidebarAccountSaving(null);
+    }
+  };
 
   // 新增家庭成员弹窗状态
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -2568,6 +2610,7 @@ export default function Settings() {
                   <div>
                     <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{tx("账户管理")}</h2>
                     <p className="text-xs text-zinc-500 mt-0.5">{tx("管理家庭各资产账户：支持编辑账户、转移所有权给其他成员、删除账户，并细粒度共享给家庭组中的成员。")}</p>
+                    <p className="text-xs text-zinc-500 mt-1">{tx('隐藏只影响你的侧边栏；账户管理中可以恢复显示。')}</p>
                   </div>
                   <button
                     onClick={fetchSharesMatrix}
@@ -2589,6 +2632,7 @@ export default function Settings() {
                   <div className="space-y-4">
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-200/80 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-2xs">
                       {sharesMatrix.accounts.map((acc) => {
+                        const isOwnAccount = acc.members?.some((member) => member.is_owner && member.username === user?.username);
                         const sharedCount = acc.members?.filter((m) => !m.is_owner && m.shared).length || 0;
                         const isMenuOpen = openAccountMenuId === acc.account_id;
                         const cfg = getAccountTypeConfig(acc);
@@ -2611,6 +2655,12 @@ export default function Settings() {
                                   <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate" title={acc.account_name}>
                                     {acc.account_name}
                                   </h4>
+                                  {acc.hidden_in_sidebar && (
+                                    <span className="inline-flex items-center gap-1 shrink-0 text-[10px] text-zinc-500" title={tx('已在侧边栏隐藏')}>
+                                      <EyeOff className="w-3 h-3" />
+                                      <span>{tx('已隐藏')}</span>
+                                    </span>
+                                  )}
                                   <span className={`hidden sm:inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border shrink-0 whitespace-nowrap ${cfg.badgeClass}`}>
                                     {tx(cfg.label)}
                                   </span>
@@ -2619,9 +2669,9 @@ export default function Settings() {
                                   <span className={`sm:hidden px-1.5 py-0.2 rounded text-[10px] font-medium border shrink-0 ${cfg.badgeClass}`}>
                                     {tx(cfg.label)}
                                   </span>
-                                  <span className="truncate">{acc.institution_name || tx("中国招商银行")}</span>
+                                  <span className="truncate">{acc.institution_name || tx("其他机构")}</span>
                                   <span>·</span>
-                                  <span className="font-mono shrink-0">{tx("余额:")} {formatCurrency(acc.balance ?? 0, '¥')}
+                                  <span className="font-mono shrink-0">{tx("余额:")} {formatCurrency(acc.balance ?? 0, currencySymbol(acc.currency))}
                                   </span>
                                 </div>
                               </div>
@@ -2630,7 +2680,7 @@ export default function Settings() {
                             {/* 列 2：所有者与共享状态摘要 */}
                             <div className="hidden sm:flex items-center gap-2 shrink-0">
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 shrink-0 whitespace-nowrap">
-                                👑 <strong className="font-semibold truncate max-w-[100px]">{acc.owner_name || tx("我")}</strong>
+                                👑 <strong className="font-semibold truncate max-w-[100px]">{isOwnAccount ? tx("本人") : acc.owner_name || tx("我")}</strong>
                               </span>
 
                               {sharedCount > 0 ? (
@@ -2683,6 +2733,16 @@ export default function Settings() {
                                       {acc.account_name}
                                     </div>
                                     <div className="py-1">
+                                      <button
+                                        type="button"
+                                        data-testid="settings-account-visibility-btn"
+                                        disabled={sidebarAccountSaving !== null}
+                                        onClick={() => handleAccountVisibility(acc)}
+                                        className="w-full text-left px-3 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 flex items-center gap-2.5 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                      >
+                                        {acc.hidden_in_sidebar ? <Eye className="w-3.5 h-3.5 text-zinc-500" /> : <EyeOff className="w-3.5 h-3.5 text-zinc-500" />}
+                                        <span>{acc.hidden_in_sidebar ? tx('恢复侧边栏显示') : tx('从侧边栏隐藏')}</span>
+                                      </button>
                                       {acc.can_manage === true && (
                                       <button
                                         type="button"
@@ -2693,6 +2753,7 @@ export default function Settings() {
                                             id: acc.account_id,
                                             name: acc.account_name,
                                             institution_name: acc.institution_name,
+                                            external_identifier: acc.external_identifier,
                                             account_type: acc.account_type || 'checking',
                                             balance: acc.balance || 0,
                                             can_manage: acc.can_manage,
@@ -3524,14 +3585,22 @@ export default function Settings() {
 
               {/* Developer Integration Quickstart Guide */}
               <div className="bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
-                <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 font-bold text-sm">
-                  <Terminal className="w-4 h-4 text-emerald-500" />
-                  <span>{tx("快捷调用指南 (cURL & iOS 快捷指令)")}</span>
+                <div className="flex items-start gap-2 text-zinc-900 dark:text-zinc-100 font-bold text-sm">
+                  <Terminal className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span className="min-w-0">{tx("快捷调用指南 (cURL & iOS 快捷指令)")}</span>
                 </div>
                 <p className="text-xs text-zinc-500 leading-relaxed">{tx("在 HTTP 请求头中添加")} <code className="px-1.5 py-0.5 bg-zinc-200/60 dark:bg-zinc-800 rounded font-mono text-zinc-800 dark:text-zinc-200">Authorization: Bearer YOUR_API_KEY</code> {tx("或")} <code className="px-1.5 py-0.5 bg-zinc-200/60 dark:bg-zinc-800 rounded font-mono text-zinc-800 dark:text-zinc-200">X-Api-Key: YOUR_API_KEY</code> {tx("，即可完成鉴权。")}</p>
-                <div className="bg-zinc-900 text-zinc-100 rounded-xl p-3.5 font-mono text-xs overflow-x-auto relative">
-                  <pre className="text-[11px] leading-relaxed">
-{tx("# 示例：通过 API Key 提交单笔交易 curl -X POST \"{p0}/api/v1/transactions\" \\ -H \"Authorization: Bearer flk_live_xxxxxxxxxxxx\" \\ -H \"Content-Type: application/json\" \\ -d '{ \"amount\": 25.5, \"narration\": \"瑞幸咖啡\", \"account\": \"default\" }'", {p0: (window.location.origin)})}
+                <div className="bg-zinc-900 text-zinc-100 rounded-xl p-3.5 font-mono text-xs min-w-0 relative">
+                  <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+{`${tx("# 示例：通过 API Key 提交单笔交易")}
+curl -X POST "${window.location.origin}/api/v1/transactions" \\
+  -H "Authorization: Bearer flk_live_xxxxxxxxxxxx" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "amount": 25.5,
+    "narration": "Coffee",
+    "account": "default"
+  }'`}
                   </pre>
                 </div>
               </div>

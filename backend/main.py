@@ -182,6 +182,9 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     sync_schema(engine)
     set_db_schema_version(engine)
+    from services.rules.defaults import initialize_existing_families
+    with Session(engine) as rules_session:
+        initialize_existing_families(rules_session)
 
     from services.mutations import set_listener
     set_listener(None)

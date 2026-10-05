@@ -4,11 +4,13 @@ services:
     container_name: famledger-postgres
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       POSTGRES_USER: ${POSTGRES_USER:-famledger}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be explicitly configured}
       POSTGRES_DB: ${POSTGRES_DB:-famledger}
+    command: ["postgres", "-c", "log_timezone=${TZ:-Asia/Shanghai}"]
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - ./postgres-data:/var/lib/postgresql
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -28,39 +30,16 @@ services:
       db:
         condition: service_healthy
     environment:
+      - TZ=${TZ:-Asia/Shanghai}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-famledger}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be explicitly configured}@db:5432/${POSTGRES_DB:-famledger}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be explicitly configured with high entropy}
       - FAMLEDGER_API_TOKEN=${FAMLEDGER_API_TOKEN:-}
       - FAMLEDGER_SERVICE_FAMILY_ID=${FAMLEDGER_SERVICE_FAMILY_ID:-}
-      - ENV=production
+      - ENV=${FAMLEDGER_ENV:-production}
       - COOKIE_SECURE=${COOKIE_SECURE:-true}
       - DATA_DIR=/app/data
       - CORS_ORIGINS=${CORS_ORIGINS:-}
     ports:
       - "${FAMLEDGER_PORT:-8000}:8000"
     volumes:
-      - famledger-data:/app/data
-
-  famledger-bill:
-    image: famledger-bill:${FAMLEDGER_VERSION:-latest}
-    container_name: famledger-bill
-    restart: unless-stopped
-    build:
-      context: ./services/bill
-      dockerfile: backend/Dockerfile
-    depends_on:
-      - famledger
-    environment:
-      # 遵循严格边界契约：不直连数据库，只通过标准 API 通信
-      - FAMLEDGER_API_URL=http://famledger:8000
-      - FAMLEDGER_API_TOKEN=${FAMLEDGER_API_TOKEN:-}
-      - GRAPH_CLIENT_ID=${GRAPH_CLIENT_ID:-}
-      - GRAPH_CLIENT_SECRET=${GRAPH_CLIENT_SECRET:-}
-      - GRAPH_TENANT_ID=${GRAPH_TENANT_ID:-common}
-    volumes:
-      - bill-data:/app/data
-
-volumes:
-  postgres-data:
-  famledger-data:
-  bill-data:
+      - ./famledger-data:/app/data

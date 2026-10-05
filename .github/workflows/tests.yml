@@ -60,17 +60,17 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  bill:
+  mailbridge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Install bill test dependencies
-        run: pip install pytest -r services/bill/backend/requirements.txt
-      - name: Run bill tests in its own module namespace
-        working-directory: services/bill
+      - name: Install mailbridge test dependencies
+        run: pip install pytest httpx -r services/mailbridge/requirements.txt
+      - name: Run mailbridge tests in its own module namespace
+        working-directory: services/mailbridge
         run: python -m pytest tests -q
 
 

@@ -39,7 +39,7 @@ export function useLocale() {
 const standardCategories = new Set([
   '餐饮美食', '超市便利', '生活缴费', '交通出行', '购物消费', '人情往来', '其他',
   '工资薪酬', '理财收益', '奖金补贴', '兼职副业', '其他收入', '未分类',
-  '旅行住宿', '娱乐休闲', '教育学习', '医疗健康', '宠物用品', '个人/转账',
+  '休闲娱乐', '教育培训', '金融保险', '退款', '旅行住宿', '娱乐休闲', '教育学习', '医疗健康', '宠物用品', '个人/转账',
   'Groceries', 'Rent', 'Utilities', 'Dining', 'Transportation', 'Entertainment',
   'Healthcare', 'Shopping', 'Travel', 'Payment', 'Other', 'Gas', 'Car Insurance',
   '贷款利息', '贷款手续费',

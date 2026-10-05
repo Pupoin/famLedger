@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import regex as re
+from functools import lru_cache
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 from models import Transaction
+
+
+@lru_cache(maxsize=4096)
+def _compiled_regex(pattern):
+    return re.compile(pattern, flags=re.IGNORECASE)
 
 
 class ConditionEvaluator:
@@ -69,7 +75,7 @@ class ConditionEvaluator:
         if op.lower() not in allowed or not isinstance(field, str) or not field:
             raise ValueError("规则字段或运算符无效")
         field = field.strip().lower()
-        if field not in {"merchant", "merchant_name", "description", "name", "narration", "amount", "account", "notes", "category", "category_id", "type", "currency", "transaction_type", "tags", "status", "transacted_at", "is_reimbursable", "excluded_from_stats"}:
+        if field not in {"merchant", "merchant_name", "description", "name", "narration", "amount", "account", "notes", "category", "category_id", "type", "currency", "transaction_type", "tags", "status", "transacted_at", "is_reimbursable", "excluded_from_stats", "import_source", "bank_action"}:
             raise ValueError("不支持的规则字段")
         value = condition.get("value")
         if field == "amount" and op.lower() not in {"is_empty", "is_not_empty"}:
@@ -87,13 +93,15 @@ class ConditionEvaluator:
             if not isinstance(value, str) or len(value) > 512:
                 raise ValueError("正则表达式过长或无效")
             try:
-                re.compile(value)
+                _compiled_regex(value)
             except re.error:
                 raise ValueError("正则表达式无效")
 
     @classmethod
     def _get_field_value(cls, field: str, txn: Transaction, account_name: str) -> Any:
         field = field.lower().strip()
+        if field in ('import_source', 'bank_action'):
+            return (txn.extra or {}).get(field, '')
         if field in ("merchant", "merchant_name", "description", "name", "narration"):
             return txn.narration or ""
         elif field == "amount":
@@ -163,7 +171,7 @@ class ConditionEvaluator:
             try:
                 if len(exp_str) > 512 or len(act_str) > 4096:
                     return False
-                return bool(re.search(exp_str, act_str, flags=re.IGNORECASE, timeout=0.02))
+                return bool(_compiled_regex(exp_str).search(act_str, timeout=0.02))
             except (re.error, TimeoutError):
                 return False
         elif op == "in" and isinstance(expected, (list, tuple)):

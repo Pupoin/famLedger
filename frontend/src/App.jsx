@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { DateFormatProvider } from "./DateFormatContext";
+import { PageViewProvider } from "./PageViewContext";
 import ErrorBoundary from "./ErrorBoundary";
 import SureLayout from "./components/SureLayout";
 import Landing from "./pages/Landing";
@@ -13,7 +14,6 @@ import Settings from "./pages/Settings";
 import DebtsPage from "./pages/DebtsPage";
 import TransactionsPage from "./pages/TransactionsPage";
 import AccountDetailPage from "./pages/AccountDetailPage";
-import ModeSwitchBanner from "./components/ModeSwitchBanner";
 
 // A lazily loaded route whose chunk fails to load almost always means this tab
 // is running an index.html from an older build and asking for chunk names the
@@ -82,9 +82,9 @@ export default function App() {
   }
 
   return (
-    <DateFormatProvider key={user?.username}>
+    <PageViewProvider key={user?.username}>
+      <DateFormatProvider>
       <SureLayout>
-        <ModeSwitchBanner />
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Landing />} />
@@ -129,6 +129,7 @@ export default function App() {
           </Routes>
         </ErrorBoundary>
       </SureLayout>
-    </DateFormatProvider>
+      </DateFormatProvider>
+    </PageViewProvider>
   );
 }

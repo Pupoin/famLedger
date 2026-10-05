@@ -1,4 +1,64 @@
 {
+  "账户范围": {
+    "zh": "账户范围",
+    "en": "Account scope"
+  },
+  "搜索账户或用户": {
+    "zh": "搜索账户或用户",
+    "en": "Search accounts or users"
+  },
+  "账户/用户…": {
+    "zh": "账户/用户…",
+    "en": "Search…"
+  },
+  "清除搜索": {
+    "zh": "清除搜索",
+    "en": "Clear search"
+  },
+  "分组：账户类型": {
+    "zh": "分组：账户类型",
+    "en": "Group: Type"
+  },
+  "分组：金融机构": {
+    "zh": "分组：金融机构",
+    "en": "Group: Institution"
+  },
+  "分组：用户 › 账户类型": {
+    "zh": "分组：用户 › 账户类型",
+    "en": "Group: User › Type"
+  },
+  "分组：用户 › 金融机构": {
+    "zh": "分组：用户 › 金融机构",
+    "en": "Group: User › Institution"
+  },
+  "分组：用户": {
+    "zh": "分组：用户",
+    "en": "Group: User"
+  },
+  "没有匹配的账户": {
+    "zh": "没有匹配的账户",
+    "en": "No matching accounts"
+  },
+  "外部账户标识（可选）": {
+    "zh": "外部账户标识（可选）",
+    "en": "External identifier (optional)"
+  },
+  "例如 招商银行借记卡:2238": {
+    "zh": "例如 招商银行借记卡:2238",
+    "en": "e.g. 招商银行借记卡:2238"
+  },
+  "填写 POST 中的完整账户标识（如 招商银行借记卡:2238）。优先精确匹配；留空则按账户名称匹配。": {
+    "zh": "填写 POST 中的完整账户标识（如 招商银行借记卡:2238）。优先精确匹配；留空则按账户名称匹配。",
+    "en": "Enter the full account identifier sent in POST (e.g. 招商银行借记卡:2238). Exact matches take priority. Leave blank to match by account name."
+  },
+  "外部账户标识不能超过 100 个字符": {
+    "zh": "外部账户标识不能超过 100 个字符",
+    "en": "The external account identifier must be 100 characters or fewer."
+  },
+  "多个账户匹配此银行、卡类型和标识，请使用账户 UUID 或修改外部账户标识": {
+    "zh": "多个账户匹配此银行、卡类型和标识，请使用账户 UUID 或修改外部账户标识",
+    "en": "Multiple accounts match this bank, card type and identifier. Use the account UUID or update the external identifiers."
+  },
   "取消": {
     "zh": "取消",
     "en": "Cancel"
@@ -267,9 +327,9 @@
     "zh": "AI 服务配置已持久化至本地环境",
     "en": "AI service configuration has been persisted to the local environment"
   },
-  "# 示例：通过 API Key 提交单笔交易 curl -X POST \"{p0}/api/v1/transactions\" \\ -H \"Authorization: Bearer flk_live_xxxxxxxxxxxx\" \\ -H \"Content-Type: application/json\" \\ -d '{ \"amount\": 25.5, \"narration\": \"瑞幸咖啡\", \"account\": \"default\" }'": {
-    "zh": "# 示例：通过 API Key 提交单笔交易 curl -X POST \"{p0}/api/v1/transactions\" \\ -H \"Authorization: Bearer flk_live_xxxxxxxxxxxx\" \\ -H \"Content-Type: application/json\" \\ -d '{ \"amount\": 25.5, \"narration\": \"瑞幸咖啡\", \"account\": \"default\" }'",
-    "en": "# Example: Submit a single transaction through API Key curl -X POST \"{p0}/api/v1/transactions\" \\ -H \"Authorization: Bearer flk_live_xxxxxxxxxxxx\" \\ -H \"Content-Type: application/json\" \\ -d '{ \"amount\": 25.5, \"narration\": \"Luckin Coffee\", \"account\": \"default\" }'"
+  "# 示例：通过 API Key 提交单笔交易": {
+    "zh": "# 示例：通过 API Key 提交单笔交易",
+    "en": "# Example: Submit a transaction with an API Key"
   },
   "### 1. OIDC 单点登录集成 (SSO)": {
     "zh": "### 1. OIDC 单点登录集成 (SSO)",
@@ -2309,7 +2369,7 @@
   },
   "或": {
     "zh": "或",
-    "en": "or"
+    "en": "OR"
   },
   "或者直接解散该家庭组，所有成员将各自安全转入个人独立记账空间。": {
     "zh": "或者直接解散该家庭组，所有成员将各自安全转入个人独立记账空间。",
@@ -2377,7 +2437,23 @@
   },
   "所选范围较短时自动向前补充历史消费并铺满可用宽度": {
     "zh": "所选范围较短时自动向前补充历史消费并铺满可用宽度",
-    "en": "When the selected range is short, historical consumption will be automatically added forward and fill the available width."
+    "en": "Short ranges include earlier spending to fill the available width."
+  },
+  "短日期范围自动补充历史消费，长日期范围可横向滑动": {
+    "zh": "短日期范围自动补充历史消费，长日期范围可横向滑动",
+    "en": "Short ranges include earlier spending. Scroll to explore longer ranges."
+  },
+  "其他商户（合计）": {
+    "zh": "其他商户（合计）",
+    "en": "Other merchants (combined)"
+  },
+  "正在加载历史消费…": {
+    "zh": "正在加载历史消费…",
+    "en": "Loading earlier spending…"
+  },
+  "历史消费加载失败，当前仅显示所选日期。": {
+    "zh": "历史消费加载失败，当前仅显示所选日期。",
+    "en": "Earlier spending could not be loaded. Showing the selected dates only."
   },
   "打印报表": {
     "zh": "打印报表",
@@ -2815,9 +2891,9 @@
     "zh": "方可保存",
     "en": "to save"
   },
-  "方块列示所选时段内各商户的消费支出（未扣退款），面积不表示金额比例。": {
-    "zh": "方块列示所选时段内各商户的消费支出（未扣退款），面积不表示金额比例。",
-    "en": "Squares list the consumption expenditures of each merchant during the selected period (before refunds are deducted), and the area does not indicate the proportion of the amount."
+  "色块面积按商户支出金额占比显示（未扣退款）。": {
+    "zh": "色块面积按商户支出金额占比显示（未扣退款）。",
+    "en": "Tile area represents each merchant’s share of spending, before refunds."
   },
   "无 (独立主卡)": {
     "zh": "无 (独立主卡)",
@@ -3185,7 +3261,7 @@
   },
   "本人": {
     "zh": "本人",
-    "en": "person"
+    "en": "You"
   },
   "本周期暂无收入入账": {
     "zh": "本周期暂无收入入账",
@@ -3537,7 +3613,7 @@
   },
   "点击查看流水": {
     "zh": "点击查看流水",
-    "en": "Click to view the running water"
+    "en": "View transactions"
   },
   "点击确认将仅刷新对账核对时间，": {
     "zh": "点击确认将仅刷新对账核对时间，",
@@ -4999,6 +5075,10 @@
     "zh": "重置该用户登录密码",
     "en": "Reset the user’s login password"
   },
+  "其他机构": {
+    "zh": "其他机构",
+    "en": "Other institutions"
+  },
   "金融机构": {
     "zh": "金融机构",
     "en": "financial institutions"
@@ -5029,7 +5109,7 @@
   },
   "金额为扣除退款后的净额；占比按正数分类合计计算，负数表示退款冲抵。": {
     "zh": "金额为扣除退款后的净额；占比按正数分类合计计算，负数表示退款冲抵。",
-    "en": "The amount is the net amount after deducting refunds; the proportion is calculated as a total of positive numbers, and a negative number represents the offset of refunds."
+    "en": "Net of refunds. Shares use positive totals; negative amounts are refund offsets."
   },
   "金额已精确配平": {
     "zh": "金额已精确配平",
@@ -6049,7 +6129,7 @@
   },
   "且": {
     "zh": "且",
-    "en": "and"
+    "en": "AND"
   },
   "两次输入的密码不一致": {
     "zh": "两次输入的密码不一致",
@@ -6485,7 +6565,7 @@
   },
   "占比": {
     "zh": "占比",
-    "en": "proportion"
+    "en": "Share"
   },
   "卡片实时预览（所见即所得）": {
     "zh": "卡片实时预览（所见即所得）",
@@ -9862,5 +9942,385 @@
   "清空": {
     "zh": "清空",
     "en": "Clear"
+  },
+  "导出失败": {
+    "zh": "导出失败",
+    "en": "Export failed"
+  },
+  "导入规则": {
+    "zh": "导入规则",
+    "en": "Import rules"
+  },
+  "导出规则": {
+    "zh": "导出规则",
+    "en": "Export rules"
+  },
+  "导入规则与自动化": {
+    "zh": "导入规则与自动化",
+    "en": "Import rules and automations"
+  },
+  "支持完整规则 JSON 和旧 category_rules.json。导入后用于新交易；历史交易需另行预演并应用。": {
+    "zh": "支持完整规则 JSON 和旧 category_rules.json。导入后用于新交易；历史交易需另行预演并应用。",
+    "en": "Supports full rule JSON and legacy category_rules.json. Imports affect new transactions; preview and apply separately for history."
+  },
+  "规则文件": {
+    "zh": "规则文件",
+    "en": "Rule file"
+  },
+  "规则文件无效": {
+    "zh": "规则文件无效",
+    "en": "Invalid rule file"
+  },
+  "规则文件不能超过 2 MB": {
+    "zh": "规则文件不能超过 2 MB",
+    "en": "Rule files must be smaller than 2 MB"
+  },
+  "导入方式": {
+    "zh": "导入方式",
+    "en": "Import mode"
+  },
+  "新增规则（保留现有规则）": {
+    "zh": "新增规则（保留现有规则）",
+    "en": "Add rules (keep existing rules)"
+  },
+  "按规则名称合并（同名规则更新）": {
+    "zh": "按规则名称合并（同名规则更新）",
+    "en": "Merge by name (update matching rules)"
+  },
+  "新增 {p0} 条，更新 {p1} 条，新建分类 {p2} 个": {
+    "zh": "新增 {p0} 条，更新 {p1} 条，新建分类 {p2} 个",
+    "en": "Add {p0} rules, update {p1}, create {p2} categories"
+  },
+  "已导入 {p0} 条规则": {
+    "zh": "已导入 {p0} 条规则",
+    "en": "Imported {p0} rules"
+  },
+  "动作": {
+    "zh": "动作",
+    "en": "actions"
+  },
+  "检查文件": {
+    "zh": "检查文件",
+    "en": "Check file"
+  },
+  "确认导入": {
+    "zh": "确认导入",
+    "en": "Import"
+  },
+  "处理中…": {
+    "zh": "处理中…",
+    "en": "Processing…"
+  },
+  "优先级数字越小越先执行。分类以首条命中为准；未命中归入其他，保留手动分类。": {
+    "zh": "优先级数字越小越先执行。分类以首条命中为准；未命中归入其他，保留手动分类。",
+    "en": "Lower priority numbers run first. The first category match wins; unmatched transactions use Other. Manual categories are preserved."
+  },
+  "提高优先级": {
+    "zh": "提高优先级",
+    "en": "Move up"
+  },
+  "降低优先级": {
+    "zh": "降低优先级",
+    "en": "Move down"
+  },
+  "选择分类": {
+    "zh": "选择分类",
+    "en": "Select a category"
+  },
+  "条件值 JSON 数组": {
+    "zh": "条件值 JSON 数组",
+    "en": "Condition value as JSON array"
+  },
+  "条件值必须为 JSON 数组": {
+    "zh": "条件值必须为 JSON 数组",
+    "en": "Condition values must be a JSON array"
+  },
+  "条件组运算符": {
+    "zh": "条件组运算符",
+    "en": "Condition group operator"
+  },
+  "全部满足 (AND)": {
+    "zh": "全部满足 (AND)",
+    "en": "Match all (AND)"
+  },
+  "任一满足 (OR)": {
+    "zh": "任一满足 (OR)",
+    "en": "Match any (OR)"
+  },
+  "全部不满足 (NOT)": {
+    "zh": "全部不满足 (NOT)",
+    "en": "Match none (NOT)"
+  },
+  "添加条件组": {
+    "zh": "添加条件组",
+    "en": "Add group"
+  },
+  "条件字段": {
+    "zh": "条件字段",
+    "en": "Condition field"
+  },
+  "条件运算符": {
+    "zh": "条件运算符",
+    "en": "Condition operator"
+  },
+  "条件值": {
+    "zh": "条件值",
+    "en": "Condition value"
+  },
+  "属于集合": {
+    "zh": "属于集合",
+    "en": "In list"
+  },
+  "不属于集合": {
+    "zh": "不属于集合",
+    "en": "Not in list"
+  },
+  "为空": {
+    "zh": "为空",
+    "en": "Is empty"
+  },
+  "不为空": {
+    "zh": "不为空",
+    "en": "Is not empty"
+  },
+  "设置备注": {
+    "zh": "设置备注",
+    "en": "Set note"
+  },
+  "设置商户描述": {
+    "zh": "设置商户描述",
+    "en": "Set merchant text"
+  },
+  "设置描述": {
+    "zh": "设置描述",
+    "en": "Set description"
+  },
+  "动作值": {
+    "zh": "动作值",
+    "en": "Action value"
+  },
+  "备注写入模式": {
+    "zh": "备注写入模式",
+    "en": "Note mode"
+  },
+  "覆盖备注": {
+    "zh": "覆盖备注",
+    "en": "Replace note"
+  },
+  "追加备注": {
+    "zh": "追加备注",
+    "en": "Append note"
+  },
+  "前置备注": {
+    "zh": "前置备注",
+    "en": "Prepend note"
+  },
+  "选择交易类型": {
+    "zh": "选择交易类型",
+    "en": "Select transaction type"
+  },
+  "休闲娱乐": {
+    "zh": "休闲娱乐",
+    "en": "Leisure & entertainment"
+  },
+  "教育培训": {
+    "zh": "教育培训",
+    "en": "Education & training"
+  },
+  "金融保险": {
+    "zh": "金融保险",
+    "en": "Finance & insurance"
+  },
+  "非": {
+    "zh": "非",
+    "en": "NOT"
+  },
+  "分类规则": {
+    "zh": "分类规则",
+    "en": "Category rule"
+  },
+  "未命中分类规则，归入其他": {
+    "zh": "未命中分类规则，归入其他",
+    "en": "No category rule matched; categorized as Other"
+  },
+  "不计入统计": {
+    "zh": "不计入统计",
+    "en": "Exclude from statistics"
+  },
+  "计入统计": {
+    "zh": "计入统计",
+    "en": "Include in statistics"
+  },
+  "可报销": {
+    "zh": "可报销",
+    "en": "Reimbursable"
+  },
+  "是": {
+    "zh": "是",
+    "en": "Yes"
+  },
+  "否": {
+    "zh": "否",
+    "en": "No"
+  },
+  "配置自动分类、标签和商户规则，支持调整优先级及历史预演": {
+    "zh": "配置自动分类、标签和商户规则，支持调整优先级及历史预演",
+    "en": "Configure category, tag and merchant rules; adjust priorities and preview past transactions."
+  },
+  "按条件自动分类和执行动作": {
+    "zh": "按条件自动分类和执行动作",
+    "en": "Categorize transactions and perform actions when conditions match."
+  },
+  "设置分类": {
+    "zh": "设置分类",
+    "en": "Set category"
+  },
+  "设置商户": {
+    "zh": "设置商户",
+    "en": "Set merchant"
+  },
+  "变更类型": {
+    "zh": "变更类型",
+    "en": "Set transaction type"
+  },
+  "追加标签": {
+    "zh": "追加标签",
+    "en": "Add tag"
+  },
+  "导入来源": {
+    "zh": "导入来源",
+    "en": "Import source"
+  },
+  "银行交易动作": {
+    "zh": "银行交易动作",
+    "en": "Bank transaction action"
+  },
+  "应用中…": {
+    "zh": "应用中…",
+    "en": "Applying…"
+  },
+  "正在处理历史交易，请等待完成提示。": {
+    "zh": "正在处理历史交易，请等待完成提示。",
+    "en": "Processing past transactions. Please wait for confirmation."
+  },
+  "历史应用已完成：检查 {p0} 笔，更新 {p1} 笔。": {
+    "zh": "历史应用已完成：检查 {p0} 笔，更新 {p1} 笔。",
+    "en": "Completed: checked {p0} transactions, updated {p1}."
+  },
+  "仅处理你有编辑权限的账户；手动分类会保留。": {
+    "zh": "仅处理你有编辑权限的账户；手动分类会保留。",
+    "en": "Only accounts you can edit are processed. Manual categories are preserved."
+  },
+  "未能确认执行结果，请检查网络后刷新或重试。": {
+    "zh": "未能确认执行结果，请检查网络后刷新或重试。",
+    "en": "Could not confirm the result. Check your connection, then refresh or try again."
+  },
+  "隐藏只影响你的侧边栏；账户管理中可以恢复显示。": {
+    "zh": "隐藏只影响你的侧边栏；账户管理中可以恢复显示。",
+    "en": "Hiding only affects your sidebar. You can show the account again here."
+  },
+  "账户“{p0}”的当前余额为 {p1}，是否仍要隐藏？已有交易和统计设置不会改变。": {
+    "zh": "账户“{p0}”的当前余额为 {p1}，是否仍要隐藏？已有交易和统计设置不会改变。",
+    "en": "Account “{p0}” has a balance of {p1}. Hide it anyway? Existing transactions and reporting settings will stay the same."
+  },
+  "从侧边栏隐藏": {
+    "zh": "从侧边栏隐藏",
+    "en": "Hide from sidebar"
+  },
+  "恢复侧边栏显示": {
+    "zh": "恢复侧边栏显示",
+    "en": "Show in sidebar"
+  },
+  "已隐藏": {
+    "zh": "已隐藏",
+    "en": "Hidden"
+  },
+  "已在侧边栏隐藏": {
+    "zh": "已在侧边栏隐藏",
+    "en": "Hidden from sidebar"
+  },
+  "账户已从侧边栏隐藏": {
+    "zh": "账户已从侧边栏隐藏",
+    "en": "Account hidden from sidebar"
+  },
+  "账户已恢复显示": {
+    "zh": "账户已恢复显示",
+    "en": "Account shown in sidebar"
+  },
+  "账户显示设置保存失败": {
+    "zh": "账户显示设置保存失败",
+    "en": "Could not save account visibility"
+  },
+  "每月总预算": {
+    "zh": "每月总预算",
+    "en": "Monthly budget"
+  },
+  "预期月收入": {
+    "zh": "预期月收入",
+    "en": "Expected monthly income"
+  },
+  "分项分类限额设定 (%)": {
+    "zh": "分项分类限额设定 (%)",
+    "en": "Category budget allocation (%)"
+  },
+  "选择预算分类": {
+    "zh": "选择预算分类",
+    "en": "Select a budget category"
+  },
+  "已分配比例": {
+    "zh": "已分配比例",
+    "en": "Allocated percentage"
+  },
+  "已分配金额": {
+    "zh": "已分配金额",
+    "en": "Allocated amount"
+  },
+  "移除分类 {p0}": {
+    "zh": "移除分类 {p0}",
+    "en": "Remove category {p0}"
+  },
+  "分类比例 {p0}": {
+    "zh": "分类比例 {p0}",
+    "en": "Category percentage: {p0}"
+  },
+  "分类预算比例合计不能超过 100%": {
+    "zh": "分类预算比例合计不能超过 100%",
+    "en": "Category percentages must not exceed 100% in total"
+  },
+  "预算设置已保存": {
+    "zh": "预算设置已保存",
+    "en": "Budget settings saved"
+  },
+  "保存预算失败，请重试": {
+    "zh": "保存预算失败，请重试",
+    "en": "Could not save the budget. Please try again."
+  },
+  "无法加载分类，请稍后重试": {
+    "zh": "无法加载分类，请稍后重试",
+    "en": "Could not load categories. Please try again."
+  },
+  "添加分类": {
+    "zh": "添加分类",
+    "en": "Add category"
+  },
+  "分类预算比例必须为分类与百分比的映射": {
+    "zh": "分类预算比例必须为分类与百分比的映射",
+    "en": "Category allocations must map category names to percentages"
+  },
+  "分类「{p0}」比例必须为 0 至 100 的有效百分比，最多两位小数": {
+    "zh": "分类「{p0}」比例必须为 0 至 100 的有效百分比，最多两位小数",
+    "en": "The percentage for {p0} must be between 0 and 100, with at most two decimal places"
+  },
+  "分类预算执行": {
+    "zh": "分类预算执行",
+    "en": "Category budgets"
+  },
+  "合计超过 100%，「{p0}」最大可设置为 {p1}%。": {
+    "zh": "合计超过 100%，「{p0}」最大可设置为 {p1}%。",
+    "en": "The total exceeds 100%. The maximum for {p0} is {p1}%."
+  },
+  "删除预算分类": {
+    "zh": "删除预算分类",
+    "en": "Remove budget category"
   }
 }

@@ -12,8 +12,13 @@ venv/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
 config.py
-!services/bill/backend/ingest/config.py
+!services/mailbridge/backend/config.py
 
 # Node
 node_modules/
@@ -36,16 +41,27 @@ backend/uploads/
 backend/data/
 backend/audit/
 backend/backups/
-services/bill/backups/
-services/bill/data/*
-!services/bill/data/category_rules.json
+services/mailbridge/backups/
+services/mailbridge/data/
 .playwright-mcp/
+
+# Docker runtime data
+/postgres-data/
+/famledger-data/
 
 # Env — local secrets, never commit these
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
 # Docker env file (generated from .env.docker.example)
 .env.docker
+
+# Microsoft authentication state must remain local, even outside data/.
+msal*cache*.json*
+*token_cache*.json*
+device_flow*.json*
+auth_state.json*
 
 # Claude
 .claude/
@@ -56,3 +72,6 @@ claude.md
 
 # Reports
 code-review-reports
+
+# Local personal transaction review
+/mailbridge_transfer_review.md

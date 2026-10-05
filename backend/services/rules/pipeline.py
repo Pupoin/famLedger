@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
-from models import Rule, Transaction
+from models import Account, Rule, Transaction
+from services.rules.categories import resolve_category, other_category
 from services.rules.evaluator import ConditionEvaluator
 from services.rules.actions import ActionExecutor
 
@@ -14,13 +15,25 @@ logger = logging.getLogger(__name__)
 class RulePipeline:
     """按优先级顺序评估规则流水线，执行动作并支持阻断与 Dry-Run 预演。"""
 
-    def __init__(self, rules: List[Rule], session=None):
+    def __init__(self, rules: List[Rule], session=None, fallback=True, classification_only=False):
         self.session = session
+        self.fallback = fallback
+        self.classification_only = classification_only
+        self._category_cache = {}
+        self._other_cache = {}
         # 按 priority 升序排序（数值越小优先级越高）
         self.rules = sorted(
             [r for r in rules if r.is_active],
-            key=lambda r: r.priority
+            key=lambda r: (r.priority, str(r.created_at or ''), str(r.id))
         )
+        valid = []
+        for rule in self.rules:
+            try:
+                ConditionEvaluator.validate(rule.conditions)
+                valid.append(rule)
+            except ValueError:
+                logger.warning('Invalid rule skipped: %s', rule.id)
+        self.rules = valid
 
     def process_transaction(
         self,
@@ -36,11 +49,44 @@ class RulePipeline:
         if dry_run:
             txn = Transaction.model_validate(txn.model_dump())
         matched_records: List[Dict[str, Any]] = []
+        category_matched = False
+        account = self.session.get(Account, txn.account_id) if self.session is not None else None
+
+        def resolve(value):
+            if self.session is None:
+                import uuid
+                return uuid.UUID(str(value))
+            if account is None:
+                raise ValueError('账户不存在')
+            key = (account.family_id, str(value))
+            if key not in self._category_cache:
+                self._category_cache[key] = resolve_category(self.session, value, account.family_id)
+            return self._category_cache[key]
 
         for rule in self.rules:
-            is_matched = ConditionEvaluator.evaluate(rule.conditions, txn, account_name)
+            is_matched = ConditionEvaluator._evaluate(rule.conditions, txn, account_name)
             if is_matched:
-                changes = ActionExecutor.apply_actions(rule.actions, txn, dry_run=False, session=self.session)
+                actions = []
+                selected_category = False
+                for action in rule.actions:
+                    if action.get('type') == 'set_category':
+                        if category_matched or txn.category_source == 'manual':
+                            continue
+                        try:
+                            resolve(action.get('value', action.get('target_value')))
+                        except (ValueError, TypeError):
+                            continue
+                        category_matched = selected_category = True
+                    elif self.classification_only:
+                        continue
+                    actions.append(action)
+                changes = ActionExecutor.apply_actions(actions, txn, session=self.session, category_resolver=resolve)
+                if selected_category:
+                    trace = dict(rule_id=str(rule.id), rule_name=rule.name, priority=rule.priority)
+                    old = (txn.extra or {}).get('classification')
+                    if old != trace:
+                        txn.extra = {**(txn.extra or {}), 'classification': trace}
+                        changes['classification'] = {'old': old, 'new': trace}
                 matched_records.append({
                     "rule_id": str(rule.id),
                     "rule_name": rule.name,
@@ -54,6 +100,24 @@ class RulePipeline:
                     logger.debug("规则 [%s] 触发 stop_processing，流水线终止", rule.name)
                     break
 
+        if self.fallback and not category_matched and txn.category_source != 'manual' and account:
+            family_id = account.family_id
+            if family_id not in self._other_cache:
+                self._other_cache[family_id] = other_category(self.session, family_id, create=not dry_run)
+            category = self._other_cache[family_id]
+            if category:
+                changes = {}
+                if txn.category_id != category.id:
+                    changes['category_id'] = {'old': str(txn.category_id) if txn.category_id else None, 'new': str(category.id)}
+                txn.category_id = category.id
+                txn.category_source = 'rule'
+                trace = {'reason': 'no_match', 'rule_name': '其他'}
+                old = (txn.extra or {}).get('classification')
+                if old != trace:
+                    txn.extra = {**(txn.extra or {}), 'classification': trace}
+                    changes['classification'] = {'old': old, 'new': trace}
+                if changes:
+                    matched_records.append(dict(rule_id=None, rule_name='其他', priority=None, changes=changes, stopped_pipeline=False))
         return matched_records
 
     def dry_run_batch(

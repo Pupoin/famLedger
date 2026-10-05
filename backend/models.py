@@ -27,6 +27,7 @@ class Family(SQLModel, table=True):
     is_solo: bool = Field(default=False) # 兼容标记：是否为单人空间
     kind: str = Field(default="collaborative", max_length=20) # personal(个人独立记账空间) | collaborative(多人协作家庭组)
     status: str = Field(default="active", max_length=20, index=True) # active(活动) | dissolved(已解散归档)
+    classification_rules_version: int = Field(default=0)
     personal_owner_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", index=True)
     dissolved_at: Optional[datetime] = Field(default=None)
     dissolved_by_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")
@@ -590,6 +591,10 @@ class UserPreference(SQLModel, table=True):
     has_chosen_currency: bool = Field(default=True)
     language: str = Field(default='en', max_length=10)
     has_chosen_language: bool = Field(default=True)
+    hidden_sidebar_accounts: List[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON_TYPE, nullable=False, server_default=sqlalchemy.text("'[]'")),
+    )
 
 class Settings(SQLModel, table=True):
     __tablename__ = "settings"

@@ -13,6 +13,7 @@ import SureSpendingCalendar from '../components/ds/SureSpendingCalendar';
 import SureMoneyInOut from '../components/ds/SureMoneyInOut';
 import FamilyInvitationPromptModal from '../components/FamilyInvitationPromptModal';
 import CalendarDateInput from '../components/CalendarDateInput';
+import { usePageViewState, usePageScrollRestoration } from '../PageViewContext';
 
 export default function Landing() {
   useLocale();
@@ -24,7 +25,7 @@ export default function Landing() {
   const [retryCount, setRetryCount] = useState(0);
 
   // Period Preset: 'monthly' | 'quarterly' | 'ytd' | '6m' | 'custom'
-  const [period, setPeriod] = useState('monthly');
+  const [period, setPeriod] = usePageViewState('period', 'monthly');
 
   const getInitialMonth = () => {
     const now = new Date();
@@ -42,16 +43,16 @@ export default function Landing() {
     };
   };
 
-  const [selectedMonth, setSelectedMonth] = useState(getInitialMonth);
-  const [customStartDate, setCustomStartDate] = useState(() => getInitialCustomDates().start);
-  const [customEndDate, setCustomEndDate] = useState(() => getInitialCustomDates().end);
+  const [selectedMonth, setSelectedMonth] = usePageViewState('selectedMonth', getInitialMonth);
+  const [customStartDate, setCustomStartDate] = usePageViewState('customStartDate', () => getInitialCustomDates().start);
+  const [customEndDate, setCustomEndDate] = usePageViewState('customEndDate', () => getInitialCustomDates().end);
 
   // User filter (Exact user requirement 3: 家庭组各个用户或全部用户)
-  const [userFilter, setUserFilter] = useState('全部');
+  const [userFilter, setUserFilter] = usePageViewState('userFilter', '全部');
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   // Section collapse states (matching 10.jpg and 11.jpg flow)
-  const [collapsedSections, setCollapsedSections] = useState({
+  const [collapsedSections, setCollapsedSections] = usePageViewState('collapsedSections', {
     cashflow: false,
     outflows: false,
     money_in_out: false,
@@ -62,8 +63,9 @@ export default function Landing() {
     net_worth: false,
   });
 
-  const [balanceSheetMode, setBalanceSheetMode] = useState('type'); // 'type' | 'institution'
-  const [expandedGroups, setExpandedGroups] = useState({});
+  const [balanceSheetMode, setBalanceSheetMode] = usePageViewState('balanceSheetMode', 'type'); // 'type' | 'institution'
+  const [expandedGroups, setExpandedGroups] = usePageViewState('expandedGroups', {});
+  usePageScrollRestoration(!loading && !!data);
 
   const toggleGroup = (key) => {
     setExpandedGroups((prev) => ({
@@ -290,6 +292,7 @@ export default function Landing() {
               key={item.id}
               data-testid="dashboard-period"
               data-period={item.id}
+              aria-pressed={period === item.id}
               onClick={() => setPeriod(item.id)}
               className={`flex-1 sm:flex-initial text-center px-1.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
                 period === item.id
@@ -429,7 +432,7 @@ export default function Landing() {
       {/* ── 4. Main Dashboard Widgets Stream (Exact Sure Order) ── */}
       <div className="space-y-4">
         {/* ── Section 1: 现金流 (Cash Flow Sankey) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="cashflow" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5 sm:p-4 sm:pb-2">
             <button
@@ -470,7 +473,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 2: 支出 (Outflows Donut & Ranking) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="outflows" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-2">
             <button
@@ -502,7 +505,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 3: Money In / Out (Matching 11.jpg) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="money_in_out" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           <div className="flex items-center justify-between p-4">
             <button
               type="button"
@@ -530,7 +533,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 4: 消费日历热力图 (Spending Calendar, Matching 11.jpg) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="calendar" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-2">
             <button
@@ -553,6 +556,7 @@ export default function Landing() {
               <SureSpendingCalendar
                 data={data?.spending_calendar}
                 currencySymbol={currencySymbol}
+                reportCurrency={data?.currency || currency}
                 userFilter={userFilter}
               />
             </div>
@@ -560,7 +564,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 5: 投资 (Investment, Matching 11.jpg) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="investment" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-2">
             <button
@@ -589,7 +593,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 6: 按商户统计的支出分布 (Merchant Spending) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="merchant_spending" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 pb-2">
             <button
@@ -621,7 +625,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 7: 资产负债表 (Balance Sheet) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="balance_sheet" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           <div className="flex items-center justify-between p-4">
             <button
               type="button"
@@ -849,7 +853,7 @@ export default function Landing() {
         </div>
 
         {/* ── Section 8: 净资产 (Net Worth) ── */}
-        <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+        <div data-view-section="net_worth" className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
           <div className="flex items-center justify-between p-4">
             <button
               type="button"

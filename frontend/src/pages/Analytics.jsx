@@ -15,6 +15,7 @@ import { useCurrency } from '../CurrencyContext';
 import { formatCurrency } from '../utils/currency';
 import { useTheme } from '../ThemeContext';
 import CalendarDateInput from '../components/CalendarDateInput';
+import { usePageViewState, usePageScrollRestoration } from '../PageViewContext';
 
 export default function Analytics() {
   useLocale();
@@ -24,7 +25,7 @@ export default function Analytics() {
   const isEn = (i18n.language || '').startsWith('en');
 
   // Period Preset
-  const [period, setPeriod] = useState('monthly'); // 'monthly' | 'quarterly' | 'ytd' | '6m' | 'custom'
+  const [period, setPeriod] = usePageViewState('period', 'monthly'); // 'monthly' | 'quarterly' | 'ytd' | '6m' | 'custom'
 
   const getInitialMonth = () => {
     const now = new Date();
@@ -42,12 +43,12 @@ export default function Analytics() {
     };
   };
 
-  const [selectedMonth, setSelectedMonth] = useState(getInitialMonth);
-  const [customStartDate, setCustomStartDate] = useState(() => getInitialCustomDates().start);
-  const [customEndDate, setCustomEndDate] = useState(() => getInitialCustomDates().end);
+  const [selectedMonth, setSelectedMonth] = usePageViewState('selectedMonth', getInitialMonth);
+  const [customStartDate, setCustomStartDate] = usePageViewState('customStartDate', () => getInitialCustomDates().start);
+  const [customEndDate, setCustomEndDate] = usePageViewState('customEndDate', () => getInitialCustomDates().end);
 
   // Collapsible sections state
-  const [sectionsOpen, setSectionsOpen] = useState({
+  const [sectionsOpen, setSectionsOpen] = usePageViewState('sectionsOpen', {
     trends: true,
     activity: true,
     netWorth: true,
@@ -64,6 +65,7 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
+  usePageScrollRestoration(!loading && !!reportData);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -251,6 +253,7 @@ export default function Analytics() {
               key={item.id}
               data-testid="analytics-period"
               data-period={item.id}
+              aria-pressed={period === item.id}
               onClick={() => setPeriod(item.id)}
               className={`flex-1 sm:flex-initial text-center px-1.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap cursor-pointer ${
                 period === item.id
@@ -437,7 +440,7 @@ export default function Analytics() {
       </div>
 
       {/* ── 4. Section 1: 趋势与洞察 (Trends & Insights, Real DB Calculation) ── */}
-      <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+      <div data-view-section="trends" className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
         <div
           onClick={() => toggleSection('trends')}
           className="p-5 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors border-b border-zinc-100 dark:border-zinc-800"
@@ -550,7 +553,7 @@ export default function Analytics() {
       </div>
 
       {/* ── 5. Section 2: 活动明细 (Activity Breakdown with Refunds!) ── */}
-      <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+      <div data-view-section="activity" className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
         <div
           onClick={() => toggleSection('activity')}
           className="p-5 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors border-b border-zinc-100 dark:border-zinc-800"
@@ -690,7 +693,7 @@ export default function Analytics() {
       </div>
 
       {/* ── 6. Section 3: 净资产 (Net Worth, Real DB Calculation) ── */}
-      <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+      <div data-view-section="netWorth" className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
         <div
           onClick={() => toggleSection('netWorth')}
           className="p-5 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors border-b border-zinc-100 dark:border-zinc-800"
@@ -821,7 +824,7 @@ export default function Analytics() {
       </div>
 
       {/* ── 7. Section 4: 投资表现 (Investments, Real DB Calculation) ── */}
-      <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
+      <div data-view-section="investments" className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs overflow-hidden">
         <div
           onClick={() => toggleSection('investments')}
           className="p-5 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors border-b border-zinc-100 dark:border-zinc-800"

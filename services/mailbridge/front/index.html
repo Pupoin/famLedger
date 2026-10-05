@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mailbridge · Microsoft</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color-scheme:light dark;background:#f3f5fa;color:#172033}
+    body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:20px;box-sizing:border-box}
+    main{box-sizing:border-box;width:100%;max-width:440px;padding:32px;border-radius:20px;background:white;box-shadow:0 12px 50px #15203b12}
+    h1{font-size:26px;margin:0 0 8px}p{line-height:1.6;color:#596579}button,a{font:inherit}button{width:100%;padding:13px;border:0;border-radius:10px;background:#2563eb;color:white;cursor:pointer}button:disabled{opacity:.6;cursor:wait}
+    #code{font-size:28px;letter-spacing:3px;display:block;margin:18px 0;font-weight:700}a{color:#2563eb;overflow-wrap:anywhere}#login[hidden]{display:none}#expiry{font-size:13px}
+    @media(prefers-color-scheme:dark){:root{background:#101621;color:#edf1fa}main{background:#1b2433}p{color:#b1bdd0}a{color:#91b7ff}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Mailbridge</h1>
+  <p id="description"></p>
+  <p id="status" role="status" aria-live="polite"></p>
+  <section id="login" hidden><span id="code"></span><a id="link" target="_blank" rel="noopener noreferrer"></a><p id="expiry"></p></section>
+  <button id="authorize" type="button" disabled></button>
+</main>
+<script>
+const zh=navigator.language.toLowerCase().startsWith('zh');document.documentElement.lang=zh?'zh-CN':'en';
+const words=zh?{description:'连接 Microsoft 邮箱，将账单发送至 famLedger。',button:'登录 Microsoft',force:'强制重新认证',ok:'Microsoft 已认证成功，无需重新认证。',checking:'正在检查已有 Microsoft 登录…',waiting:'等待认证完成…',pending:'打开授权页面并输入以下设备码。',failed:'请登录 Microsoft',expired:'授权码已过期，请重新获取。',error:'暂时无法连接，请稍后重试。',link:'打开 Microsoft 授权页面',expiry:'授权码有效期还剩'}:{description:'Connect your Microsoft mailbox to send bank transactions to famLedger.',button:'Sign in with Microsoft',force:'Force reauthentication',ok:'Microsoft authenticated. No need to sign in again.',checking:'Checking your Microsoft sign-in…',waiting:'Waiting for authentication…',pending:'Open Microsoft sign-in and enter this device code.',failed:'Please sign in with Microsoft',expired:'This code has expired. Please request a new one.',error:'Unable to connect. Please try again.',link:'Open Microsoft sign-in',expiry:'Code expires in'};
+const button=document.getElementById('authorize'),status=document.getElementById('status'),login=document.getElementById('login'),link=document.getElementById('link'),expiry=document.getElementById('expiry');
+let currentState='checking',expiresAt=0,busy=false,version=0;
+document.getElementById('description').textContent=words.description;button.textContent=words.button;document.getElementById('link').textContent=words.link;
+function updateExpiry(){if(currentState!=='pending')return;const seconds=Math.max(0,Math.ceil(expiresAt-Date.now()/1000));if(!seconds){show({status:'expired'});return;}expiry.textContent=`${words.expiry} ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;}
+function show(data){
+  currentState=data.status;expiresAt=Number(data.expires_at)||0;
+  if(currentState==='pending'&&(!data.user_code||expiresAt<=Date.now()/1000))currentState='expired';
+  status.textContent=currentState==='ok'?words.ok:currentState==='pending'?words.pending:currentState==='checking'?words.checking:currentState==='expired'?words.expired:words.failed;
+  login.hidden=currentState!=='pending';document.getElementById('code').textContent=currentState==='pending'?data.user_code:'';expiry.textContent='';
+  link.removeAttribute('href');if(currentState==='pending'&&/^https:\/\//i.test(data.verify_url||''))link.href=data.verify_url;
+  button.textContent=currentState==='ok'?words.force:currentState==='pending'?words.waiting:words.button;
+  button.disabled=busy||currentState==='pending'||currentState==='checking';updateExpiry();
+}
+async function refresh(){if(busy)return;const requestVersion=++version;try{const response=await fetch('/api/auth/status',{cache:'no-store'});if(!response.ok)throw Error();const data=await response.json();if(requestVersion===version)show(data);}catch{if(requestVersion===version){status.textContent=words.error;button.disabled=false;}}}
+button.addEventListener('click',async()=>{const force=currentState==='ok';busy=true;++version;button.disabled=true;try{const response=await fetch('/api/auth/initiate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})});if(!response.ok)throw Error();const result=await response.json();busy=false;show(result);}catch{busy=false;await refresh();status.textContent=words.error;}});
+show({status:'checking'});
+refresh();setInterval(refresh,3000);
+setInterval(updateExpiry,1000);
+</script>
+</body>
+</html>

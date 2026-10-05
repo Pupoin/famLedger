@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import tempfile
 import uuid
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, select
@@ -43,17 +44,27 @@ DEFAULT_SETTINGS = {
     },
 }
 
-CATEGORY_DEFS = [
-    {"name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
-    {"name": "超市便利", "icon": "🛒", "color": "#10b981", "kws": ["超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛", "山姆", "全家", "罗森"]},
-    {"name": "生活缴费", "icon": "⚡", "color": "#ef4444", "kws": ["自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通", "电信", "水务", "缴费"]},
-    {"name": "交通出行", "icon": "🚗", "color": "#06b6d4", "kws": ["高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油", "停车", "出行", "中石化", "中石油"]},
-    {"name": "购物消费", "icon": "🛍️", "color": "#eab308", "kws": ["京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸", "商行", "数码", "服饰", "唯品会"]},
-    {"name": "个人/转账", "icon": "👤", "color": "#0ea5e9", "kws": ["微信转账", "转账", "赵自宽", "还款", "转账快捷", "提现"]},
-]
 
-NON_INCOME_KWS = ["对账", "期初", "建账", "还款", "转账", "转入", "划转", "借据", "借款"]
-NON_EXPENSE_KWS = ["对账", "期初", "建账", "还贷", "放款", "借据", "调账"]
+def _category_percentages(settings: Dict[str, Any]) -> Dict[str, float]:
+    if "category_percentages" in settings:
+        return dict(settings["category_percentages"])
+    total = Decimal(str(settings.get("total_budget", 0)))
+    return {
+        name: float((Decimal(str(amount)) * 100 / total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if total > 0 else 0.0
+        for name, amount in settings.get("category_budgets", {}).items()
+    }
+
+
+def _allocate_category_budgets(total: float, percentages: Dict[str, float]) -> Dict[str, float]:
+    # Allocate whole cents and distribute rounding remainders without exceeding the total.
+    cents = int((Decimal(str(total)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    raw = {name: Decimal(cents) * Decimal(str(percent)) / 100 for name, percent in percentages.items()}
+    allocated = {name: int(amount.to_integral_value(rounding=ROUND_FLOOR)) for name, amount in raw.items()}
+    target = int(sum(raw.values(), Decimal(0)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    order = sorted(raw, key=lambda name: raw[name] - allocated[name], reverse=True)
+    for name in order[:target - sum(allocated.values())]:
+        allocated[name] += 1
+    return {name: amount / 100 for name, amount in allocated.items()}
 
 
 def _load_budget_settings(family_id: Optional[uuid.UUID] = None) -> Dict[str, Any]:
@@ -142,8 +153,8 @@ def get_budgets_summary(
 
     # 查询当月所有有效交易（严格限定于存续有效账户，排除对账调整、期初建账等）
     stmt = select(Transaction).where(
-        Transaction.transacted_at >= start_d.isoformat(),
-        Transaction.transacted_at <= end_d.isoformat(),
+        Transaction.transacted_at >= start_d,
+        Transaction.transacted_at <= end_d,
         Transaction.excluded_from_stats == False,
     )
     if not active_account_ids:
@@ -163,6 +174,7 @@ def get_budgets_summary(
     all_acc_map = {a.id: a for a in all_accs}
     all_categories = session.exec(select(Category)).all()
     cat_by_id = {c.id: c for c in all_categories}
+    family_categories = {c.name: c for c in all_categories if family_id and c.family_id == family_id}
 
     income_txns = [t for t in txns if is_genuine_income(t, all_acc_map)]
     expense_txns = [t for t in txns if is_genuine_expense(t, all_acc_map)]
@@ -200,17 +212,18 @@ def get_budgets_summary(
                 "spent": calc_map[cname]["amount"],
             }
         else:
+            configured_category = family_categories.get(cname)
             cat_spent_map[cname] = {
                 "name": cname,
-                "icon": "📦",
-                "color": "#f97316",
+                "icon": (configured_category.icon if configured_category else None) or "📦",
+                "color": (configured_category.color if configured_category else None) or "#f97316",
                 "spent": 0.0,
             }
 
     for cname, item in cat_spent_map.items():
         spent = round(item["spent"], 2)
-        # 获取该分类设定的预算值（若未单独设定则默认为 1000.0）
-        c_budget = float(configured_category_budgets.get(cname, 1000.0))
+        # 未分配或已移除的分类没有独立限额，避免自动恢复已删除的预算。
+        c_budget = float(configured_category_budgets.get(cname, 0.0))
         is_over = spent > c_budget
         over = round(spent - c_budget, 2) if is_over else 0.0
         rem = round(c_budget - spent, 2) if not is_over else 0.0
@@ -255,6 +268,8 @@ def get_budgets_summary(
         "month": target_month,
         "month_display": f"{y}年{str(m).padStart(2, '0') if hasattr(str(m), 'padStart') else f'{m:02d}'}月",
         "total_budget": total_budget,
+        "category_percentages": _category_percentages(settings),
+        "category_budgets": configured_category_budgets,
         "total_spent": total_spent,
         "total_remaining": total_remaining,
         "total_over": total_over,
@@ -299,6 +314,7 @@ def update_budget_settings(
     session.execute(update(Family).where(Family.id == family_id).values(name=Family.name))
     stored = session.get(FamilyBudget, family_id, populate_existing=True)
     current = {**DEFAULT_SETTINGS, **stored.settings} if stored else _load_budget_settings(family_id)
+    percentages = _category_percentages(current)
     import math
     if "total_budget" in payload:
         try:
@@ -327,6 +343,28 @@ def update_budget_settings(
             except Exception:
                 raise HTTPException(status_code=400, detail=f"分类预算「{k}」必须为非负有效数值")
         current["category_budgets"] = cat_budgets
+        current.pop("category_percentages", None)
+        percentages = _category_percentages(current)
+
+    if "category_percentages" in payload:
+        if not isinstance(payload["category_percentages"], dict):
+            raise HTTPException(status_code=400, detail="分类预算比例必须为分类与百分比的映射")
+        percentages = {}
+        for name, value in payload["category_percentages"].items():
+            try:
+                if not isinstance(name, str) or not name.strip() or name != name.strip() or len(name) > 100 or isinstance(value, bool):
+                    raise ValueError()
+                percent = Decimal(str(value))
+                if not percent.is_finite() or percent < 0 or percent > 100 or percent != percent.quantize(Decimal("0.01")):
+                    raise ValueError()
+                percentages[name] = float(percent)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"分类「{name}」比例必须为 0 至 100 的有效百分比，最多两位小数")
+        if sum((Decimal(str(value)) for value in percentages.values()), Decimal(0)) > 100:
+            raise HTTPException(status_code=400, detail="分类预算比例合计不能超过 100%")
+
+    current["category_percentages"] = percentages
+    current["category_budgets"] = _allocate_category_budgets(current["total_budget"], percentages)
 
     if stored is None:
         stored = FamilyBudget(family_id=family_id)

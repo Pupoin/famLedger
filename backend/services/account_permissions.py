@@ -8,8 +8,7 @@ def account_capabilities(user, account, share=None):
     if not user:
         return False, False
     same_family = account.family_id == user.family_id
-    is_admin = user.role == "admin"
-    if not same_family and not is_admin:
+    if not same_family:
         return False, False
     if account.owner_id == user.id:
         return True, True
@@ -18,7 +17,7 @@ def account_capabilities(user, account, share=None):
             return False, False
         return (share.permission in ("read_write", "full_control"),
                 share.permission == "full_control")
-    return is_admin, is_admin
+    return False, False
 
 
 def can_manage_sharing(user, account, share=None):

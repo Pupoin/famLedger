@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useCurrency } from '../../CurrencyContext';
+import { usePageViewState } from '../../PageViewContext';
 
 export default function SureOutflowsDonut({
   data,
@@ -17,7 +18,7 @@ export default function SureOutflowsDonut({
   const currencySymbol = reportSymbol ?? symbol ?? '';
   const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
   const navigate = useNavigate();
-  const [groupBy, setGroupBy] = useState('category'); // 'category' | 'account'
+  const [groupBy, setGroupBy] = usePageViewState('outflows.groupBy', 'category'); // 'category' | 'account'
   const [activeCategory, setActiveCategory] = useState(null);
 
   const total = Number(data?.total) || 0;
@@ -87,6 +88,7 @@ export default function SureOutflowsDonut({
       <div className="flex justify-end">
         <div className="inline-flex p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-xs font-medium">
           <button
+            aria-pressed={groupBy === 'category'}
             onClick={() => setGroupBy('category')}
             className={`px-3 py-1 rounded-md transition-all ${
               groupBy === 'category'
@@ -95,6 +97,7 @@ export default function SureOutflowsDonut({
             }`}
           >{tx("按分类")}</button>
           <button
+            aria-pressed={groupBy === 'account'}
             onClick={() => setGroupBy('account')}
             className={`px-3 py-1 rounded-md transition-all ${
               groupBy === 'account'
@@ -106,10 +109,10 @@ export default function SureOutflowsDonut({
       </div>
 
       {/* ── Body Grid: Left Donut + Right Table ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8">
         {/* Left: Donut Chart */}
-        <div className="lg:col-span-4 flex flex-col items-center justify-center relative min-h-[260px]">
-          <svg width={center * 2} height={center * 2} className="rotate-[-90deg] overflow-visible">
+        <div data-testid="outflows-donut" className="relative w-60 max-w-full shrink-0 aspect-square flex items-center justify-center">
+          <svg viewBox={`0 0 ${center * 2} ${center * 2}`} width={center * 2} height={center * 2} className="block w-full h-full rotate-[-90deg]">
             {/* Background ring */}
             <circle
               cx={center}
@@ -154,7 +157,7 @@ export default function SureOutflowsDonut({
                 if (!cur) return null;
                 return (
                   <>
-                    <span className="text-xs text-zinc-500 font-medium">{groupBy === 'category' ? categoryLabel(cur.name) : cur.name}</span>
+                    <span className="max-w-[180px] text-center break-words text-xs text-zinc-500 font-medium">{groupBy === 'category' ? categoryLabel(cur.name) : cur.name}</span>
                     <span className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-zinc-900 dark:text-zinc-100 mt-0.5">
                       {formatAmount(cur.amount)}
                     </span>
@@ -174,62 +177,69 @@ export default function SureOutflowsDonut({
           </div>
         </div>
 
-        {/* Right: Breakdown Table */}
-        <div className="lg:col-span-8 bg-zinc-50/70 dark:bg-zinc-800/40 rounded-2xl p-2.5 border border-zinc-100 dark:border-zinc-800/80 space-y-1">
-          {/* Header */}
-          <div className="px-3 sm:px-4 py-2 flex items-center justify-between text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-            <span className="flex-1 min-w-0 pr-2 sm:pr-4">{groupBy === 'account' ? tx("账户") : tx("分类")} · {activeItems.length}</span>
-            <div className="flex items-center gap-2 sm:gap-6 text-right shrink-0">
-              <span className="min-w-[80px] sm:w-28 text-right">{tx("金额")}</span>
-              <span className="w-11 sm:w-14 text-right">{tx("占比")}</span>
-            </div>
-          </div>
-
+        {/* Right: natural column widths keep labels and amounts visible. */}
+        <div className="flex-[1_1_420px] min-w-0 bg-zinc-50/70 dark:bg-zinc-800/40 rounded-2xl p-2.5 border border-zinc-100 dark:border-zinc-800/80 space-y-2">
           <p className="px-3 text-xs text-zinc-500">{tx("金额为扣除退款后的净额；占比按正数分类合计计算，负数表示退款冲抵。")}</p>
-          {/* List */}
-          <div className="bg-white dark:bg-zinc-900 rounded-xl divide-y divide-zinc-100 dark:divide-zinc-800/70 shadow-2xs border border-zinc-100 dark:border-zinc-800/60">
-            {activeItems.length === 0 ? (
-              <div className="py-8 px-4 text-center text-xs text-zinc-400">{tx("本期暂无支出数据")}</div>
-            ) : (
-              activeItems.map((item) => {
-              const isHovered = activeCategory === item.id;
-              return (
-                <div
-                  key={item.id}
-                  onMouseEnter={() => setActiveCategory(item.id)}
-                  onMouseLeave={() => setActiveCategory(null)}
-                  onClick={() => handleItemClick(item)}
-                  className={`flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 cursor-pointer transition-colors group ${
-                    isHovered ? 'bg-zinc-50/90 dark:bg-zinc-800/60' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-800/40'
-                  }`}
-                  title={tx("点击查看 {p0} 的交易明细", {p0: (item.name)})}
-                >
-                  <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 pr-2 sm:pr-4">
-                    <span
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0 transition-transform group-hover:scale-110"
-                      style={{ backgroundColor: `${item.color}15`, color: item.color }}
+          <div className="rounded-xl border border-zinc-100 dark:border-zinc-800/60 bg-white dark:bg-zinc-900 shadow-2xs">
+            <table data-testid="outflows-breakdown" className="w-full table-auto text-xs sm:text-sm">
+              <thead>
+                <tr className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                  <th scope="col" className="px-2 sm:px-4 py-2 text-left font-semibold">
+                    {groupBy === 'account' ? tx("账户") : tx("分类")} · {activeItems.length}
+                  </th>
+                  <th scope="col" className="w-px px-2 py-2 whitespace-nowrap text-right font-semibold">{tx("金额")}</th>
+                  <th scope="col" className="w-px px-2 sm:px-4 py-2 whitespace-nowrap text-right font-semibold">{tx("占比")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/70">
+                {activeItems.length === 0 ? (
+                  <tr><td colSpan={3} className="py-8 px-4 text-center text-xs text-zinc-400">{tx("本期暂无支出数据")}</td></tr>
+                ) : activeItems.map((item) => {
+                  const isHovered = activeCategory === item.id;
+                  return (
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      onMouseEnter={() => setActiveCategory(item.id)}
+                      onMouseLeave={() => setActiveCategory(null)}
+                      onFocus={() => setActiveCategory(item.id)}
+                      onBlur={() => setActiveCategory(null)}
+                      onClick={() => handleItemClick(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleItemClick(item);
+                        }
+                      }}
+                      className={`cursor-pointer transition-colors group ${
+                        isHovered ? 'bg-zinc-50/90 dark:bg-zinc-800/60' : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-800/40'
+                      }`}
+                      title={tx("点击查看 {p0} 的交易明细", {p0: item.name})}
                     >
-                      {item.icon}
-                    </span>
-                    <div className="flex items-center gap-1.5 truncate min-w-0">
-                      <span className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
-                        {groupBy === 'category' ? categoryLabel(item.name) : item.name}
-                      </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 hidden sm:inline-block" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:gap-6 text-right shrink-0">
-                    <span className="min-w-[80px] sm:w-28 text-right font-mono font-bold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100">
-                      {formatAmount(item.amount)}
-                    </span>
-                    <span className="w-11 sm:w-14 text-right font-mono text-xs sm:text-sm text-zinc-500">
-                      {item.amount < 0 ? '—' : `${item.percentage}%`}
-                    </span>
-                  </div>
-                </div>
-              );
-            }))}
+                      <td className="px-2 sm:px-4 py-2.5 sm:py-3">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                          <span
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-sm shrink-0 transition-transform group-hover:scale-110"
+                            style={{ backgroundColor: `${item.color}15`, color: item.color }}
+                          >
+                            {item.icon}
+                          </span>
+                          <span data-testid="outflows-label" className="min-w-0 flex-1 [overflow-wrap:anywhere] font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            {groupBy === 'category' ? categoryLabel(item.name) : item.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td data-testid="outflows-amount" className="px-2 py-2.5 sm:py-3 whitespace-nowrap text-right font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                        {formatAmount(item.amount)}
+                      </td>
+                      <td className="px-2 sm:px-4 py-2.5 sm:py-3 whitespace-nowrap text-right font-mono text-zinc-500">
+                        {item.amount < 0 ? '—' : `${item.percentage}%`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           {/* Adjustments (Refund offset) */}

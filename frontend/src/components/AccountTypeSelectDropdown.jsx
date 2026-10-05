@@ -1,5 +1,6 @@
 import { tx, useLocale } from "../localization.js";
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useId } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronDown,
   Check,
@@ -131,9 +132,13 @@ export default function AccountTypeSelectDropdown({
   className = '',
   useShortLabel = false,
 }) {
-  useLocale();
+  const locale = useLocale();
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState(null);
   const dropdownRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const menuId = useId();
 
   const selectedOption =
     ACCOUNT_TYPE_OPTIONS.find((opt) => opt.value === value) || ACCOUNT_TYPE_OPTIONS[0];
@@ -143,15 +148,74 @@ export default function AccountTypeSelectDropdown({
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+      if (!dropdownRef.current?.contains(e.target) && !menuRef.current?.contains(e.target)) {
         setIsOpen(false);
+      }
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+        triggerRef.current?.focus();
       }
     };
     if (isOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('keydown', handleEscape);
     }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const positionMenu = () => {
+      const bounds = triggerRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const viewport = window.visualViewport;
+      const top = viewport?.offsetTop || 0;
+      const left = viewport?.offsetLeft || 0;
+      const width = viewport?.width || window.innerWidth;
+      const bottom = top + (viewport?.height || window.innerHeight);
+      const margin = 8;
+      const gap = 6;
+      if (bounds.bottom < top || bounds.top > bottom) {
+        setIsOpen(false);
+        return;
+      }
+      const textContext = document.createElement('canvas').getContext('2d');
+      const font = window.getComputedStyle(triggerRef.current);
+      if (textContext) textContext.font = `600 ${font.fontSize} ${font.fontFamily}`;
+      const labelWidth = Math.max(...ACCOUNT_TYPE_OPTIONS.map(option =>
+        textContext ? textContext.measureText(tx(option.label)).width : tx(option.label).length * 7
+      ));
+      // Reserve icons, checkmark and padding; the rest follows the actual text.
+      const contentWidth = Math.min(Math.ceil(labelWidth) + 76, 280);
+      const menuWidth = Math.min(Math.max(bounds.width, contentWidth), width - margin * 2);
+      const below = bottom - bounds.bottom - gap - margin;
+      const above = bounds.top - top - gap - margin;
+      const openAbove = below < 240 && above > below;
+      setMenuPosition({
+        position: 'fixed',
+        left: Math.max(left + margin, Math.min(bounds.left, left + width - menuWidth - margin)),
+        width: menuWidth,
+        maxHeight: Math.min(360, Math.max(40, openAbove ? above : below)),
+        ...(openAbove ? { bottom: window.innerHeight - bounds.top + gap } : { top: bounds.bottom + gap }),
+      });
+    };
+    positionMenu();
+    window.addEventListener('resize', positionMenu);
+    window.addEventListener('scroll', positionMenu, true);
+    window.visualViewport?.addEventListener('resize', positionMenu);
+    window.visualViewport?.addEventListener('scroll', positionMenu);
+    return () => {
+      window.removeEventListener('resize', positionMenu);
+      window.removeEventListener('scroll', positionMenu, true);
+      window.visualViewport?.removeEventListener('resize', positionMenu);
+      window.visualViewport?.removeEventListener('scroll', positionMenu);
+    };
+  }, [isOpen, locale]);
 
   const handleSelect = (val) => {
     if (onChange) {
@@ -164,28 +228,31 @@ export default function AccountTypeSelectDropdown({
     const isSelected = opt.value === value;
     const Icon = opt.Icon;
     return (
-      <div
+      <button
+        type="button"
+        role="option"
+        aria-selected={isSelected}
         key={opt.value}
         data-testid={`account-type-option-${opt.value}`}
         onClick={() => handleSelect(opt.value)}
-        className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg mx-1 cursor-pointer transition-colors ${
+        className={`w-[calc(100%_-_0.5rem)] text-left flex items-center justify-between px-2.5 py-2 text-xs rounded-lg mx-1 cursor-pointer transition-colors ${
           isSelected
             ? 'bg-zinc-100 dark:bg-zinc-800 font-semibold'
             : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
         }`}
       >
-        <div className="flex items-center gap-2 min-w-0 pr-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
           <div
             className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 shadow-2xs ${opt.color}`}
           >
             <Icon className="w-3.5 h-3.5" />
           </div>
-          <span className="truncate text-zinc-900 dark:text-zinc-100">{tx(opt.label)}</span>
+          <span className="min-w-0 whitespace-normal break-words leading-snug text-zinc-900 dark:text-zinc-100">{tx(opt.label)}</span>
         </div>
         {isSelected && (
           <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-100 shrink-0 ml-1" />
         )}
-      </div>
+      </button>
     );
   };
 
@@ -220,8 +287,12 @@ export default function AccountTypeSelectDropdown({
 
       {/* 触发器按钮 */}
       <button
+        ref={triggerRef}
         type="button"
         data-testid={testId}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? menuId : undefined}
         onClick={() => setIsOpen((prev) => !prev)}
         className={`w-full px-3 py-2 rounded-xl border text-xs transition text-left flex items-center justify-between cursor-pointer ${
           isOpen
@@ -235,7 +306,7 @@ export default function AccountTypeSelectDropdown({
           >
             <SelectedIcon className="w-3 h-3" />
           </div>
-          <span className="truncate text-zinc-900 dark:text-zinc-100 font-medium">
+          <span className="min-w-0 whitespace-normal break-words leading-snug text-zinc-900 dark:text-zinc-100 font-medium">
             {tx(useShortLabel ? selectedOption.shortLabel : selectedOption.label)}
           </span>
         </div>
@@ -247,8 +318,15 @@ export default function AccountTypeSelectDropdown({
       </button>
 
       {/* 展开浮层菜单 */}
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl max-h-60 overflow-y-auto py-1 animate-in fade-in-50 zoom-in-95 duration-100">
+      {isOpen && menuPosition && createPortal(
+        <div
+          ref={menuRef}
+          id={menuId}
+          role="listbox"
+          aria-label={tx('账户类型')}
+          style={menuPosition}
+          className="z-[100] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-y-auto overscroll-contain py-1"
+        >
           {/* 资产类账户分组 */}
           <div>
             <div className="px-3 py-1.5 text-[10.5px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider bg-zinc-50/60 dark:bg-zinc-800/40">{tx("资产类账户 (")} {assetOptions.length})
@@ -262,7 +340,7 @@ export default function AccountTypeSelectDropdown({
             </div>
             {liabilityOptions.map(renderOptionItem)}
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );

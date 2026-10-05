@@ -24,7 +24,7 @@ export function Button({
   };
 
   const variantStyles = {
-    primary: 'bg-primary text-white hover:opacity-90 shadow-sm active:scale-[0.98]',
+    primary: 'bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-700 shadow-sm active:scale-[0.98]',
     secondary: 'bg-surface-container hover:bg-surface-container-high text-on-surface border border-outline/20 active:scale-[0.98]',
     tertiary: 'bg-transparent hover:bg-surface-container/60 text-on-surface active:scale-[0.98]',
     destructive: 'bg-red-600 text-white hover:bg-red-700 shadow-sm active:scale-[0.98]',

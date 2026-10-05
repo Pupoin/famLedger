@@ -2,13 +2,14 @@ import { tx, useLocale } from "../localization.js";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, ChevronRight, ChevronDown, X, Check, Users, Edit2 } from 'lucide-react';
+import { Plus, ChevronRight, ChevronDown, X, Check, Users, Edit2, Search } from 'lucide-react';
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { Modal, Button } from './ds/DesignSystem';
 import AccountSharingModal from './AccountSharingModal';
 import { EditAccountModal } from './AccountModals';
 import AccountSelectDropdown from './AccountSelectDropdown';
 import AccountTypeSelectDropdown from './AccountTypeSelectDropdown';
+import ExternalIdentifierField from './ExternalIdentifierField';
 import { useCurrency } from '../CurrencyContext';
 import { formatCurrency } from '../utils/currency';
 const accountCurrencySymbols = {USD:'$', EUR:'€', GBP:'£', CAD:'C$', AUD:'A$', INR:'₹', JPY:'¥', CNY:'¥', CHF:'CHF', SGD:'S$', HKD:'HK$'};
@@ -270,6 +271,7 @@ export default function AccountsPanel({
   const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, accountCurrencySymbols[accounts[0]?.report_currency] || symbol);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'asset' | 'liability'
+  const [accountSearch, setAccountSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [sharingModalAccountId, setSharingModalAccountId] = useState(null);
 
@@ -351,13 +353,12 @@ export default function AccountsPanel({
   const isOwnerMode =
     groupBy === 'owner_by_institution' || groupBy === 'owner_by_type' || groupBy === 'by_owner';
 
-  const currentGroupLabel = useMemo(() => {
-    if (groupBy === 'by_type') return '按账户类型';
-    if (groupBy === 'by_institution') return '按金融机构';
-    if (groupBy === 'owner_by_type') return '用户-账户类型';
-    if (groupBy === 'owner_by_institution') return '用户-金融机构';
-    return '按用户';
-  }, [groupBy]);
+  const currentGroupLabel = {
+    by_type: '分组：账户类型',
+    by_institution: '分组：金融机构',
+    owner_by_type: '分组：用户 › 账户类型',
+    owner_by_institution: '分组：用户 › 金融机构',
+  }[groupBy] || '分组：用户';
 
   // 判断是否需要在当前视图显式渲染所属人徽标（非所属人视图，或发生同名冲突时智能消歧）
   const shouldShowOwnerBadge = (acc) => {
@@ -370,7 +371,8 @@ export default function AccountsPanel({
   // New account form
   const [form, setForm] = useState({
     name: '',
-    institution_name: '中国招商银行',
+    institution_name: '',
+    external_identifier: '',
     account_type: 'checking',
     currency: prefCurrency || 'CNY',
     balance: '0',
@@ -416,6 +418,10 @@ export default function AccountsPanel({
       if (e?.detail?.deletedAccountId) {
         setAccounts((prev) => prev.filter((a) => a.id !== e.detail.deletedAccountId));
       }
+      if (typeof e?.detail?.hiddenInSidebar === 'boolean') {
+        setAccounts((prev) => prev.map((account) => account.id === e.detail.accountId
+          ? { ...account, hidden_in_sidebar: e.detail.hiddenInSidebar } : account));
+      }
       triggerRefresh();
     };
 
@@ -446,6 +452,7 @@ export default function AccountsPanel({
         body: JSON.stringify({
           name: finalName,
           institution_name: finalInst,
+          external_identifier: form.external_identifier.trim() || null,
           account_type: form.account_type,
           currency: form.currency || prefCurrency || 'CNY',
           balance: Number(form.balance) || 0,
@@ -524,23 +531,18 @@ export default function AccountsPanel({
     }
   };
 
-  // Filter accounts by activeTab (asset / liability / all)
+  // Search only the accounts already available to this user and visible in the sidebar.
   const filteredAccounts = useMemo(() => {
-    if (activeTab === 'all') return accounts;
-    if (activeTab === 'asset') {
-      return accounts.filter((a) => {
-        const typeLabel = normalizeAccountType(a);
-        return getAccountCategory(typeLabel) === 'asset';
-      });
-    }
-    if (activeTab === 'liability') {
-      return accounts.filter((a) => {
-        const typeLabel = normalizeAccountType(a);
-        return getAccountCategory(typeLabel) === 'liability';
-      });
-    }
-    return accounts;
-  }, [accounts, activeTab]);
+    const query = accountSearch.trim().toLocaleLowerCase();
+    return accounts.filter((account) => {
+      if (account.hidden_in_sidebar) return false;
+      if (activeTab !== 'all' && getAccountCategory(normalizeAccountType(account)) !== activeTab) return false;
+      if (!query) return true;
+      return [account.name, account.account_name, account.institution_name, account.external_identifier,
+              account.owner, account.owner_username, account.owner_display_name]
+        .some(value => String(value || '').toLocaleLowerCase().includes(query));
+    });
+  }, [accounts, activeTab, accountSearch]);
 
   // Compute Hierarchical Tree based on groupBy
   const groupedTree = useMemo(() => {
@@ -563,7 +565,7 @@ export default function AccountsPanel({
             changePercent: 0.0,
           };
         }
-        const inst = acc.institution_name || '中国招商银行';
+        const inst = acc.institution_name || tx('其他机构');
         if (!groups[owner].subgroups[inst]) {
           groups[owner].subgroups[inst] = {
             id: `inst-${owner}-${inst}`,
@@ -677,7 +679,7 @@ export default function AccountsPanel({
       // Group by institution_name
       const groups = {};
       filteredAccounts.forEach((acc) => {
-        const inst = acc.institution_name || '招商银行';
+        const inst = acc.institution_name || tx('其他机构');
         if (!groups[inst]) {
           groups[inst] = {
             id: `inst-${inst}`,
@@ -721,235 +723,236 @@ export default function AccountsPanel({
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 select-none border-r border-zinc-200/80 dark:border-zinc-800">
       {accountsError && <p role="alert" className="p-3 text-xs text-red-600">{tx(accountsError)}</p>}
-      {/* ── 1. Top Three-way Segmented Pills (Exact Sure Design) ── */}
-      <div className={`p-4 pb-2 ${isMobileDrawer ? 'pt-3 px-3' : ''}`}>
+      <div data-testid="accounts-panel-header" className="shrink-0 px-3 pt-4 pb-3 space-y-3 border-b border-zinc-100 dark:border-zinc-800">
+        {/* Title and primary action share the first row. */}
         <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-xl">
+          <h2 className="flex-1 text-lg font-bold text-zinc-900 dark:text-zinc-100">
+            {t('accounts.title', tx("账户"))}
+          </h2>
+          <button
+            type="button"
+            data-testid="sidebar-add-account-btn"
+            onClick={() => {
+              setForm({
+                name: '',
+                institution_name: '',
+                external_identifier: '',
+                account_type: activeTab === 'liability' ? 'credit_card' : 'cash',
+                currency: prefCurrency || 'CNY',
+                balance: '0',
+                parent_account_id: '',
+              });
+              setModalOpen(true);
+            }}
+            className="shrink-0 inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-900"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            <span>{tx("添加账户")}</span>
+          </button>
+          {isMobileDrawer && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+              aria-label={tx("关闭侧栏")}
+              title={tx("关闭侧栏")}
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        {/* Display scope is separate from the grouping of the list. */}
+        <div role="group" aria-label={tx("账户范围")} className="flex items-center p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
             {[
               { id: 'all', label: t('accounts.all', tx("全部")) },
               { id: 'asset', label: t('accounts.assets', tx("资产")) },
               { id: 'liability', label: t('accounts.debts', tx("负债")) },
             ].map((tItem) => (
               <button
+                type="button"
                 key={tItem.id}
+                data-testid={`account-scope-${tItem.id}`}
+                aria-pressed={activeTab === tItem.id}
                 onClick={() => setActiveTab(tItem.id)}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
+                className={`flex-1 min-w-0 py-2 text-[13px] font-semibold rounded-lg text-center transition-colors ${
                   activeTab === tItem.id
-                    ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                    ? 'bg-blue-600 dark:bg-blue-500 text-white shadow-sm'
                     : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
                 }`}
               >
                 {tx(tItem.label)}
               </button>
             ))}
+        </div>
+
+        <div className="relative flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[104px] flex-[1_1_104px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" aria-hidden="true" />
+            <input
+              type="text"
+              role="searchbox"
+              data-testid="account-search-input"
+              aria-label={tx("搜索账户或用户")}
+              placeholder={tx("账户/用户…")}
+              value={accountSearch}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setAccountSearch(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setAccountSearch(''); }}
+              className={`w-full h-9 pl-8 ${accountSearch ? 'pr-7' : 'pr-2'} rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500`}
+            />
+            {accountSearch && (
+              <button
+                type="button"
+                data-testid="account-search-clear-btn"
+                onClick={() => setAccountSearch('')}
+                aria-label={tx("清除搜索")}
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              >
+                <X className="w-3 h-3" aria-hidden="true" />
+              </button>
+            )}
           </div>
 
-          {/* 移动端侧栏专用关闭按钮：横向并排在药丸右侧，不占额外垂直高度 */}
-          {isMobileDrawer && (
+          <div className="max-w-full" ref={groupMenuRef}>
             <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
-              title={tx("关闭侧栏")}
+              type="button"
+              data-testid="account-groupby-btn"
+              aria-expanded={showGroupMenu}
+              onClick={() => {
+                setShowGroupMenu(!showGroupMenu);
+                if (isOwnerMode) setShowUserSubmenu(true);
+              }}
+              className="min-h-9 text-[12px] font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white flex items-center gap-1.5 transition-colors px-2 py-2 rounded-lg bg-zinc-100 hover:bg-zinc-200/70 dark:bg-zinc-800 dark:hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              <X className="w-4 h-4" />
+              <span>{tx(currentGroupLabel)}</span>
+              <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${showGroupMenu ? 'rotate-180' : ''}`} aria-hidden="true" />
             </button>
-          )}
-        </div>
-      </div>
 
-      {/* ── 2. Accounts Header & Group By Dropdown (Sure Style) ── */}
-      <div className="px-4 py-2 flex items-center justify-between relative">
-        <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-          {t('accounts.title', tx("账户"))}
-        </span>
+            {/* Popup Dropdown Menu (按账户类型 / 按金融机构 / 按用户 -> 用户-金融机构 / 用户-账户类型) */}
+            {showGroupMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  {t('accounts.groupBy', tx("账户分组模式"))}
+                </div>
 
-        {/* Group By Selector Dropdown */}
-        <div className="relative" ref={groupMenuRef}>
-          <button
-            data-testid="account-groupby-btn"
-            onClick={() => {
-              setShowGroupMenu(!showGroupMenu);
-              if (isOwnerMode) setShowUserSubmenu(true);
-            }}
-            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-1 transition-colors px-1.5 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800"
-          >
-            <span>{tx(currentGroupLabel)}</span>
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showGroupMenu ? 'rotate-180' : ''}`} />
-          </button>
-
-          {/* Popup Dropdown Menu (按账户类型 / 按金融机构 / 按用户 -> 用户-金融机构 / 用户-账户类型) */}
-          {showGroupMenu && (
-            <div className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                {t('accounts.groupBy', tx("账户分组模式"))}
-              </div>
-
-              {/* 1. 按账户类型 */}
-              <button
-                type="button"
-                data-testid="groupby-option-type"
-                onClick={() => {
-                  setGroupBy('by_type');
-                  localStorage.setItem('famledger_account_group_by', 'by_type');
-                  setShowGroupMenu(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
-                  groupBy === 'by_type'
-                    ? 'bg-zinc-50 dark:bg-zinc-700/60 font-semibold text-zinc-900 dark:text-white'
-                    : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
-                }`}
-              >
-                <span>{tx("按账户类型")}</span>
-                {groupBy === 'by_type' && <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-white" />}
-              </button>
-
-              {/* 2. 按金融机构 */}
-              <button
-                type="button"
-                data-testid="groupby-option-institution"
-                onClick={() => {
-                  setGroupBy('by_institution');
-                  localStorage.setItem('famledger_account_group_by', 'by_institution');
-                  setShowGroupMenu(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
-                  groupBy === 'by_institution'
-                    ? 'bg-zinc-50 dark:bg-zinc-700/60 font-semibold text-zinc-900 dark:text-white'
-                    : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
-                }`}
-              >
-                <span>{tx("按金融机构")}</span>
-                {groupBy === 'by_institution' && <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-white" />}
-              </button>
-
-              {/* 3. 按用户 (带展开子项: 用户-金融机构 / 用户-账户类型) */}
-              <div className="border-t border-zinc-100 dark:border-zinc-700/60 mt-1 pt-1">
+                {/* 1. 按账户类型 */}
                 <button
                   type="button"
-                  data-testid="group-by-user-main"
+                  data-testid="groupby-option-type"
                   onClick={() => {
-                    if (!isOwnerMode) {
-                      setGroupBy('owner_by_institution');
-                      localStorage.setItem('famledger_account_group_by', 'owner_by_institution');
-                    }
-                    setShowUserSubmenu(true);
+                    setGroupBy('by_type');
+                    localStorage.setItem('famledger_account_group_by', 'by_type');
+                    setShowGroupMenu(false);
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
-                    isOwnerMode
+                    groupBy === 'by_type'
                       ? 'bg-zinc-50 dark:bg-zinc-700/60 font-semibold text-zinc-900 dark:text-white'
                       : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
                   }`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <span>{tx("按用户")}</span>
-                  </span>
-                  <ChevronRight className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${showUserSubmenu ? 'rotate-90' : ''}`} />
+                  <span>{tx("按账户类型")}</span>
+                  {groupBy === 'by_type' && <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-white" />}
                 </button>
 
-                {/* 点击按用户之后显示二级子项 */}
-                {showUserSubmenu && (
-                  <div className="pl-3 pr-1 py-1 space-y-0.5 bg-zinc-50/50 dark:bg-zinc-900/30">
-                    <button
-                      type="button"
-                      data-testid="group-user-institution"
-                      onClick={() => {
+                {/* 2. 按金融机构 */}
+                <button
+                  type="button"
+                  data-testid="groupby-option-institution"
+                  onClick={() => {
+                    setGroupBy('by_institution');
+                    localStorage.setItem('famledger_account_group_by', 'by_institution');
+                    setShowGroupMenu(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
+                    groupBy === 'by_institution'
+                      ? 'bg-zinc-50 dark:bg-zinc-700/60 font-semibold text-zinc-900 dark:text-white'
+                      : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
+                  }`}
+                >
+                  <span>{tx("按金融机构")}</span>
+                  {groupBy === 'by_institution' && <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-white" />}
+                </button>
+
+                {/* 3. 按用户 (带展开子项: 用户-金融机构 / 用户-账户类型) */}
+                <div className="border-t border-zinc-100 dark:border-zinc-700/60 mt-1 pt-1">
+                  <button
+                    type="button"
+                    data-testid="group-by-user-main"
+                    onClick={() => {
+                      if (!isOwnerMode) {
                         setGroupBy('owner_by_institution');
                         localStorage.setItem('famledger_account_group_by', 'owner_by_institution');
-                        setShowGroupMenu(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                        groupBy === 'owner_by_institution'
-                          ? 'font-semibold text-zinc-900 dark:text-white bg-zinc-100 dark:bg-zinc-700'
-                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100/50'
-                      }`}
-                    >
-                      <span>{tx("用户 - 金融机构")}</span>
-                      {groupBy === 'owner_by_institution' && <Check className="w-3 h-3 text-zinc-900 dark:text-white" />}
-                    </button>
+                      }
+                      setShowUserSubmenu(true);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
+                      isOwnerMode
+                        ? 'bg-zinc-50 dark:bg-zinc-700/60 font-semibold text-zinc-900 dark:text-white'
+                        : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span>{tx("按用户")}</span>
+                    </span>
+                    <ChevronRight className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${showUserSubmenu ? 'rotate-90' : ''}`} />
+                  </button>
 
-                    <button
-                      type="button"
-                      data-testid="group-user-type"
-                      onClick={() => {
-                        setGroupBy('owner_by_type');
-                        localStorage.setItem('famledger_account_group_by', 'owner_by_type');
-                        setShowGroupMenu(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                        groupBy === 'owner_by_type'
-                          ? 'font-semibold text-zinc-900 dark:text-white bg-zinc-100 dark:bg-zinc-700'
-                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100/50'
-                      }`}
-                    >
-                      <span>{tx("用户 - 账户类型")}</span>
-                      {groupBy === 'owner_by_type' && <Check className="w-3 h-3 text-zinc-900 dark:text-white" />}
-                    </button>
-                  </div>
-                )}
+                  {/* 点击按用户之后显示二级子项 */}
+                  {showUserSubmenu && (
+                    <div className="pl-3 pr-1 py-1 space-y-0.5 bg-zinc-50/50 dark:bg-zinc-900/30">
+                      <button
+                        type="button"
+                        data-testid="group-user-institution"
+                        onClick={() => {
+                          setGroupBy('owner_by_institution');
+                          localStorage.setItem('famledger_account_group_by', 'owner_by_institution');
+                          setShowGroupMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                          groupBy === 'owner_by_institution'
+                            ? 'font-semibold text-zinc-900 dark:text-white bg-zinc-100 dark:bg-zinc-700'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100/50'
+                        }`}
+                      >
+                        <span>{tx("用户 - 金融机构")}</span>
+                        {groupBy === 'owner_by_institution' && <Check className="w-3 h-3 text-zinc-900 dark:text-white" />}
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="group-user-type"
+                        onClick={() => {
+                          setGroupBy('owner_by_type');
+                          localStorage.setItem('famledger_account_group_by', 'owner_by_type');
+                          setShowGroupMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                          groupBy === 'owner_by_type'
+                            ? 'font-semibold text-zinc-900 dark:text-white bg-zinc-100 dark:bg-zinc-700'
+                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100/50'
+                        }`}
+                      >
+                        <span>{tx("用户 - 账户类型")}</span>
+                        {groupBy === 'owner_by_type' && <Check className="w-3 h-3 text-zinc-900 dark:text-white" />}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── 2.5 用户二级分组切换药丸（仅在按用户分组时显示） ── */}
-      {isOwnerMode && (
-        <div className="px-4 py-1.5 flex items-center justify-between bg-zinc-50/70 dark:bg-zinc-800/40 border-y border-zinc-100 dark:border-zinc-800/60 text-[11px] mb-1">
-          <span className="text-zinc-400 font-medium">{tx("按用户层级:")}</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              data-testid="subgroup-owner-institution"
-              onClick={() => {
-                setGroupBy('owner_by_institution');
-                localStorage.setItem('famledger_account_group_by', 'owner_by_institution');
-              }}
-              className={`px-2 py-0.5 rounded-md font-medium transition cursor-pointer ${
-                groupBy === 'owner_by_institution'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-2xs font-semibold'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >{tx("用户-金融机构")}</button>
-            <button
-              type="button"
-              data-testid="subgroup-owner-type"
-              onClick={() => {
-                setGroupBy('owner_by_type');
-                localStorage.setItem('famledger_account_group_by', 'owner_by_type');
-              }}
-              className={`px-2 py-0.5 rounded-md font-medium transition cursor-pointer ${
-                groupBy === 'owner_by_type'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-2xs font-semibold'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >{tx("用户-账户类型")}</button>
+            )}
           </div>
         </div>
-      )}
-
-      {/* Action: + New Asset / Debt */}
-      <div className="px-4 pb-2">
-        <button
-          onClick={() => {
-            setForm({
-              name: '',
-              institution_name: '中国招商银行',
-              account_type: activeTab === 'liability' ? 'credit_card' : 'cash',
-              currency: prefCurrency || 'CNY',
-              balance: '0',
-              parent_account_id: '',
-            });
-            setModalOpen(true);
-          }}
-          className="text-[13px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 flex items-center gap-1.5 py-1 px-1.5 -ml-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{tx("添加账户")}</span>
-        </button>
       </div>
 
       {/* ── 3. Accounts Hierarchy List (Exact Sure Style from 1.png) ── */}
       <div className={`flex-1 overflow-y-auto px-2 pt-1 ${isMobileDrawer ? 'pb-8' : 'pb-6'} space-y-2 custom-scrollbar overscroll-contain`}>
+        {!loading && !accountsError && accountSearch.trim() && filteredAccounts.length === 0 && (
+          <p role="status" className="px-3 py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
+            {tx("没有匹配的账户")}
+          </p>
+        )}
         {/* Dynamic Hierarchical Tree Rendering */}
         {groupedTree.map((group, gIdx) => {
           const isExpanded = expandedGroups[group.id] !== false;
@@ -1299,6 +1302,12 @@ export default function AccountsPanel({
               className="w-full px-3 py-2 text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl outline-none focus:border-zinc-900"
             />
           </div>
+
+          <ExternalIdentifierField
+            id="create-account-external-identifier"
+            value={form.external_identifier}
+            onChange={(value) => setForm({ ...form, external_identifier: value })}
+          />
 
           <div className="grid grid-cols-2 gap-3">
             <div>

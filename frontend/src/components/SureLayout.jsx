@@ -188,10 +188,10 @@ export default function SureLayout({ children }) {
         <div className="w-full flex flex-col items-center gap-4">
           <Link to="/" className="block p-1 hover:opacity-85 transition-opacity" title={tx("famLedger 首页")}>
             <img
-              src="/logo.svg"
+              src="/logo.svg?v=blue-purple"
               alt="famLedger"
               className="w-9 h-9 object-contain drop-shadow-xs"
-              onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+              onError={(e) => { e.currentTarget.src = '/logo.png?v=blue-purple'; }}
             />
           </Link>
 
@@ -443,10 +443,10 @@ export default function SureLayout({ children }) {
         {/* Center: Sure-style Clean Centered LogoMark */}
         <Link to="/" className="flex items-center justify-center">
           <img
-            src="/logo.svg"
+            src="/logo.svg?v=blue-purple"
             alt="famLedger"
             className="w-[26px] h-[26px] object-contain"
-            onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+            onError={(e) => { e.currentTarget.src = '/logo.png?v=blue-purple'; }}
           />
         </Link>
 

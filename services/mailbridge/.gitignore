@@ -1,0 +1,13 @@
+.venv/
+venv/
+.env*
+!.env.example
+__pycache__/
+.pytest_cache/
+data/
+backups/
+tmp*
+msal*cache*.json*
+*token_cache*.json*
+device_flow*.json*
+auth_state.json*

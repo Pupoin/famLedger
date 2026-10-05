@@ -47,10 +47,10 @@ export default function Login() {
         <div className="bg-surface-container-lowest rounded-[2rem] p-8 shadow-[0_4px_32px_rgba(47,51,52,0.08)]">
           <div className="text-center mb-8">
             <img
-              src="/logo.svg"
+              src="/logo.svg?v=blue-purple"
               alt="famLedger"
               className="h-20 w-20 object-contain mx-auto mb-4"
-              onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+              onError={(e) => { e.currentTarget.src = '/logo.png?v=blue-purple'; }}
             />
             <h1 className="font-headline text-2xl font-extrabold text-primary tracking-tight">
               {config.appName}

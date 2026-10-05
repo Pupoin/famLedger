@@ -61,13 +61,13 @@ def get_comprehensive_report(
 
     # 2. 查询当前周期所有真实流水（严格排除非统计流水，如对账调整、期初存入、放款本金）
     curr_stmt = select(Transaction).where(
-        Transaction.transacted_at >= start_d.isoformat(),
-        Transaction.transacted_at <= end_d.isoformat(),
+        Transaction.transacted_at >= start_d,
+        Transaction.transacted_at <= end_d,
         Transaction.excluded_from_stats == False,
     )
     prev_stmt = select(Transaction).where(
-        Transaction.transacted_at >= prev_start.isoformat(),
-        Transaction.transacted_at <= prev_end.isoformat(),
+        Transaction.transacted_at >= prev_start,
+        Transaction.transacted_at <= prev_end,
         Transaction.excluded_from_stats == False,
     )
     if active_account_ids:
@@ -187,8 +187,8 @@ def get_comprehensive_report(
         else:
             next_hm = hm.replace(month=hm.month + 1)
         h_stmt = select(Transaction).where(
-            Transaction.transacted_at >= hm.isoformat(),
-            Transaction.transacted_at < next_hm.isoformat(),
+            Transaction.transacted_at >= hm,
+            Transaction.transacted_at < next_hm,
             Transaction.excluded_from_stats == False,
         )
         if active_account_ids:
@@ -251,7 +251,7 @@ def get_comprehensive_report(
         acc_obj = {
             "id": str(a.id),
             "name": a.name,
-            "institution": a.institution_name or "招商银行",
+            "institution": a.institution_name,
             "type": a.account_type,
             "balance": final_bal,
             "icon": (a.institution_name or a.name or "银")[0],

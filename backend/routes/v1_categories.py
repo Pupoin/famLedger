@@ -33,64 +33,10 @@ class CategoryUpdate(BaseModel):
     category_type: Optional[str] = None  # expense | income
 
 
-# 系统官方标准分类母版（单一事实来源，解耦具体人员与特定账号）
-CANONICAL_CATEGORIES_TEMPLATE = [
-    {"name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "category_type": "expense", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
-    {"name": "超市便利", "icon": "🛒", "color": "#10b981", "category_type": "expense", "kws": ["超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛", "山姆", "全家", "罗森"]},
-    {"name": "生活缴费", "icon": "⚡", "color": "#ef4444", "category_type": "expense", "kws": ["自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通", "电信", "水务", "缴费"]},
-    {"name": "交通出行", "icon": "🚗", "color": "#06b6d4", "category_type": "expense", "kws": ["高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油", "停车", "出行", "中石化", "中石油"]},
-    {"name": "购物消费", "icon": "🛍️", "color": "#eab308", "category_type": "expense", "kws": ["京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸", "商行", "数码", "服饰", "唯品会"]},
-    {"name": "人情往来", "icon": "🤝", "color": "#0ea5e9", "category_type": "expense", "kws": ["微信红包", "红包", "人情", "随礼", "份子钱", "礼金"]},
-    {"name": "其他", "icon": "🍪", "color": "#f97316", "category_type": "expense", "kws": []},
-    # 默认收入分类
-    {"name": "工资薪酬", "icon": "💰", "color": "#10b981", "category_type": "income", "kws": ["工资", "薪资", "薪水", "薪酬", "收入", "转账工资"]},
-    {"name": "理财收益", "icon": "📈", "color": "#06b6d4", "category_type": "income", "kws": ["理财", "基金", "利息", "投资", "收益", "分红"]},
-    {"name": "奖金补贴", "icon": "🧧", "color": "#f59e0b", "category_type": "income", "kws": ["奖金", "年终奖", "补贴", "津贴"]},
-    {"name": "兼职副业", "icon": "💼", "color": "#8b5cf6", "category_type": "income", "kws": ["兼职", "稿费", "劳务报酬", "外快"]},
-    {"name": "其他收入", "icon": "🪙", "color": "#64748b", "category_type": "income", "kws": []},
-]
-
-# 保持老命名兼容
-DEFAULT_TRANSACTION_CATEGORIES = CANONICAL_CATEGORIES_TEMPLATE
-
-
-def get_template_categories(session: Optional[Session] = None) -> list[dict]:
-    """获取系统标准分类模板（完全解耦人名，以官方 Canonical Template 为单一事实来源）。"""
-    return CANONICAL_CATEGORIES_TEMPLATE
-
-
-def init_family_canonical_categories(session: Session, family_id: uuid.UUID) -> list[Category]:
-    """
-    生命周期钩子：为新创建或空的家庭组显式初始化官方标准分类体系。
-    """
-    if not family_id:
-        return []
-    existing_count = session.exec(
-        select(func.count(Category.id)).where(Category.family_id == family_id)
-    ).one()
-    if existing_count > 0:
-        return session.exec(select(Category).where(Category.family_id == family_id)).all()
-
-    new_cats = []
-    for tmpl in CANONICAL_CATEGORIES_TEMPLATE:
-        cat = Category(
-            family_id=family_id,
-            name=tmpl["name"],
-            icon=tmpl.get("icon") or "📦",
-            color=tmpl.get("color") or ("#10b981" if tmpl.get("category_type") == "income" else "#8b5cf6"),
-            category_type=tmpl.get("category_type", "expense"),
-            i18n_key=tmpl.get("i18n_key"),
-        )
-        session.add(cat)
-        new_cats.append(cat)
-    session.flush()
-    for cat in new_cats:
-        session.refresh(cat)
-    return new_cats
-
-
-# 保持原函数名兼容
-seed_default_categories_for_family = init_family_canonical_categories
+def seed_default_categories_for_family(session: Session, family_id: uuid.UUID):
+    from services.rules.defaults import initialize_family_rules
+    initialize_family_rules(session, family_id)
+    return session.exec(select(Category).where(Category.family_id == family_id)).all()
 
 
 def _resolve_user_family_id(session: Session, user_or_ctx: Any) -> Optional[uuid.UUID]:
@@ -128,29 +74,7 @@ def list_categories(
 
     family_id = _resolve_user_family_id(session, user_or_ctx)
     if not family_id:
-        preset_items = []
-        templates = get_template_categories(session)
-        for dc in templates:
-            if category_type and category_type != "all" and dc["category_type"] != category_type:
-                continue
-            preset_id = dc.get("id") or str(uuid.uuid5(uuid.NAMESPACE_DNS, f"preset_category_{dc['name']}"))
-            preset_items.append({
-                "id": preset_id,
-                "name": dc["name"],
-                "icon": dc["icon"],
-                "color": dc["color"],
-                "category_type": dc["category_type"],
-                "transaction_count": 0,
-            })
-        return {"categories": preset_items, "items": preset_items, "count": len(preset_items)}
-
-    # 若当前家庭分类总数仍为 0（空家庭/新注册用户/空账户），自动为该家庭持久化初始化 Qq 的默认支出/收入分类
-    total_family_cats = session.exec(
-        select(func.count(Category.id)).where(Category.family_id == family_id)
-    ).one()
-    if total_family_cats == 0:
-        seed_default_categories_for_family(session, family_id)
-        session.commit()
+        return {"categories": [], "items": [], "count": 0}
 
     # 1. 查询数据库中已存在的分类
     query = select(Category).where(Category.family_id == family_id)
@@ -191,23 +115,6 @@ def list_categories(
             "i18n_key": c.i18n_key,
             "transaction_count": count_map.get(c.id, 0),
         })
-
-    # 若模板基础分类尚未持久化，在内存中动态补充展示
-    for dc in get_template_categories(session):
-        if dc["name"] not in seen_names:
-            if category_type and category_type != "all" and dc["category_type"] != category_type:
-                continue
-            preset_id = dc.get("id") or str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{family_id}_{dc['name']}"))
-            items.append({
-                "id": preset_id,
-                "name": dc["name"],
-                "parent_id": None,
-                "icon": dc["icon"],
-                "color": dc["color"],
-                "category_type": dc["category_type"],
-                "i18n_key": None,
-                "transaction_count": 0,
-            })
 
     # 按关联交易数量降序排列，高频分类优先展示
     items.sort(key=lambda x: x["transaction_count"], reverse=True)

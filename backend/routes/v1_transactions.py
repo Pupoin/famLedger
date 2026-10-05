@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -183,7 +183,7 @@ class TransactionIn(BaseModel):
 
 
 def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, user_or_ctx: Any = None) -> Account:
-    """根据账户 ID 或 银行:尾号 / 卡号后四位 自动查找或预拨账户。"""
+    """UUID, then exact external ID, then unconfigured account names; reject ambiguity."""
     raw_str = identifier.strip()
 
     # 1. 尝试以 UUID 嗅探查找（内部系统主键直接命中）
@@ -195,13 +195,9 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, us
     except (ValueError, TypeError, AttributeError):
         pass
 
-    # 2. 先查是否存在 name 完全一致的现有账户（如直接传入 "招商银行借记卡 7931"）
     accounts = session.exec(select(Account).where(Account.family_id == family_id)).all()
-    for acc in accounts:
-        if acc.name == raw_str:
-            return acc
 
-    # 3. 结构化切分：支持 "招商银行:7931"、"招商银行-7931"、"招商银行 7931"、"招商银行借记卡 7931" 或纯尾号 "7931"
+    # 2. Parse a bank-qualified identifier or a standalone four-digit card suffix.
     institution, last4 = None, raw_str
     if ":" in raw_str:
         parts = [p.strip() for p in raw_str.split(":", 1)]
@@ -213,26 +209,80 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, us
         parts = raw_str.rsplit(None, 1)
         institution, last4 = parts[0].strip(), parts[1].strip()
 
-    # 4. 按卡号或银行机构在当前家庭作用域内查找
-    num_match = re.search(r"(\d{4})", last4)
+    num_match = re.search(r"(?<!\d)(\d{4})(?!\d)", last4)
     target_digits = num_match.group(1) if num_match else last4
 
-    for acc in accounts:
-        has_num = target_digits in acc.name or (acc.external_identifier and target_digits in str(acc.external_identifier))
-        if has_num:
-            if not institution:
-                return acc
-            if (
-                institution in acc.name
-                or (acc.institution_name and (institution in acc.institution_name or acc.institution_name in institution))
-            ):
-                return acc
+    hint = raw_str.casefold()
+    credit_types = {"credit_card", "credit", "信用卡"}
+    debit_types = {"checking", "savings", "cash", "debit_card", "debit", "借记卡", "储蓄卡", "现金"}
+    card_type = "credit" if any(k in hint for k in ("信用卡", "credit_card", "credit card")) else (
+        "debit" if any(k in hint for k in ("借记卡", "储蓄卡", "debit_card", "debit card")) else None
+    )
 
-    # 4. 未找到则自动预拨创建（动态使用解析出的银行名称）
-    is_credit = any(k in raw_str for k in ("9085", "7661", "信用卡", "credit"))
+    def institution_label(value):
+        return re.sub(
+            r"信用卡|借记卡|储蓄卡|credit[_ ]card|debit[_ ]card", "",
+            (value or "").strip(), flags=re.IGNORECASE,
+        ).strip()
+
+    def bank_label(value):
+        return institution_label(value).casefold()
+
+    bank = bank_label(institution)
+
+    def eligible(acc):
+        kind = (acc.account_type or "").casefold()
+        if card_type == "credit" and kind not in credit_types:
+            return False
+        if card_type == "debit" and kind not in debit_types:
+            return False
+        if bank:
+            stored_bank = bank_label(acc.institution_name or acc.name)
+            return bool(stored_bank) and (bank in stored_bank or stored_bank in bank)
+        return True
+
+    def single_match(candidates):
+        if len(candidates) > 1:
+            raise HTTPException(status_code=409, detail="多个账户匹配此银行、卡类型和标识，请使用账户 UUID 或修改外部账户标识")
+        return candidates[0] if candidates else None
+
+    # The full source identifier is authoritative, independent of display metadata.
+    exact = single_match([acc for acc in accounts if acc.external_identifier and
+                          acc.external_identifier.strip() == raw_str])
+    if exact:
+        return exact
+
+    candidates = [acc for acc in accounts if eligible(acc)]
+    # A suffix-only identifier is less specific and must also match bank and type.
+    if re.fullmatch(r"\d{4}", target_digits):
+        suffix_match = single_match([acc for acc in candidates if acc.external_identifier and
+                                     acc.external_identifier.strip() == target_digits])
+        if suffix_match:
+            return suffix_match
+
+    # Only accounts without an external identifier may use their display name.
+    unconfigured = [acc for acc in candidates if not (acc.external_identifier or "").strip()]
+    # A full display name is also an explicit selector. Bank-qualified imports
+    # retain the bank/type filters; spaces in a user alias are not a bank name.
+    exact_name = single_match([acc for acc in accounts if
+                              not (acc.external_identifier or "").strip() and acc.name == raw_str and
+                              (eligible(acc) or (":" not in raw_str and "-" not in raw_str))])
+    if exact_name:
+        return exact_name
+    suffix_pattern = rf"(?<!\d){re.escape(target_digits)}(?!\d)" if re.fullmatch(r"\d{4}", target_digits) else None
+    by_name = single_match([acc for acc in unconfigured if (
+        re.search(suffix_pattern, acc.name) if suffix_pattern else target_digits in acc.name
+    )])
+    if by_name:
+        return by_name
+
+    # 4. No match: retain the complete POST selector independently of the alias.
+    if len(raw_str) > 100:
+        raise HTTPException(status_code=422, detail="外部账户标识不能超过 100 个字符")
+    is_credit = card_type == "credit"
     acc_type = "credit_card" if is_credit else "checking"
-    bank_name = institution if institution else "招商银行"
-    acc_name = f"{bank_name} {target_digits}"
+    bank_name = institution_label(institution) or None
+    acc_name = f"{bank_name} {target_digits}" if bank_name else raw_str
 
     current_u = None
     if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
@@ -251,8 +301,10 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, us
         owner_id=owner_id,
         name=acc_name,
         account_type=acc_type,
+        classification="liability" if is_credit else "asset",
         currency="CNY",
         institution_name=bank_name,
+        external_identifier=raw_str,
     )
     session.add(new_acc)
     session.flush()
@@ -469,6 +521,10 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
 
     # 5. 组装交易对象与扩展元数据
     extra_data = dict(data.extra or {})
+    extra_data.pop('classification', None)
+    extra_data.pop('transaction_type_source', None)
+    if data.external_id and data.external_id.startswith('manual:'):
+        extra_data['transaction_type_source'] = 'manual'
     if extra_data.get("is_initial") or extra_data.get("source") == "account_opening":
         raise HTTPException(status_code=400, detail="期初余额只能通过账户建账或对账接口创建")
 
@@ -546,6 +602,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
                 **booking,
                 narration=data.narration,
                 category_id=final_category_id,
+                category_source="manual" if final_category_id else "import",
                 transaction_type=txn_type,
                 status="cleared",
                 is_reimbursable=is_reimb,
@@ -560,9 +617,8 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
             active_rules = session.exec(
                 select(Rule).where(Rule.family_id == family_id, Rule.is_active == True).order_by(Rule.priority)
             ).all()
-            if active_rules:
-                pipeline = RulePipeline(active_rules, session=session)
-                pipeline.process_transaction(txn, account_name=account.name, dry_run=False)
+            pipeline = RulePipeline(active_rules, session=session)
+            pipeline.process_transaction(txn, account_name=account.name, dry_run=False)
 
             # All matching follows the final rule result, not the original input type.
             txn_type = txn.transaction_type
@@ -606,11 +662,13 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
                     currency=account.currency,
                     narration=in_name,
                     transaction_type="transfer",
+                    category_id=txn.category_id,
+                    category_source=txn.category_source,
                     transacted_at=transacted_date,
                     occurred_at=occurred_at_clean,
                     notes=data.notes,
                     status="posted",
-                    extra={"from_account_id": str(account.id)},
+                    extra={"from_account_id": str(account.id), "transaction_type_source": "manual"},
                 )
                 session.add(in_txn)
                 session.flush()
@@ -659,6 +717,8 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
 
                 def _detect_transfer_flow(t: Transaction) -> Optional[str]:
                     from services.transaction_direction import transaction_direction
+                    if t.transaction_type == 'expense' and (t.extra or {}).get('bank_action') == '支付':
+                        return None
                     explicit = (t.extra or {}).get("direction")
                     if t.transaction_type == "transfer" and explicit in ("in", "inflow", "out", "outflow"):
                         return "in" if transaction_direction(t, session) == "inflow" else "out"
@@ -803,6 +863,7 @@ def list_transactions(
     has_refund: Optional[bool] = Query(None, description="仅看已关联退款冲抵的消费"),
     tag: Optional[str] = Query(None, description="按标签过滤，支持逗号分隔多选"),
     merchant: Optional[str] = Query(None, description="按商户名称过滤，支持逗号分隔多选"),
+    merchant_group: Optional[Literal['other']] = Query(None, description="商户支出图中，除单独显示的商户以外的消费"),
     status: Optional[str] = Query(None, description="按交易状态过滤: cleared | pending，支持逗号分隔多选"),
     min_amount: Optional[Decimal] = Query(None, description="最小交易金额"),
     max_amount: Optional[Decimal] = Query(None, description="最大交易金额"),
@@ -819,35 +880,9 @@ def list_transactions(
     """
     极速游标分页交易流水列表（支持全面多维复合筛选：卡号、金融机构、消费类型、分类、退款、标签、金额与日期）。
     """
-    CATEGORY_DEFS = [
-        {"id": "cat_salary", "name": "工资薪酬", "icon": "💰", "color": "#10b981", "kws": ["工资", "薪酬", "薪水", "月薪", "代发工资"]},
-        {"id": "cat_bonus", "name": "奖金补贴", "icon": "🧧", "color": "#f59e0b", "kws": ["奖金", "绩效", "年终奖", "补贴", "津贴"]},
-        {"id": "cat_sidehustle", "name": "兼职副业", "icon": "💼", "color": "#8b5cf6", "kws": ["兼职", "副业", "劳务报酬", "技术咨询", "咨询费", "稿费"]},
-        {"id": "cat_invest_income", "name": "理财收益", "icon": "📈", "color": "#0284c7", "kws": ["理财", "结息", "利息", "分红", "朝朝宝", "投资收益", "基金收益"]},
-        {"id": "cat_other_income", "name": "其他收入", "icon": "💵", "color": "#0d9488", "kws": ["报销", "打款", "差旅费"]},
-        {"id": "cat_dining", "name": "餐饮美食", "icon": "🍴", "color": "#8b5cf6", "kws": ["餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆", "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖", "火锅", "面馆"]},
-        {"id": "cat_groceries", "name": "超市便利", "icon": "🛒", "color": "#10b981", "kws": ["超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛", "山姆", "全家", "罗森"]},
-        {"id": "cat_utilities", "name": "生活缴费", "icon": "⚡", "color": "#ef4444", "kws": ["自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通", "电信", "水务", "缴费"]},
-        {"id": "cat_transport", "name": "交通出行", "icon": "🚗", "color": "#06b6d4", "kws": ["高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油", "停车", "出行", "中石化", "中石油"]},
-        {"id": "cat_shopping", "name": "购物消费", "icon": "🛍️", "color": "#eab308", "kws": ["京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸", "商行", "数码", "服饰", "唯品会"]},
-        {"id": "cat_social", "name": "人情往来", "icon": "🤝", "color": "#0ea5e9", "kws": ["微信红包", "红包", "人情", "随礼", "份子钱", "礼金", "赵自宽"]},
-    ]
-
     def resolve_cat(t):
-        if t.transaction_type == "transfer":
-            return "内部转账", "⇄"
-        if t.category_id:
-            c = session.get(Category, t.category_id)
-            if c:
-                return c.name, c.icon or ("💰" if t.transaction_type == "income" else "📦")
-        txt = (t.narration or "").lower()
-        for cd in CATEGORY_DEFS:
-            for kw in cd["kws"]:
-                if kw.lower() in txt:
-                    return cd["name"], cd["icon"]
-        if t.transaction_type == "income":
-            return "其他收入", "💰"
-        return "其他", "🍪"
+        c = session.get(Category, t.category_id) if t.category_id else None
+        return (c.name, c.icon or "📦") if c else ("其他", "📦")
 
     stmt = select(Transaction)
 
@@ -1006,6 +1041,33 @@ def list_transactions(
         elif len(statuses) > 1:
             stmt = stmt.where(Transaction.status.in_(statuses))
 
+    other_merchant_names = None
+    if merchant_group == 'other':
+        from services.dashboard_scope import dashboard_scope
+        from services.report_currency import ReportCurrency, persist_fx_cache
+        from services.merchant_spending import ranked_merchants, MERCHANT_TILE_LIMIT
+        actor, _, _, report_accounts, _, _ = dashboard_scope(session, user_or_ctx, user)
+        report_ids = {a.id for a in report_accounts}
+        group_stmt = select(Transaction).where(
+            Transaction.account_id.in_(report_ids) if report_ids else False,
+            Transaction.excluded_from_stats == False,
+            Transaction.transaction_type == 'expense',
+        )
+        if isinstance(start_date, date):
+            group_stmt = group_stmt.where(Transaction.transacted_at >= start_date)
+        if isinstance(end_date, date):
+            group_stmt = group_stmt.where(Transaction.transacted_at <= end_date)
+        money = ReportCurrency(session, actor, cache_independently=True)
+        money.account_ids = report_ids
+        ranking, _ = ranked_merchants(money.transactions(session.exec(group_stmt).all()))
+        other_merchant_names = {name for name, _ in ranking[MERCHANT_TILE_LIMIT:]}
+        persist_fx_cache(session)
+        stmt = stmt.where(
+            Transaction.account_id.in_(report_ids) if report_ids else False,
+            Transaction.excluded_from_stats == False,
+            Transaction.transaction_type == 'expense',
+        )
+
     # 排序采用：跨日按日期倒序 (transacted_at DESC)，同日内按时间由早到晚正序 (occurred_at ASC, created_at ASC, id ASC)
     stmt = stmt.order_by(
         desc(Transaction.transacted_at),
@@ -1014,6 +1076,8 @@ def list_transactions(
         asc(Transaction.id),
     )
     all_matched = session.exec(stmt).all()
+    if other_merchant_names is not None:
+        all_matched = [t for t in all_matched if (t.narration or '其他') in other_merchant_names]
     from services.tags import tag_resolver
     from services.principals import resolve_family_id
     resolve_tags = tag_resolver(session, resolve_family_id(session, user_or_ctx))
@@ -1118,7 +1182,7 @@ def list_transactions(
             "account_owner_name": acc_owner,
             "account_is_owner": acc_is_owner,
             "account_owner_id": str(acc.owner_id) if acc and acc.owner_id else None,
-            "institution_name": acc.institution_name if acc and acc.institution_name else "招商银行",
+            "institution_name": acc.institution_name if acc else None,
             "external_id": t.external_id,
             "transacted_at": t.transacted_at.isoformat(),
             "occurred_at": occurred_at_val,
@@ -1202,8 +1266,9 @@ def get_filter_options(
     for a in accounts:
         m = re.search(r"(\d{4})", a.name or "")
         mask = m.group(1) if m else (a.name[-4:] if len(a.name) >= 4 else "0000")
-        inst = a.institution_name or "中国招商银行"
-        institutions_set.add(inst)
+        inst = a.institution_name or ""
+        if inst:
+            institutions_set.add(inst)
 
         is_mine = bool(curr_user and a.owner_id == curr_user.id)
         if is_mine:
@@ -1444,11 +1509,8 @@ def get_transaction_detail(
     accessible_acc_ids = set(get_user_visible_account_ids(session, current_user, family_id=account.family_id if account else None))
 
     category = session.get(Category, txn.category_id) if txn.category_id else None
-    cat_name = category.name if category else "未分类"
+    cat_name = category.name if category else "其他"
     cat_icon = category.icon if category else "📦"
-    if txn.transaction_type == "transfer":
-        cat_name = "内部划转"
-        cat_icon = "⇄"
 
     # 转账对端信息
     paired_transfer = None
@@ -1858,8 +1920,7 @@ def update_transaction(
             if has_alloc:
                 raise HTTPException(status_code=400, detail="该流水已参与退款冲抵关联，修改收支类型前请先解除所有退款绑定")
         txn.transaction_type = payload.transaction_type
-        if txn.transaction_type == "transfer":
-            txn.category_id = None
+        txn.extra = {**(txn.extra or {}), "transaction_type_source": "manual"}
     if payload.narration is not None or payload.name is not None:
         txn.narration = payload.narration if payload.narration is not None else payload.name
         txn.merchant_source = "manual"
@@ -1868,65 +1929,19 @@ def update_transaction(
     if payload.tags is not None:
         txn.tags = [str(t).strip() for t in payload.tags if str(t).strip()]
 
-    # 处理分类（转账流水恒定脱钩收支分类）
-    if txn.transaction_type == "transfer":
-        txn.category_id = None
-    elif "category_id" in payload.model_fields_set:
+    if "category_id" in payload.model_fields_set:
         txn.category_source = "manual"
-        cat_val = str(payload.category_id).strip() if payload.category_id is not None else ""
-        if not cat_val or cat_val in ("null", "undefined", "00000000-0000-0000-0000-000000000000"):
-            txn.category_id = None
-        else:
-            is_valid_uuid = False
+        txn.extra = {k: v for k, v in (txn.extra or {}).items() if k != "classification"}
+        acc = target_acc or session.get(Account, txn.account_id)
+        if payload.category_id:
+            from services.rules.categories import resolve_category
             try:
-                c_uuid = uuid.UUID(cat_val)
-                is_valid_uuid = True
-                existing_cat = session.get(Category, c_uuid)
-                if not existing_cat:
-                    raise HTTPException(400, "所指定的分类不存在")
-                if existing_cat:
-                    acc = session.get(Account, txn.account_id)
-                    family_id = acc.family_id if acc else None
-                    if family_id and existing_cat.family_id != family_id:
-                        raise HTTPException(status_code=400, detail="所指定的分类属于其他家庭")
-                    txn.category_id = existing_cat.id
-            except (ValueError, TypeError):
-                pass
-
-            if not is_valid_uuid or not txn.category_id:
-                category_presets = {
-                    "cat_dining": ("餐饮美食", "🍴"),
-                    "cat_groceries": ("超市便利", "🛒"),
-                    "cat_shopping": ("购物消费", "🛍️"),
-                    "cat_transport": ("交通出行", "🚗"),
-                    "cat_utilities": ("生活缴费", "⚡"),
-                    "cat_social": ("人情往来", "🤝"),
-                    "cat_other": ("其他", "🍪"),
-                }
-                cat_name, cat_icon = category_presets.get(cat_val, (cat_val, "📦"))
-                acc = session.get(Account, txn.account_id)
-                family_id = acc.family_id if acc else None
-                if not family_id:
-                    fam = session.exec(select(Family)).first()
-                    family_id = fam.id if fam else None
-
-                if family_id:
-                    cat = session.exec(
-                        select(Category).where(
-                            Category.family_id == family_id,
-                            or_(Category.name == cat_name, Category.i18n_key == cat_val),
-                        )
-                    ).first()
-                    if not cat:
-                        cat = Category(
-                            family_id=family_id,
-                            name=cat_name,
-                            icon=cat_icon,
-                            i18n_key=cat_val,
-                        )
-                        session.add(cat)
-                        session.flush()
-                    txn.category_id = cat.id
+                txn.category_id = resolve_category(session, payload.category_id, acc.family_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+        else:
+            from services.rules.categories import other_category
+            txn.category_id = other_category(session, acc.family_id, create=True).id
 
     # 处理账户变更
     if target_acc:

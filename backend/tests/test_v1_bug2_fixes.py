@@ -720,12 +720,8 @@ def test_issue_11_no_family_list_categories_no_key_error(client: TestClient):
     res = client.get("/api/v1/categories")
     assert res.status_code == 200
     cats = res.json().get("categories", [])
-    assert len(cats) > 0
-    # 确保每个预置分类都拥有确定的 id 与 name 字段
-    for c in cats:
-        assert "id" in c
-        assert "name" in c
-        assert c["transaction_count"] == 0
+    assert cats == []  # No fabricated category IDs for users outside a family.
+    assert res.json()['count'] == 0
 
 
 def test_issue_12_no_family_debt_and_tag_creation_returns_400(client: TestClient):

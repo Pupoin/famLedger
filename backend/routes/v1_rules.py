@@ -9,7 +9,8 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, model_validator
 from sqlmodel import Session, select, desc
 
 from database import get_session
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/v1/rules", tags=["Rules Engine"])
 class RuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     description: Optional[str] = None
-    priority: int = 100
+    priority: int = Field(default=100, ge=-2147483648, le=2147483647)
     stop_processing: bool = False
     is_active: bool = True
     conditions: Dict[str, Any] = Field(description="Composite condition tree (AND/OR/NOT, rules)")
@@ -35,22 +36,35 @@ class RuleCreate(BaseModel):
 class RuleUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=150)
     description: Optional[str] = None
-    priority: Optional[int] = None
+    priority: Optional[int] = Field(default=None, ge=-2147483648, le=2147483647)
     stop_processing: Optional[bool] = None
     is_active: Optional[bool] = None
     conditions: Optional[Dict[str, Any]] = None
     actions: Optional[List[Dict[str, Any]]] = None
 
+    @model_validator(mode='before')
+    @classmethod
+    def reject_null_fields(cls, data):
+        if isinstance(data, dict) and any(value is None for key, value in data.items() if key != 'description'):
+            raise ValueError('规则字段不能为 null')
+        return data
+
 
 class RuleReorderItem(BaseModel):
     id: uuid.UUID
-    priority: int
+    priority: int = Field(ge=-2147483648, le=2147483647)
 
 
 class DryRunPayload(BaseModel):
     rule: Optional[RuleCreate] = Field(default=None, description="Draft rule to test; if null, tests current active rules")
     limit: int = Field(default=100, ge=1, le=1000)
     account_id: Optional[uuid.UUID] = None
+
+
+class ImportPayload(BaseModel):
+    bundle: Any
+    mode: str = 'append'
+    preview: bool = True
 
 
 def _resolve_user_family_id(session: Session, user_or_ctx: Any) -> Optional[uuid.UUID]:
@@ -69,7 +83,7 @@ def list_rules(
         return {"rules": [], "count": 0}
 
     rules = session.exec(
-        select(Rule).where(Rule.family_id == family_id).order_by(Rule.priority)
+        select(Rule).where(Rule.family_id == family_id).order_by(Rule.priority, Rule.created_at, Rule.id)
     ).all()
 
     items = []
@@ -98,28 +112,42 @@ def _require_admin_or_owner(session: Session, user_or_ctx: Any):
 
 
 def _validate_rule_actions(session: Session, actions: Any, family_id: Optional[uuid.UUID]):
-    if not isinstance(actions, list):
-        raise HTTPException(status_code=400, detail="actions 必须为动作列表")
+    from services.rules.bundles import validate_actions
     from services.rules.categories import resolve_category
-    allowed = {"set_category", "set_merchant", "set_narration", "set_description",
-               "set_transaction_type", "exclude_from_statistics", "set_note", "add_tag"}
-    for act in actions:
-        if not isinstance(act, dict) or act.get("type") not in allowed:
-            raise HTTPException(status_code=400, detail="无效的规则动作")
-        if "value" not in act and "target_value" in act:
-            act["value"] = act.pop("target_value")
-        val = act.get("value")
-        if val is None or (isinstance(val, str) and not val.strip()):
-            raise HTTPException(status_code=400, detail="规则动作缺少 value")
-        if act["type"] == "set_category":
-            try:
-                act["value"] = str(resolve_category(session, val, family_id, create=True))
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if act["type"] == "exclude_from_statistics" and not isinstance(val, bool):
-            raise HTTPException(status_code=400, detail="统计排除动作必须使用布尔值")
-        if act["type"] == "set_transaction_type" and val not in ("expense", "income", "transfer", "refund"):
-            raise HTTPException(status_code=400, detail="无效的交易类型")
+    try:
+        actions[:] = validate_actions(actions, lambda value: resolve_category(session, value, family_id))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get('/export')
+def export_rules(session: Session = Depends(get_session), user_or_ctx: Any = Depends(get_current_user_or_token)):
+    from services.rules.bundles import export_bundle
+    _require_admin_or_owner(session, user_or_ctx)
+    family_id = _resolve_user_family_id(session, user_or_ctx)
+    if not family_id:
+        raise HTTPException(400, '您尚未加入家庭组')
+    try:
+        bundle = export_bundle(session, family_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return JSONResponse(bundle, headers={'Content-Disposition': 'attachment; filename="famledger-rules.json"'})
+
+
+@router.post('/import')
+def import_rules(data: ImportPayload, session: Session = Depends(get_session), user_or_ctx: Any = Depends(get_current_user_or_token)):
+    from services.rules.bundles import import_bundle
+    lock_mutation(session)
+    _require_admin_or_owner(session, user_or_ctx)
+    family_id = _resolve_user_family_id(session, user_or_ctx)
+    try:
+        result = import_bundle(session, family_id, data.bundle, data.mode, preview=data.preview)
+    except (ValueError, TypeError, KeyError) as exc:
+        session.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    if not data.preview:
+        session.commit()
+    return result
 
 
 @router.post("")
@@ -175,6 +203,11 @@ def reorder_rules(
     lock_mutation(session)
     _require_admin_or_owner(session, user_or_ctx)
     family_id = _resolve_user_family_id(session, user_or_ctx)
+    if len({item.id for item in items}) != len(items):
+        raise HTTPException(400, '规则编号重复')
+    rules = [session.get(Rule, item.id) for item in items]
+    if any(not rule or rule.family_id != family_id for rule in rules):
+        raise HTTPException(404, 'Rule not found')
     for item in items:
         rule = session.get(Rule, item.id)
         if rule and rule.family_id == family_id:
@@ -196,11 +229,8 @@ def update_rule(
     lock_mutation(session)
     _require_admin_or_owner(session, user_or_ctx)
     family_id = _resolve_user_family_id(session, user_or_ctx)
-    from models import User
-    u = session.exec(select(User).where(User.username == user_or_ctx)).first() if isinstance(user_or_ctx, str) else None
-    is_admin = (u and u.role == "admin") or (isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:"))
     rule = session.get(Rule, rule_id)
-    if not rule or (not is_admin and rule.family_id != family_id):
+    if not rule or rule.family_id != family_id:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     if "conditions" in data.model_fields_set:
@@ -239,11 +269,8 @@ def delete_rule(
     lock_mutation(session)
     _require_admin_or_owner(session, user_or_ctx)
     family_id = _resolve_user_family_id(session, user_or_ctx)
-    from models import User
-    u = session.exec(select(User).where(User.username == user_or_ctx)).first() if isinstance(user_or_ctx, str) else None
-    is_admin = (u and u.role == "admin") or (isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:"))
     rule = session.get(Rule, rule_id)
-    if not rule or (not is_admin and rule.family_id != family_id):
+    if not rule or rule.family_id != family_id:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     session.delete(rule)
@@ -302,19 +329,19 @@ def dry_run_rules(
     stmt = select(Transaction)
     if payload.account_id:
         if str(payload.account_id) not in family_acc_ids:
-            return {"total_evaluated": 0, "matched_count": 0, "results": []}
+            return {"total_evaluated": 0, "total_affected": 0, "affected_transactions": []}
         stmt = stmt.where(Transaction.account_id == payload.account_id)
     else:
         if family_acc_ids:
             stmt = stmt.where(Transaction.account_id.in_([uuid.UUID(aid) for aid in family_acc_ids]))
         else:
-            return {"total_evaluated": 0, "matched_count": 0, "results": []}
+            return {"total_evaluated": 0, "total_affected": 0, "affected_transactions": []}
 
     stmt = stmt.order_by(desc(Transaction.transacted_at), desc(Transaction.id)).limit(payload.limit)
     txns = session.exec(stmt).all()
 
     # 3. 执行内存模拟
-    pipeline = RulePipeline(rules_to_eval, session=session)
+    pipeline = RulePipeline(rules_to_eval, session=session, fallback=payload.rule is None)
     result = pipeline.dry_run_batch(txns, acc_map)
 
     return result
@@ -332,15 +359,13 @@ def apply_all_rules_retroactively(
     rules = session.exec(
         select(Rule).where(Rule.family_id == family_id, Rule.is_active == True).order_by(Rule.priority)
     ).all()
-    if not rules:
-        return {"status": "ok", "modified_count": 0}
 
     from services.stats_engine import get_user_writable_account_ids
     is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:")
     curr_user = session.exec(select(User).where(User.username == user_or_ctx)).first() if (isinstance(user_or_ctx, str) and not is_service) else None
     writable_acc_ids = get_user_writable_account_ids(session, user_or_ctx if is_service else curr_user, family_id=family_id)
     if not writable_acc_ids:
-        return {"status": "ok", "modified_count": 0}
+        return {"status": "ok", "evaluated_count": 0, "modified_count": 0}
 
     accounts = session.exec(select(Account).where(Account.id.in_(writable_acc_ids))).all()
     acc_map = {str(a.id): a.name for a in accounts}
@@ -360,7 +385,7 @@ def apply_all_rules_retroactively(
 
     session.commit()
     logger.info("全量规则历史回溯完成，更新流水数: %s", modified_count)
-    return {"status": "ok", "modified_count": modified_count}
+    return {"status": "ok", "evaluated_count": len(txns), "modified_count": modified_count}
 
 
 @router.post("/{rule_id}/apply")
@@ -382,7 +407,7 @@ def apply_rule_retroactively(
     curr_user = session.exec(select(User).where(User.username == user_or_ctx)).first() if (isinstance(user_or_ctx, str) and not is_service) else None
     writable_acc_ids = get_user_writable_account_ids(session, user_or_ctx if is_service else curr_user, family_id=family_id)
     if not writable_acc_ids:
-        return {"status": "ok", "modified_count": 0}
+        return {"status": "ok", "evaluated_count": 0, "modified_count": 0}
 
     accounts = session.exec(select(Account).where(Account.id.in_(writable_acc_ids))).all()
     acc_map = {str(a.id): a.name for a in accounts}
@@ -390,7 +415,7 @@ def apply_rule_retroactively(
     txns = session.exec(
         select(Transaction).where(Transaction.account_id.in_(writable_acc_ids))
     ).all()
-    pipeline = RulePipeline([rule], session=session)
+    pipeline = RulePipeline([rule], session=session, fallback=False)
 
     modified_count = 0
     for txn in txns:
@@ -402,4 +427,4 @@ def apply_rule_retroactively(
 
     session.commit()
     logger.info("规则 [%s] 历史回溯完成，更新流水数: %s", rule.name, modified_count)
-    return {"status": "ok", "modified_count": modified_count}
+    return {"status": "ok", "evaluated_count": len(txns), "modified_count": modified_count}

@@ -342,6 +342,8 @@ def register(data: RegisterRequest, response: Response, session: Session = Depen
             default_family = Family(name="我的家庭", currency="CNY")
             session.add(default_family)
             session.flush()
+        from services.rules.defaults import initialize_family_rules
+        initialize_family_rules(session, default_family.id)
         user_family_id = default_family.id
         user_role = "admin"
     else:

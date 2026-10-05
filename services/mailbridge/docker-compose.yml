@@ -1,0 +1,34 @@
+name: mailbridge
+
+x-app: &app
+  image: mailbridge:latest
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    TZ: ${TZ:-Asia/Shanghai}
+    GRAPH_TOKEN_CACHE_PATH: /app/data/msal_token_cache.json
+    MAILBRIDGE_DATABASE_PATH: /app/data/mailbridge.db
+  volumes:
+    - ./data:/app/data
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  auth-web:
+    <<: *app
+    command: ["uvicorn", "backend.auth.web:app", "--host", "0.0.0.0", "--port", "8502"]
+    ports:
+      - "127.0.0.1:8502:8502"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      start_period: 10s
+      retries: 6
+
+  mail-worker:
+    <<: *app
+    depends_on:
+      auth-web:
+        condition: service_healthy

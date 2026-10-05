@@ -361,7 +361,7 @@ def test_financial_edit_prepares_booking_before_flush(auth_client_a,db,monkeypat
     monkeypatch.setattr('services.report_currency.requests.get',fail_quotes)
     edited=auth_client_a.patch(f"/api/v1/transactions/{created['id']}",json={
         'original_amount':'200','original_currency':'USD','settlement_amount':'200','settlement_currency':'USD',
-        'master_settlement_amount':'1405','master_settlement_currency':'CNY','category_id':'cat_other'})
+        'master_settlement_amount':'1405','master_settlement_currency':'CNY','category_id':None})
     assert edited.status_code==200,edited.text
     assert Decimal(edited.json()['original_amount'])==200 and Decimal(edited.json()['master_settlement_amount'])==1405
 

@@ -8,6 +8,7 @@ import { useCurrency } from '../UserPreferencesContext';
 import { toLocalISODate } from '../utils/dates';
 import AccountSelectDropdown from './AccountSelectDropdown';
 import AccountTypeSelectDropdown from './AccountTypeSelectDropdown';
+import ExternalIdentifierField from './ExternalIdentifierField';
 
 /**
  * 1. 编辑账户基本信息弹窗
@@ -18,6 +19,8 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
   const { currencies } = useCurrency();
   const [name, setName] = useState('');
   const [institutionName, setInstitutionName] = useState('');
+  const [externalIdentifier, setExternalIdentifier] = useState('');
+  const externalIdentifierEdited = useRef(false);
   const [accountType, setAccountType] = useState('checking');
   const [accountTypeEdited, setAccountTypeEdited] = useState(false);
   const [currency, setCurrency] = useState('CNY');
@@ -51,6 +54,8 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
     if (account?.can_manage === true && isOpen) {
       setName(account.name || '');
       setInstitutionName(account.institution_name || '');
+      setExternalIdentifier(account.external_identifier || '');
+      externalIdentifierEdited.current = false;
       setAccountType(normalizeAccountTypeForSelect(account.account_type));
       setAccountTypeEdited(false);
       setCurrency(account.currency || 'CNY');
@@ -71,6 +76,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
           const list = Array.isArray(data) ? data : data.accounts || data.items || [];
           const latest = list.find((a) => String(a.id) === String(account.id));
           if (latest) {
+            if (!externalIdentifierEdited.current) setExternalIdentifier(latest.external_identifier || '');
             if (!parentAccountEdited.current) setParentAccountId(latest.parent_account_id || '');
             setCurrentParent(latest.parent_account || null);
           }
@@ -95,6 +101,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
         body: JSON.stringify({
           name: name.trim(),
           institution_name: institutionName.trim(),
+          ...(externalIdentifierEdited.current ? { external_identifier: externalIdentifier.trim() || null } : {}),
           ...(accountTypeEdited ? { account_type: accountType } : {}),
           ...(currencyEdited ? { currency } : {}),
           ...(balanceEdited ? { balance } : {}),
@@ -154,6 +161,15 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
               className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white text-xs focus:ring-1 focus:ring-zinc-900"
             />
           </div>
+
+          <ExternalIdentifierField
+            id="edit-account-external-identifier"
+            value={externalIdentifier}
+            onChange={(value) => {
+              externalIdentifierEdited.current = true;
+              setExternalIdentifier(value);
+            }}
+          />
 
           <div className="grid grid-cols-2 gap-3">
             <div>

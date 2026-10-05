@@ -13,83 +13,7 @@ from sqlmodel import Session, select
 
 from models import Account, Category, Family, Transaction
 
-# 标准预置分类与关键词映射定义
-STANDARD_CATEGORY_DEFS = [
-    {
-        "id": "cat_dining",
-        "name": "餐饮美食",
-        "icon": "🍴",
-        "color": "#8b5cf6",
-        "aliases": ["dining", "food", "餐饮", "餐饮美食"],
-        "kws": [
-            "餐饮", "烧烤", "拉扎斯", "饿了么", "食欲主义", "鑫牛", "酒家", "小馆",
-            "美食", "咖啡", "星巴克", "麦当劳", "肯德基", "厨房", "友宝", "外卖",
-            "火锅", "面馆", "团队聚餐", "肉夹馍", "奶茶", "脆皮手枪腿", "海底捞"
-        ],
-    },
-    {
-        "id": "cat_groceries",
-        "name": "超市便利",
-        "icon": "🛒",
-        "color": "#10b981",
-        "aliases": ["groceries", "supermarket", "超市", "超市便利"],
-        "kws": [
-            "超市", "生鲜", "好蔬果", "物美", "便利", "果蔬", "买菜", "沃尔玛",
-            "山姆", "全家", "罗森", "柒一拾壹", "多点新鲜", "卖场"
-        ],
-    },
-    {
-        "id": "cat_utilities",
-        "name": "生活缴费",
-        "icon": "⚡",
-        "color": "#ef4444",
-        "aliases": ["utilities", "bills", "生活缴费"],
-        "kws": [
-            "自来水", "燃气", "供暖", "电费", "电网", "物业", "移动", "联通",
-            "电信", "水务", "缴费", "电力", "手机充值"
-        ],
-    },
-    {
-        "id": "cat_transport",
-        "name": "交通出行",
-        "icon": "🚗",
-        "color": "#06b6d4",
-        "aliases": ["transport", "transportation", "交通", "交通出行"],
-        "kws": [
-            "高德打车", "滴滴", "地铁", "公交", "铁路", "12306", "打车", "加油",
-            "停车", "出行", "中石化", "中石油"
-        ],
-    },
-    {
-        "id": "cat_shopping",
-        "name": "购物消费",
-        "icon": "🛍️",
-        "color": "#eab308",
-        "aliases": ["shopping", "购物", "购物消费"],
-        "kws": [
-            "京东", "拼多多", "淘宝", "天猫", "环胜电子", "虞唯", "宽达", "商贸",
-            "商行", "数码", "服饰", "唯品会", "淘天物流", "百宝阁"
-        ],
-    },
-    {
-        "id": "cat_social",
-        "name": "人情往来",
-        "icon": "🤝",
-        "color": "#0ea5e9",
-        "aliases": ["social", "人情往来", "人情随礼", "随礼"],
-        "kws": ["微信红包", "红包", "人情", "随礼", "份子钱", "礼金", "赵自宽"],
-    },
-]
-
-OTHER_CATEGORY_DEF = {
-    "id": "cat_other",
-    "name": "其他",
-    "icon": "🍪",
-    "color": "#f97316",
-}
-
-NON_INCOME_KWS = ["对账", "期初", "建账", "还款", "转账", "转入", "划转", "借据", "借款"]
-NON_EXPENSE_KWS = ["对账", "期初", "建账", "还贷", "放款", "借据", "调账"]
+OTHER_CATEGORY_DEF = {"id": "cat_other", "name": "其他", "icon": "📦", "color": "#f97316"}
 
 
 def get_family_active_account_ids(session: Session, family_id: Optional[uuid.UUID] = None) -> Set[uuid.UUID]:
@@ -259,88 +183,23 @@ def is_genuine_refund(t: Transaction) -> bool:
     return True
 
 
+def category_definition(category):
+    return {"id": str(category.id), "name": category.name,
+            "icon": category.icon or "📦", "color": category.color or "#f97316"}
+
+
 def classify_transaction(t: Transaction, category_map: Dict[uuid.UUID, Category]) -> Dict[str, Any]:
-    """统一交易分类归集算法。"""
-    # 1. 优先读取数据库外键绑定分类
-    if t.category_id and t.category_id in category_map:
-        c_db = category_map[t.category_id]
-        c_db_name = (c_db.name or "").strip()
-        c_db_name_lower = c_db_name.lower()
-
-        # 别名映射到标准分类
-        for cdef in STANDARD_CATEGORY_DEFS:
-            if cdef["name"] == c_db_name or c_db_name_lower in cdef["aliases"]:
-                return {
-                    "id": cdef["id"],
-                    "name": cdef["name"],
-                    "icon": cdef["icon"],
-                    "color": cdef["color"],
-                }
-        # 如果不是标准分类，但明确有自定义分类名（且不是“其他”），则保留自定义分类
-        if c_db_name and c_db_name not in ("其他", "Other", "其他支出"):
-            return {
-                "id": str(c_db.id),
-                "name": c_db_name,
-                "icon": c_db.icon or "📦",
-                "color": getattr(c_db, "color", None) or "#f97316",
-            }
-
-    # 2. 文本关键词匹配标准分类
-    full_text = (t.narration or "").lower()
-    for cdef in STANDARD_CATEGORY_DEFS:
-        for kw in cdef["kws"]:
-            if kw.lower() in full_text:
-                return {
-                    "id": cdef["id"],
-                    "name": cdef["name"],
-                    "icon": cdef["icon"],
-                    "color": cdef["color"],
-                }
-
-    # 3. 兜底归入“其他”
-    return OTHER_CATEGORY_DEF.copy()
+    """Read the persisted classification, including explicit Other choices."""
+    category = category_map.get(t.category_id)
+    if category:
+        return category_definition(category)
+    other = next((c for c in category_map.values() if c.name == '其他' and not c.parent_id), None)
+    return category_definition(other) if other else OTHER_CATEGORY_DEF.copy()
 
 
-def classify_split_item(
-    split_cat_id: Optional[uuid.UUID],
-    split_notes: Optional[str],
-    fallback_txn: Transaction,
-    category_map: Dict[uuid.UUID, Category],
-) -> Dict[str, Any]:
-    """对拆分子项进行分类归集。"""
-    if split_cat_id and split_cat_id in category_map:
-        c_db = category_map[split_cat_id]
-        c_db_name = (c_db.name or "").strip()
-        c_db_name_lower = c_db_name.lower()
-        for cdef in STANDARD_CATEGORY_DEFS:
-            if cdef["name"] == c_db_name or c_db_name_lower in cdef["aliases"]:
-                return {
-                    "id": cdef["id"],
-                    "name": cdef["name"],
-                    "icon": cdef["icon"],
-                    "color": cdef["color"],
-                }
-        if c_db_name and c_db_name not in ("其他", "Other", "其他支出"):
-            return {
-                "id": str(c_db.id),
-                "name": c_db_name,
-                "icon": c_db.icon or "📦",
-                "color": getattr(c_db, "color", None) or "#f97316",
-            }
-
-    if split_notes:
-        full_text = split_notes.lower()
-        for cdef in STANDARD_CATEGORY_DEFS:
-            for kw in cdef["kws"]:
-                if kw.lower() in full_text:
-                    return {
-                        "id": cdef["id"],
-                        "name": cdef["name"],
-                        "icon": cdef["icon"],
-                        "color": cdef["color"],
-                    }
-
-    return classify_transaction(fallback_txn, category_map)
+def classify_split_item(split_cat_id, split_notes, fallback_txn, category_map):
+    category = category_map.get(split_cat_id)
+    return category_definition(category) if category else classify_transaction(fallback_txn, category_map)
 
 
 def compute_netted_category_distribution(

@@ -192,6 +192,11 @@ def make_transaction(session, plan, row, account, amount, kind, component, when,
                              'component': component}, **fields)
     if kind == 'expense' and component in {'interest', 'fee', 'capitalized_interest'}:
         txn.category_id = loan_category(session, plan, component)
+        txn.category_source = 'manual'
+    else:
+        from services.rules.categories import other_category
+        txn.category_id = other_category(session, plan.family_id, create=True).id
+    txn.extra = {**txn.extra, 'transaction_type_source': 'manual'}
     session.add(txn)
     session.flush()
     row.transaction_ids = [*row.transaction_ids, str(txn.id)]
@@ -351,6 +356,8 @@ def post(session, actor, plan, number, payment_date=None, linked=None, bank_amou
             linked.extra = {**linked.extra, 'scheduled_occurrence_id': str(row.id), 'scheduled_plan_id': str(plan.id), 'component': component}
             linked.excluded_from_stats = False
             linked.category_id = loan_category(session, plan, component)
+            linked.category_source = 'manual'
+            linked.extra = {**linked.extra, 'transaction_type_source': 'manual'}
             outgoing = linked
             session.add(linked)
         else:

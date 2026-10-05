@@ -64,6 +64,48 @@ def seed_household(engine):
         return family.id, user.id, account.id
 
 
+@pytest.mark.parametrize("endpoint,period", [
+    ("dashboard", "monthly"),
+    ("dashboard", "custom"),
+    ("analytics", "monthly"),
+    ("analytics", "custom"),
+    ("budgets", "monthly"),
+])
+def test_postgres_financial_reports_use_date_parameters_and_keep_month_boundaries(pg_engine, endpoint, period):
+    from routes.v1_dashboard import get_dashboard_summary
+    from routes.analytics import get_comprehensive_report
+    from routes.v1_budgets import get_budgets_summary
+    from models import FamilyBudget
+
+    engine, _ = pg_engine
+    family_id, _, account_id = seed_household(engine)
+    request = Request({"type": "http", "method": "GET", "path": "/api/v1/dashboard/summary", "headers": []})
+    with Session(engine) as session:
+        session.add(FamilyBudget(family_id=family_id, settings={"total_budget": 100}))
+        for day, amount in [(date(2026, 8, 31), 8), (date(2026, 9, 1), 11),
+                            (date(2026, 9, 30), 13), (date(2026, 10, 1), 17)]:
+            session.add(Transaction(account_id=account_id, transacted_at=day, amount=Decimal(amount),
+                                    currency="CNY", narration="Boundary purchase", transaction_type="expense"))
+        session.commit()
+        kwargs = {"session": session, "user_or_ctx": "pg_owner"}
+        if endpoint == "budgets":
+            result = get_budgets_summary(month="2026-09", **kwargs)
+            assert result["total_spent"] == 24
+        else:
+            kwargs.update(request=request, period=period, selected_month="2026-09",
+                          start_date="2026-09-01", end_date="2026-09-30")
+            if endpoint == "dashboard":
+                result = get_dashboard_summary(account_id=None, user_filter=None, **kwargs)
+                assert result["outflows"]["total"] == 24
+                assert sum(cell["amount"] for week in result["spending_calendar"]["weeks"] for cell in week) == 24
+                bars = {bar["ym"]: bar for bar in result["money_in_out"]["last_12_months"]}
+                assert bars["2026-08"]["expense"] == 8
+                assert bars["2026-09"]["expense"] == 24
+            else:
+                result = get_comprehensive_report(**kwargs)
+                assert result["kpis"]["total_expense"] == 24
+
+
 def test_postgres_standard_database_url_uses_installed_driver(pg_engine):
     engine, _ = pg_engine
     url = make_url(os.environ["FAMLEDGER_TEST_PG_URL"]).set(drivername="postgresql")

@@ -112,6 +112,7 @@ def test_rules_pipeline_and_dry_run(client: TestClient):
 
     apply_res = client.post(f"/api/v1/rules/{rule_id}/apply", headers=headers)
     assert apply_res.status_code == 200
+    assert apply_res.json()["evaluated_count"] == 2
     assert apply_res.json()["modified_count"] == 1
 
 

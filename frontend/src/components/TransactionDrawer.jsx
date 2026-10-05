@@ -53,6 +53,7 @@ export default function TransactionDrawer({
   const [editTime, setEditTime] = useState('');
   const [editAccountId, setEditAccountId] = useState('');
   const [editCategoryId, setEditCategoryId] = useState('');
+  const [categoryTouched, setCategoryTouched] = useState(false);
   const [editNotes, setEditNotes] = useState('');
   const [editTags, setEditTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
@@ -66,16 +67,6 @@ export default function TransactionDrawer({
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  const defaultCategories = [
-    { id: 'cat_dining', name: '餐饮美食', icon: '🍴' },
-    { id: 'cat_groceries', name: '超市便利', icon: '🛒' },
-    { id: 'cat_shopping', name: '购物消费', icon: '🛍️' },
-    { id: 'cat_transport', name: '交通出行', icon: '🚗' },
-    { id: 'cat_utilities', name: '生活缴费', icon: '⚡' },
-    { id: 'cat_transfer', name: '个人/转账', icon: '👤' },
-    { id: 'cat_other', name: '其他', icon: '🍪' },
-  ];
 
   const handleStartEditing = () => {
     if (!txn) return;
@@ -114,10 +105,11 @@ export default function TransactionDrawer({
     }
 
     setEditAccountId(txn.account_id || '');
-    const matchedCategory = (allCategories.length > 0 ? allCategories : defaultCategories).find(
+    const matchedCategory = allCategories.find(
       (c) => c.id === txn.category_id || c.name === txn.category_name
     );
     setEditCategoryId(matchedCategory ? matchedCategory.id : (txn.category_id || ''));
+    setCategoryTouched(false);
     setEditNotes(txn.notes || '');
 
     // 初始化多标签 (tags 列表)
@@ -175,7 +167,7 @@ export default function TransactionDrawer({
     try {
       setSaving(true);
       const payload = {
-        narration: editName.trim(),
+        ...(editName.trim() !== txn.narration ? { narration: editName.trim() } : {}),
         amount: editAmount,
         ...((String(editOriginalAmount) !== String(txn.original_amount || '') || editOriginalCurrency !== (txn.original_currency || '')) && editOriginalAmount && editOriginalCurrency ? {
           original_amount: editOriginalAmount, original_currency: editOriginalCurrency,
@@ -185,12 +177,12 @@ export default function TransactionDrawer({
           master_settlement_amount: editMasterAmount,
           master_settlement_currency: (allAccounts.find(a => a.id === editAccountId)?.parent_account)?.currency || txn.master_settlement_currency
         } : {}),
-        transaction_type: editType,
+        ...(editType !== txn.transaction_type ? { transaction_type: editType } : {}),
         date: editDate,
         time: editTime,
         occurred_at: localToUTCISO(editDate, editTime),
         account_id: editAccountId || txn.account_id,
-        category_id: editType === 'transfer' ? null : (editCategoryId || null),
+        ...(categoryTouched ? { category_id: editCategoryId || null } : {}),
         tags: editTags,
         notes: editNotes.trim(),
         is_reimbursable: editIsReimbursable,
@@ -633,7 +625,7 @@ export default function TransactionDrawer({
                   </div>
 
                   {/* 4. 账户与分类选择 */}
-                  <div className={editType === 'transfer' ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{tx("所属账户")}</label>
                       <select
@@ -654,18 +646,18 @@ export default function TransactionDrawer({
                       </select>
                     </div>
 
-                    {editType !== 'transfer' && (
+                    {(
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{tx("交易分类 (单选)")}</label>
                         <select
                           data-testid="edit-category-select"
                           value={editCategoryId}
-                          onChange={(e) => setEditCategoryId(e.target.value)}
+                          onChange={(e) => { setEditCategoryId(e.target.value); setCategoryTouched(true); }}
                           className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                         >
-                          <option value="">{tx("📦 未分类")}</option>
-                          {(allCategories.length > 0 ? allCategories : defaultCategories)
-                            .filter((c) => !c.category_type || c.category_type === editType)
+                          <option value="">{tx("其他")}</option>
+                          {allCategories
+                            .filter((c) => editType === 'transfer' || editType === 'refund' || c.name === '其他' || !c.category_type || c.category_type === editType)
                             .map((c) => (
                               <option key={c.id} value={c.id}>
                                 {c.icon} {categoryLabel(c.name)}
@@ -933,6 +925,10 @@ export default function TransactionDrawer({
                 </div>
               </div>
 
+              {txn.extra?.classification && <p className="text-xs text-zinc-500" data-testid="classification-rule">
+                {txn.extra.classification.reason === 'no_match' ? tx('未命中分类规则，归入其他') : `${tx('分类规则')}: #${txn.extra.classification.priority} ${txn.extra.classification.rule_name}`}
+              </p>}
+
               {/* 1.2 交易核心明细卡片 (精确日期与时分秒、账户、分类、入账时间) */}
               {txn.extra?.scheduled_occurrence_id && <div data-testid="drawer-plan-link" className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 space-y-1 text-xs">
                 <strong>{tx('计划关联流水')}</strong>
@@ -1084,7 +1080,7 @@ export default function TransactionDrawer({
                   {txn.is_split && txn.splits && txn.splits.length > 0 ? (
                     <div className="space-y-1.5 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
                       {txn.splits.map((sp, idx) => {
-                        const cat = (allCategories.length > 0 ? allCategories : defaultCategories).find(
+                        const cat = allCategories.find(
                           (c) => String(c.id) === String(sp.category_id)
                         );
                         const totalAmt = Math.abs(parseFloat(txn.amount));
@@ -1623,7 +1619,7 @@ export default function TransactionDrawer({
         isOpen={showSplitModal}
         onClose={() => setShowSplitModal(false)}
         transaction={txn}
-        categories={allCategories.length > 0 ? allCategories : defaultCategories}
+        categories={allCategories}
         onSuccess={() => {
           loadTransaction();
           if (onTransactionUpdated) onTransactionUpdated();

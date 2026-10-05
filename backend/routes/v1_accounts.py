@@ -15,15 +15,75 @@ from sqlmodel import Session, select, func, or_
 from database import get_session
 from models import (
     Account, AccountShare, Family, User, Transaction, Transfer,
-    Valuation, Loan, TransactionSplit, RejectedTransfer, RefundAllocation, Category
+    Valuation, Loan, TransactionSplit, RejectedTransfer, RefundAllocation, Category, UserPreference
 )
-from auth import get_current_user_or_token
+from auth import get_current_user_or_token, get_current_user
 from services.card_sharing import primary_owner_can_read
 from services.account_permissions import account_capabilities, can_manage_sharing
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/accounts", tags=["Accounts"])
+
+
+def _hidden_sidebar_accounts(session: Session, user: Optional[User]) -> set:
+    if user is None:
+        return set()
+    preferences = session.exec(select(UserPreference).where(UserPreference.username == user.username)).first()
+    return set(preferences.hidden_sidebar_accounts or []) if preferences else set()
+
+
+class AccountSidebarUpdate(BaseModel):
+    hidden: bool
+    confirm_nonzero_balance: bool = False
+
+
+@router.patch("/{account_id}/sidebar")
+def update_account_sidebar(
+    account_id: uuid.UUID,
+    payload: AccountSidebarUpdate,
+    session: Session = Depends(get_session),
+    username: str = Depends(get_current_user),
+):
+    """Personal display preference, including accounts shared with read-only access."""
+    lock_mutation(session)
+    user = session.exec(select(User).where(User.username == username)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户未认证")
+    account = session.get(Account, account_id)
+    share = session.exec(select(AccountShare).where(
+        AccountShare.account_id == account_id, AccountShare.user_id == user.id,
+    )).first()
+    if account is None or (user.family_id and account.family_id != user.family_id) or (
+        account.owner_id != user.id and (not user.family_id or share is None)
+    ):
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    preferences = session.exec(select(UserPreference).where(UserPreference.username == username)).first()
+    hidden = set(preferences.hidden_sidebar_accounts or []) if preferences else set()
+    key = str(account.id)
+    if payload.hidden and key not in hidden and not payload.confirm_nonzero_balance:
+        balance = get_account_realtime_balance(
+            session, account.id, account.classification, account.balance,
+            current_user=user, cache_independently=True,
+        )
+        if balance != 0:
+            raise HTTPException(status_code=409, detail={
+                "code": "balance_confirmation_required",
+                "balance": str(balance), "currency": account.currency,
+            })
+
+    if not preferences:
+        preferences = UserPreference(username=username, date_format="DD/MM/YYYY", currency="CAD",
+                                     has_chosen_currency=False, has_chosen_language=False)
+    if payload.hidden:
+        hidden.add(key)
+    else:
+        hidden.discard(key)
+    preferences.hidden_sidebar_accounts = sorted(hidden)
+    session.add(preferences)
+    session.commit()
+    return {"account_id": key, "hidden_in_sidebar": payload.hidden}
 
 
 def _parent_account_summary(session: Session, account: Account):
@@ -56,7 +116,7 @@ def _verify_account_management_permission(
         return True
     if not current_user:
         raise HTTPException(status_code=401, detail="用户未认证")
-    if account.family_id != getattr(current_user, "family_id", None) and current_user.role != "admin":
+    if account.family_id != getattr(current_user, "family_id", None):
         raise HTTPException(status_code=403, detail=f"无权{action_name}：该账户属于其他家庭")
     share = None
     if account.owner_id != current_user.id and session:
@@ -217,6 +277,7 @@ class AccountCreate(BaseModel):
     account_type: str = Field(default="checking", min_length=1, max_length=50)  # checking | savings | credit_card | investment | loan | other
     currency: CurrencyCode = "CNY"
     institution_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    external_identifier: Optional[str] = Field(default=None, max_length=100)
     balance: Optional[Decimal] = Field(default=Decimal("0"), max_digits=19, decimal_places=4)
     color: Optional[str] = None
     icon: Optional[str] = None
@@ -229,6 +290,7 @@ class AccountUpdate(BaseModel):
     account_type: Optional[str] = Field(default=None, min_length=1, max_length=50)
     currency: Optional[CurrencyCode] = None
     institution_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    external_identifier: Optional[str] = Field(default=None, max_length=100)
     balance: Optional[Decimal] = Field(default=None, max_digits=19, decimal_places=4)
     color: Optional[str] = None
     icon: Optional[str] = None
@@ -294,6 +356,7 @@ def list_accounts(
 
     all_users = session.exec(select(User)).all()
     user_map = {u.id: (u.display_name or u.username) for u in all_users}
+    owner_usernames = {u.id: u.username for u in all_users}
 
     # 获取全量共享记录
     all_shares = session.exec(select(AccountShare)).all()
@@ -315,6 +378,7 @@ def list_accounts(
     from services.stats_engine import get_user_report_account_ids, get_report_account_balances
     report_ids = get_user_report_account_ids(session, current_user, current_user.family_id) if current_user else set()
     report_own_balances = get_report_account_balances(session, [account for account in all_accounts if account.id in report_ids], report_money) if report_money else {}
+    hidden_sidebar_accounts = _hidden_sidebar_accounts(session, current_user)
     items = []
     for a in all_accounts:
         # 计算当前用户的权限与可见性：严格基于所有权与显式共享授权，绝无无感越权
@@ -345,16 +409,19 @@ def list_accounts(
             "account_type": a.account_type,
             "classification": getattr(a, "classification", "asset"),
             "currency": a.currency,
-            "institution_name": a.institution_name or "中国招商银行",
+            "institution_name": a.institution_name,
+            "external_identifier": a.external_identifier,
             "balance": str(realtime_bal),
             "report_balance": str(report_money.amount(realtime_bal, a.currency)) if report_money else str(realtime_bal),
             "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(_calc_raw_account_balance(session, a.id, a.classification, a.balance)),
             "report_included": not a.exclude_from_reports and (my_share.include_in_finances if my_share else True),
             "report_currency": report_money.currency if report_money else a.currency,
             "owner": owner_name,
+            "owner_username": owner_usernames.get(a.owner_id, ""),
             "owner_id": str(a.owner_id) if a.owner_id else None,
             "transaction_count": tx_counts.get(a.id, 0),
             "is_active": getattr(a, "is_active", True),
+            "hidden_in_sidebar": str(a.id) in hidden_sidebar_accounts,
             "is_owner": is_owner,
             "can_manage": can_manage,
             "can_manage_shares": can_manage_sharing(current_user, a, my_share),
@@ -414,13 +481,12 @@ def get_shares_matrix(
     shares_index = {(s.account_id, s.user_id): s for s in shares}
 
     matrix = []
-    is_admin = current_user and current_user.role == "admin"
-
+    hidden_sidebar_accounts = _hidden_sidebar_accounts(session, current_user)
     for a in accounts:
-        # 遵循显式共享原则：仅系统管理员、账户所有者或已被显式共享的成员可以在矩阵中查阅该账户信息
+        # 账户可见性只取决于所有权和显式共享，系统角色不授予私有账户访问权。
         is_my_account = current_user and a.owner_id == current_user.id
         has_share_to_me = current_user and ((a.id, current_user.id) in shares_index)
-        if current_user and not is_admin and not is_my_account and not has_share_to_me:
+        if current_user and not is_my_account and not has_share_to_me:
             continue
 
         row_members = []
@@ -444,12 +510,16 @@ def get_shares_matrix(
             "account_id": str(a.id),
             "account_name": a.name,
             "institution_name": a.institution_name,
+            "external_identifier": a.external_identifier,
             "account_type": a.account_type,
-            "balance": float(a.balance) if a.balance is not None else 0.0,
+            "balance": float(get_account_realtime_balance(
+                session, a.id, a.classification, a.balance, current_user=current_user, cache_independently=True,
+            )),
             "currency": a.currency,
             "owner_id": str(a.owner_id),
             "owner_name": owner_name,
             "can_manage": can_manage,
+            "hidden_in_sidebar": str(a.id) in hidden_sidebar_accounts,
             "can_manage_shares": can_manage_sharing(current_user, a, my_share),
             "parent_account_id": str(a.parent_account_id) if a.parent_account_id else None,
             "parent_account": _parent_account_summary(session, a),
@@ -489,16 +559,15 @@ def get_account_shares(
 
     is_owner = current_user and current_user.id == account.owner_id
     is_same_family = current_user and current_user.family_id == account.family_id
-    is_admin = current_user and current_user.role == "admin"
     my_share = share_by_user.get(current_user.id) if current_user else None
     parent = session.get(Account, account.parent_account_id) if account.parent_account_id else None
 
-    # 跨家庭且非超管直接 403 拦截
-    if current_user and not is_admin and not is_same_family:
+    # 跨家庭访问直接拦截，管理员也必须遵循账户共享授权。
+    if current_user and not is_same_family:
         raise HTTPException(status_code=403, detail="您无权查看其他家庭账户的共享设置")
 
-    # 未被共享且非拥有者/超管，禁止查看
-    if current_user and not is_owner and not is_admin and not my_share:
+    # 未被共享且非拥有者，禁止查看。
+    if current_user and not is_owner and not my_share:
         raise HTTPException(status_code=403, detail="您无权查看此账户的共享设置")
 
     family_id = account.family_id
@@ -527,6 +596,7 @@ def get_account_shares(
         "account_id": str(account.id),
         "account_name": account.name,
         "institution_name": account.institution_name,
+        "external_identifier": account.external_identifier,
         "account_type": account.account_type,
         "balance": float(account.balance) if account.balance is not None else 0.0,
         "currency": account.currency,
@@ -708,6 +778,7 @@ def create_account(
         classification=classification,
         currency=data.currency,
         institution_name=data.institution_name,
+        external_identifier=(data.external_identifier or "").strip() or None,
         balance=data.balance or Decimal("0"),
         color=data.color,
         icon=data.icon,
@@ -727,6 +798,7 @@ def create_account(
         "account_type": account.account_type,
         "currency": account.currency,
         "institution_name": account.institution_name,
+        "external_identifier": account.external_identifier,
         "balance": str(get_account_realtime_balance(session, account.id, classification, account.balance, current_user=current_user)),
         "color": account.color,
         "icon": account.icon,
@@ -777,10 +849,10 @@ def get_account_detail(
     can_edit, can_manage = account_capabilities(current_user, account, my_share)
 
     # 权限隔离：严格基于所有权与显式共享授权，未被共享的成员完全不可见
-    if current_user and current_user.role != "admin" and account.family_id != current_user.family_id:
+    if current_user and account.family_id != current_user.family_id:
         raise HTTPException(status_code=403, detail="您无权查看其他家庭的账户")
 
-    if current_user and current_user.role != "admin" and not is_owner and not my_share:
+    if current_user and not is_owner and not my_share:
         raise HTTPException(status_code=403, detail="您无权查看此账户")
 
     mask_match = re.search(r"(\d{4})", account.name or "")
@@ -981,7 +1053,8 @@ def get_account_detail(
             "mask": mask,
             "account_type": account.account_type,
             "classification": getattr(account, "classification", "asset"),
-            "institution_name": account.institution_name or "中国招商银行",
+            "institution_name": account.institution_name,
+            "external_identifier": account.external_identifier,
             "currency": account.currency or "CNY",
             "balance": str(realtime_bal),
             "own_balance": str(_calc_raw_account_balance(session, account.id, account.classification, account.balance)),
@@ -1049,6 +1122,8 @@ def update_account(
         account.name = data.name.strip()
     if data.institution_name is not None:
         account.institution_name = data.institution_name.strip()
+    if "external_identifier" in data.model_fields_set:
+        account.external_identifier = (data.external_identifier or "").strip() or None
     if data.account_type is not None:
         new_type = data.account_type.strip()
         if new_type.lower() not in ("credit_card", "信用卡"):
@@ -1136,6 +1211,7 @@ def update_account(
             "id": str(account.id),
             "name": account.name,
             "institution_name": account.institution_name,
+            "external_identifier": account.external_identifier,
             "account_type": account.account_type,
             "balance": str(get_account_realtime_balance(session, account.id, account.classification, account.balance, current_user=current_user)),
             "currency": account.currency,
@@ -1395,54 +1471,13 @@ def reconcile_balance(
 
     if payload.reconciliation_type in ("expense", "income") and diff != Decimal("0"):
         amt = abs(diff)
-        cat_id = None
+        from services.rules.categories import resolve_category, other_category
+        cat_id = other_category(session, account.family_id, create=True).id
         if payload.category_id:
-            # 1. 优先尝试作为合法 UUID 解析
             try:
-                c_uuid = uuid.UUID(str(payload.category_id).strip())
-                cat_record = session.get(Category, c_uuid)
-                if cat_record and cat_record.family_id == account.family_id:
-                    cat_id = cat_record.id
-            except (ValueError, TypeError, AttributeError):
-                pass
-
-            # 2. 若不是合法 UUID 或未查到，尝试按名称、i18n_key 或内置别名匹配
-            if not cat_id:
-                raw_cat_str = str(payload.category_id).strip()
-                SLUG_NAME_MAP = {
-                    "cat_dining": "餐饮美食",
-                    "cat_groceries": "超市便利",
-                    "cat_shopping": "购物消费",
-                    "cat_transport": "交通出行",
-                    "cat_utilities": "生活缴费",
-                    "cat_other": "其他",
-                    "cat_salary": "工资薪酬",
-                    "cat_investment": "理财收益",
-                    "cat_bonus": "奖金补贴",
-                    "cat_parttime": "兼职副业",
-                    "cat_other_income": "其他收入",
-                }
-                lookup_name = SLUG_NAME_MAP.get(raw_cat_str, raw_cat_str)
-                matched_cat = session.exec(
-                    select(Category).where(
-                        Category.family_id == account.family_id,
-                        or_(Category.name == lookup_name, Category.i18n_key == lookup_name),
-                    )
-                ).first()
-                if matched_cat:
-                    cat_id = matched_cat.id
-
-            # 3. 仍未匹配且为支出/收入，取该家庭该类型首选分类兜底，杜绝 400 崩溃
-            if not cat_id:
-                fallback_type = payload.reconciliation_type if payload.reconciliation_type in ("expense", "income") else "expense"
-                fallback_cat = session.exec(
-                    select(Category).where(
-                        Category.family_id == account.family_id,
-                        Category.category_type == fallback_type,
-                    )
-                ).first()
-                if fallback_cat:
-                    cat_id = fallback_cat.id
+                cat_id = resolve_category(session, payload.category_id, account.family_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
 
         txn_name = payload.name or ("余额对账支出" if payload.reconciliation_type == "expense" else "余额对账收入")
         txn = Transaction(

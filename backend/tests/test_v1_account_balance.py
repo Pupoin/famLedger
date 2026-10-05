@@ -149,9 +149,9 @@ def test_new_balance_rejects_invalid_or_opposite_direction_without_changes(auth_
     assert len(db.exec(select(Transaction).where(Transaction.account_id == account_id)).all()) == 1
 
 
-@pytest.mark.parametrize("cat_input", [None, "cat_dining", "non-uuid-random-slug"])
+@pytest.mark.parametrize("cat_input", [None, "valid-id", "invalid-category"])
 def test_reconcile_balance_category_resilience(auth_client_a, db, cat_input):
-    """验证对账变动对分类 category_id 的强容错性（支持留空、静态别名、非 UUID 字符串），零 400 崩溃。"""
+    """Use persisted category IDs; reject unknown categories without changing money."""
     created = _create(auth_client_a, "checking", "1000")
     account_id = uuid.UUID(created["id"])
     payload = {
@@ -159,10 +159,19 @@ def test_reconcile_balance_category_resilience(auth_client_a, db, cat_input):
         "reconciliation_type": "expense",
         "name": "测试容错变动",
     }
-    if cat_input is not None:
+    if cat_input == "valid-id":
+        from models import Category
+        category = Category(family_id=db.get(Account, account_id).family_id, name='Custom category')
+        db.add(category); db.commit()
+        payload["category_id"] = str(category.id)
+    elif cat_input is not None:
         payload["category_id"] = cat_input
 
     resp = auth_client_a.post(f"/api/v1/accounts/{account_id}/reconcile-balance", json=payload)
+    if cat_input == "invalid-category":
+        assert resp.status_code == 400
+        _assert_balance(auth_client_a, account_id, "1000")
+        return
     assert resp.status_code == 200, resp.text
     assert Decimal(resp.json()["new_balance"]) == Decimal("800")
     _assert_balance(auth_client_a, account_id, "800")

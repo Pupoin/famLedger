@@ -159,6 +159,7 @@ export default function AccountSharingModal({
                             id: accountId,
                             name: data.account_name,
                             institution_name: data.institution_name,
+                            external_identifier: data.external_identifier,
                             account_type: data.account_type || 'checking',
                             balance: data.balance || 0,
                             parent_account_id: data.parent_account_id,

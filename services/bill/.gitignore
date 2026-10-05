@@ -1,8 +1,0 @@
-.venv/
-venv/
-.env
-.env.sure
-__pycache__/
-logs/
-data/msal_token_cache.json
-tmp*
