@@ -9,7 +9,7 @@ import { useCurrency } from '../CurrencyContext';
 import { useDateFormat } from '../DateFormatContext';
 import { useToast } from '../ToastContext';
 import { fetchWithAuth } from '../api/fetchWithAuth';
-import { uploadAvatar } from '../api/client';
+import { uploadAvatar, getUserPreferences, updateUserPreferences } from '../api/client';
 import { formatCurrency, currencySymbol } from '../utils/currency';
 import { apiErrorMessage } from '../api/errorMessages';
 import { getAccountTypeConfig } from '../utils/accountIcons';
@@ -129,6 +129,44 @@ export default function Settings() {
   // Automations state
   const [autoTransfer, setAutoTransfer] = useState(true);
   const [autoRefund, setAutoRefund] = useState(true);
+  const [refundSettingsBusy, setRefundSettingsBusy] = useState(true);
+  const [refundReplayBusy, setRefundReplayBusy] = useState(false);
+  const [refundSettingsLoaded, setRefundSettingsLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRefundSettingsLoaded(false);
+    setRefundSettingsBusy(true);
+    getUserPreferences().then(prefs => {
+      if (!cancelled) { setAutoRefund(prefs.auto_refund_enabled !== false); setRefundSettingsLoaded(true); }
+    }).catch(() => {
+      if (!cancelled) showToast(t('settings.refundSaveError'), 'error');
+    }).finally(() => { if (!cancelled) setRefundSettingsBusy(false); });
+    return () => { cancelled = true; };
+  }, [user?.username]);
+
+  const saveAutoRefund = async () => {
+    setRefundSettingsBusy(true);
+    try {
+      const prefs = await updateUserPreferences({ auto_refund_enabled: !autoRefund });
+      setAutoRefund(prefs.auto_refund_enabled);
+      showToast(t('settings.refundSaved'), 'success');
+    } catch {
+      showToast(t('settings.refundSaveError'), 'error');
+    } finally { setRefundSettingsBusy(false); }
+  };
+
+  const replayRefunds = async () => {
+    setRefundReplayBusy(true);
+    try {
+      const res = await fetchWithAuth('/api/v1/refunds/auto-match', { method: 'POST' });
+      if (!res.ok) throw new Error('Refund replay failed');
+      const result = await res.json();
+      showToast(t('settings.refundReplayResult', result), 'success');
+      window.dispatchEvent(new CustomEvent('transaction-updated'));
+    } catch { showToast(t('settings.refundSaveError'), 'error'); }
+    finally { setRefundReplayBusy(false); }
+  };
 
   // 家庭组与成员管理状态
   const [currentFamily, setCurrentFamily] = useState(null);
@@ -3229,7 +3267,11 @@ export default function Settings() {
                       </span>
                     </div>
                     <button
-                      onClick={() => setAutoRefund(!autoRefund)}
+                      onClick={saveAutoRefund}
+                      role="switch"
+                      aria-label={t('settings.autoRefund')}
+                      aria-checked={autoRefund}
+                      disabled={refundSettingsBusy || refundReplayBusy || !refundSettingsLoaded}
                       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                         autoRefund ? 'bg-zinc-900 dark:bg-emerald-600' : 'bg-zinc-200 dark:bg-zinc-700'
                       }`}
@@ -3241,6 +3283,11 @@ export default function Settings() {
                       />
                     </button>
                   </div>
+                  <button type="button" onClick={replayRefunds}
+                    disabled={!autoRefund || !refundSettingsLoaded || refundSettingsBusy || refundReplayBusy}
+                    className="text-xs font-medium text-emerald-700 dark:text-emerald-400 disabled:opacity-40">
+                    {t(refundReplayBusy ? 'settings.refundReplayRunning' : 'settings.refundReplay')}
+                  </button>
                 </div>
               </div>
             </div>

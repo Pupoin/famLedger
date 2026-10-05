@@ -32,7 +32,7 @@ export default function SureSpendingCalendar({
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const calendarData = expandedData?.source === data && expandedData.minimumWeeks === minimumWeeks
+  const calendarData = expandedData && expandedData.source === data && expandedData.minimumWeeks === minimumWeeks
     ? expandedData.data : data;
   const calendarRange = `${calendarData?.start_date || ''}:${calendarData?.end_date || ''}`;
   const [scrollLeft, setScrollLeft] = usePageViewState(`calendar.scrollLeft.${calendarRange}`, null);
@@ -253,7 +253,7 @@ export default function SureSpendingCalendar({
           {dateLabel(displayRange)}
           {calendarLoading && <span role="status" aria-label={tx('正在加载历史消费…')} title={tx('正在加载历史消费…')} className="inline-block ml-2 h-3 w-3 align-middle rounded-full border-2 border-zinc-300 border-t-zinc-600 animate-spin" />}
         </p>
-        {calendarError?.source === data && calendarError.minimumWeeks === minimumWeeks && (
+        {calendarError && calendarError.source === data && calendarError.minimumWeeks === minimumWeeks && (
           <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
             {tx('历史消费加载失败，当前仅显示所选日期。')}{' '}
             <button type="button" className="underline" onClick={() => setRetryCount(count => count + 1)}>{tx('重试')}</button>

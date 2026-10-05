@@ -384,6 +384,7 @@ def get_user_preferences(
             "date_format": row.date_format,
             "currency": row.currency,
             "income_mode_enabled": row.income_mode_enabled,
+            "auto_refund_enabled": row.auto_refund_enabled,
             "has_chosen_currency": bool(row.has_chosen_currency) if row.has_chosen_currency is not None else True,
             "language": row.language,
             "has_chosen_language": row.has_chosen_language,
@@ -392,6 +393,7 @@ def get_user_preferences(
         "date_format": "DD/MM/YYYY",
         "currency": "CAD",
         "income_mode_enabled": False,
+        "auto_refund_enabled": True,
         "has_chosen_currency": False,
         "language": "en",
         "has_chosen_language": False,
@@ -399,6 +401,7 @@ def get_user_preferences(
 
 
 class UserPreferencesUpdate(BaseModel):
+    auto_refund_enabled: Optional[bool] = None
     language: Optional[str] = None
     date_format: Optional[str] = None
     currency: Optional[str] = None
@@ -440,6 +443,8 @@ def update_user_preferences(
         row.has_chosen_currency = payload.has_chosen_currency
     if payload.income_mode_enabled is not None:
         row.income_mode_enabled = payload.income_mode_enabled
+    if payload.auto_refund_enabled is not None:
+        row.auto_refund_enabled = payload.auto_refund_enabled
     session.add(row)
 
     # 若用户处于单人独立家庭空间，且自主更新了币种，联动将其个人空间基准币种同步
@@ -457,6 +462,7 @@ def update_user_preferences(
         "date_format": row.date_format,
         "currency": row.currency,
         "income_mode_enabled": row.income_mode_enabled,
+        "auto_refund_enabled": row.auto_refund_enabled,
         "has_chosen_currency": getattr(row, "has_chosen_currency", True),
         "language": row.language,
         "has_chosen_language": row.has_chosen_language,

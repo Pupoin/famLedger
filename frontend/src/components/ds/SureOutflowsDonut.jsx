@@ -49,19 +49,15 @@ export default function SureOutflowsDonut({
   };
 
   const handleItemClick = (item) => {
-    if (item.amount < 0) {
-      navigate(buildUrl({ transaction_type: 'refund' }));
-      return;
-    }
     if (groupBy === 'account' && item.account_id) {
-      navigate(buildUrl({ account_id: item.account_id, transaction_type: 'expense' }));
+      navigate(buildUrl({ account_id: item.account_id, transaction_type: 'expense,refund', spending_net: 'true' }));
     } else {
-      navigate(buildUrl({ category_name: item.name, transaction_type: 'expense' }));
+      navigate(buildUrl({ category_name: item.name, transaction_type: 'expense,refund', spending_net: 'true' }));
     }
   };
 
   const handleAdjustmentClick = () => {
-    navigate(buildUrl({ transaction_type: 'refund' }));
+    navigate(buildUrl({ transaction_type: 'refund', spending_net: 'true' }));
   };
 
   // SVG Donut calculation

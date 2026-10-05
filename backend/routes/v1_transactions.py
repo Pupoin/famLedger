@@ -859,6 +859,7 @@ def list_transactions(
     category_id: Optional[str] = Query(None, description="按分类ID过滤，支持逗号分隔多选"),
     transaction_type: Optional[str] = Query(None, description="按交易类型过滤，支持逗号分隔多选"),
     category_name: Optional[str] = Query(None, description="按分类名称过滤，支持逗号分隔多选"),
+    spending_net: bool = Query(False, description="分类报表明细：按原消费分类包含退款，返回展示币种净额"),
     is_refund: Optional[bool] = Query(None, description="仅看退款相关交易"),
     has_refund: Optional[bool] = Query(None, description="仅看已关联退款冲抵的消费"),
     tag: Optional[str] = Query(None, description="按标签过滤，支持逗号分隔多选"),
@@ -887,6 +888,7 @@ def list_transactions(
     stmt = select(Transaction)
 
     current_user = None
+    accessible_acc_ids = set()
     if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
         current_user = session.exec(select(User).where(User.username == user_or_ctx)).first()
 
@@ -901,8 +903,10 @@ def list_transactions(
     if isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:"):
         from services.principals import service_family
         ids = session.exec(select(Account.id).where(Account.family_id == service_family(session).id)).all()
+        accessible_acc_ids = set(ids)
         stmt = stmt.where(Transaction.account_id.in_(ids))
 
+    target_u = None
     if isinstance(user, str) and user.strip() and user.strip() not in ("全部", "ALL", "all"):
         user_val = user.strip()
         target_u = session.exec(select(User).where(or_(User.username == user_val, User.display_name == user_val))).first()
@@ -913,6 +917,7 @@ def list_transactions(
             else:
                 return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
 
+    selected_spending_accounts = None
     if isinstance(account_id, str) and account_id.strip():
         acc_id_strs = [s.strip() for s in str(account_id).split(",") if s.strip()]
         parsed_uuids = []
@@ -941,7 +946,9 @@ def list_transactions(
                     for cid in child_ids:
                         expanded_uuids.add(cid)
 
-            if len(expanded_uuids) == 1:
+            if spending_net is True:
+                selected_spending_accounts = expanded_uuids
+            elif len(expanded_uuids) == 1:
                 stmt = stmt.where(Transaction.account_id == list(expanded_uuids)[0])
             else:
                 stmt = stmt.where(Transaction.account_id.in_(list(expanded_uuids)))
@@ -972,19 +979,18 @@ def list_transactions(
         else:
             return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
 
-    if isinstance(category_id, str) and category_id.strip():
+    parsed_cat_uuids = []
+    if spending_net is not True and isinstance(category_id, str) and category_id.strip():
         cat_id_strs = [s.strip() for s in str(category_id).split(",") if s.strip()]
-        parsed_cat_uuids = []
         for s in cat_id_strs:
             try:
                 parsed_cat_uuids.append(uuid.UUID(s))
             except ValueError:
                 pass
         if parsed_cat_uuids:
-            if len(parsed_cat_uuids) == 1:
-                stmt = stmt.where(Transaction.category_id == parsed_cat_uuids[0])
-            else:
-                stmt = stmt.where(Transaction.category_id.in_(parsed_cat_uuids))
+            # Refunds are classified by their originals below, including splits.
+            stmt = stmt.where(or_(Transaction.category_id.in_(parsed_cat_uuids),
+                                  Transaction.transaction_type == "refund"))
 
     if isinstance(transaction_type, str) and transaction_type.strip():
         types = [t.strip() for t in transaction_type.split(",") if t.strip()]
@@ -1082,10 +1088,62 @@ def list_transactions(
     from services.principals import resolve_family_id
     resolve_tags = tag_resolver(session, resolve_family_id(session, user_or_ctx))
 
-    # If category_name provided, filter in memory using classifier (支持逗号分隔多选)
-    if isinstance(category_name, str) and category_name.strip():
+    refund_categories = {}
+    def refund_categories_for(t):
+        if t.id not in refund_categories:
+            from services.refund_money import refund_category_details
+            refund_categories[t.id] = refund_category_details(session, t, accessible_acc_ids)
+        return refund_categories[t.id]
+
+    def effective_categories(t):
+        if t.transaction_type == "refund":
+            info = refund_categories_for(t)
+            return info['linked_categories'] + ([info['unallocated_category']] if info['category_editable'] else [])
+        name, icon = resolve_cat(t)
+        return [{"id": str(t.category_id) if t.category_id else None, "name": name, "icon": icon}]
+
+    spending_amounts, spending_summary, spending_categories = {}, None, {}
+    if spending_net is True:
+        from services.stats_engine import get_user_report_account_ids, spending_category_portions
+        from services.report_currency import ReportCurrency
+        if current_user:
+            report_ids = get_user_report_account_ids(session, current_user, current_user.family_id)
+        else:
+            from services.principals import service_family
+            report_ids = set(session.exec(select(Account.id).where(
+                Account.family_id == service_family(session).id, Account.is_active == True,
+                Account.exclude_from_reports == False)).all())
+        if target_u:
+            report_ids &= set(session.exec(select(Account.id).where(Account.owner_id == target_u.id)).all())
+        converter = ReportCurrency(session, current_user, cache_independently=True)
+        converter.account_ids = report_ids
+        family_id = resolve_family_id(session, user_or_ctx)
+        category_map = {c.id: c for c in session.exec(select(Category).where(Category.family_id == family_id)).all()}
+        cat_names = set(c.strip() for c in category_name.split(',')) if isinstance(category_name, str) and category_name else None
+        cat_ids = set(c.strip() for c in category_id.split(',')) if isinstance(category_id, str) and category_id else None
+        selected = []
+        for t in all_matched:
+            if t.account_id not in report_ids:
+                continue
+            portions = [(cat, value) for cat, value in spending_category_portions(
+                session, t, category_map, report_ids, converter, selected_spending_accounts)
+                if (cat_names is None or cat['name'] in cat_names) and (cat_ids is None or cat['id'] in cat_ids)]
+            if not portions:
+                continue
+            selected.append(t)
+            spending_amounts[t.id] = sum((value for _, value in portions), Decimal(0))
+            spending_categories[t.id] = [cat['name'] for cat, _ in portions]
+        all_matched = selected
+        spending_summary = {"currency": converter.currency, "currency_symbol": converter.symbol}
+
+    # Ordinary filters also recognize inherited categories of linked refunds.
+    elif isinstance(category_name, str) and category_name.strip():
         cat_names = set(c.strip() for c in category_name.split(",") if c.strip())
-        all_matched = [t for t in all_matched if resolve_cat(t)[0] in cat_names]
+        all_matched = [t for t in all_matched if any(c['name'] in cat_names for c in effective_categories(t))]
+
+    if spending_net is not True and parsed_cat_uuids:
+        category_ids = {str(c) for c in parsed_cat_uuids}
+        all_matched = [t for t in all_matched if any(c['id'] in category_ids for c in effective_categories(t))]
 
     # If tag provided, filter in memory (支持逗号分隔多选)
     if isinstance(tag, str) and tag.strip():
@@ -1097,6 +1155,12 @@ def list_transactions(
         ]
 
     effective_limit = limit if isinstance(limit, int) else 50
+    if spending_summary is not None:
+        from services.booking_money import money
+        expense = sum((spending_amounts[t.id] for t in all_matched if t.transaction_type == 'expense'), Decimal(0))
+        refunds = -sum((spending_amounts[t.id] for t in all_matched if t.transaction_type == 'refund'), Decimal(0))
+        spending_summary.update(expense=float(money(expense)), refunds=float(money(refunds)),
+                                net=float((expense - refunds).quantize(Decimal('0.01'))))
     start_idx = 0
     if cursor and str(cursor).strip():
         cursor_str = str(cursor).strip()
@@ -1144,6 +1208,13 @@ def list_transactions(
         m = re.search(r"\(([0-9Xx]{4})\)", acc_name)
         mask = m.group(1) if m else (acc_name[-4:] if len(acc_name) >= 4 else "0000")
         cname, cicon = resolve_cat(t)
+        displayed_category_id = str(t.category_id) if t.category_id else None
+        refund_category_info = refund_categories_for(t) if t.transaction_type == "refund" else None
+        if refund_category_info and not refund_category_info['category_editable']:
+            linked = refund_category_info['linked_categories']
+            cname = " / ".join(c['name'] for c in linked) or "随原消费分类"
+            cicon = linked[0]['icon'] if len(linked) == 1 else "🗂️"
+            displayed_category_id = linked[0]['id'] if len(linked) == 1 else None
 
         occurred_at_val = None
         if t.occurred_at:
@@ -1187,13 +1258,17 @@ def list_transactions(
             "transacted_at": t.transacted_at.isoformat(),
             "occurred_at": occurred_at_val,
             "amount": money_text(t.amount),
+            **({"spending_amount": money_text(spending_amounts[t.id]),
+                "spending_currency": spending_summary['currency'],
+                "spending_categories": spending_categories[t.id]} if spending_summary else {}),
             **money_metadata(t),
             "currency": t.currency,
             "narration": t.narration,
             "name": t.narration,
-            "category_id": str(t.category_id) if t.category_id else None,
+            "category_id": displayed_category_id,
             "category_name": cname,
             "category_icon": cicon,
+            "refund_category_info": refund_category_info,
             "transaction_type": t.transaction_type,
             "status": t.status,
             "transfer_id": str(t.transfer_id) if t.transfer_id else None,
@@ -1219,6 +1294,7 @@ def list_transactions(
         "next_cursor": next_cursor,
         "count": len(output),
         "total_count": len(all_matched),
+        "spending_summary": spending_summary,
     }
 
 
@@ -1383,6 +1459,9 @@ def split_transaction(
     from services.schedules import guard_transaction
     guard_transaction(txn)
 
+    from services.refund_money import guard_refund_category_edit
+    guard_refund_category_edit(session, txn)
+
     if not payload.splits or len(payload.splits) < 2:
         raise HTTPException(status_code=400, detail="拆分必须包含至少两个子项")
 
@@ -1506,7 +1585,8 @@ def get_transaction_detail(
     this_is_owner = bool(current_user and account and account.owner_id == current_user.id)
 
     from services.stats_engine import get_user_visible_account_ids
-    accessible_acc_ids = set(get_user_visible_account_ids(session, current_user, family_id=account.family_id if account else None))
+    visible_actor = current_user or (user_or_ctx if isinstance(user_or_ctx, str) and user_or_ctx.startswith('service:') else None)
+    accessible_acc_ids = set(get_user_visible_account_ids(session, visible_actor, family_id=account.family_id if account else None))
 
     category = session.get(Category, txn.category_id) if txn.category_id else None
     cat_name = category.name if category else "其他"
@@ -1572,7 +1652,10 @@ def get_transaction_detail(
 
         is_orig_visible = not current_user or (orig_acc and orig_acc.id in accessible_acc_ids)
         refund_info = {
-            "is_linked": bool(allocs) or orig_txn is not None,
+            "is_linked": bool(allocs),
+            "needs_allocation_review": bool(orig_txn and not allocs) or any(
+                a.original_book_amount is None and (not txn.original_amount or not orig_txn or not orig_txn.original_amount)
+                for a in allocs),
             "original_transaction": {
                 "id": str(orig_txn.id) if is_orig_visible else None,
                 "narration": orig_txn.narration if is_orig_visible else "[私有消费]",
@@ -1622,6 +1705,7 @@ def get_transaction_detail(
                 "refunds": refund_txns,
             }
 
+    displayed_category_id = str(txn.category_id) if txn.category_id else None
     if refund_info:
         from services.refund_money import remaining_native
         if txn.original_amount is not None:
@@ -1640,6 +1724,14 @@ def get_transaction_detail(
             other = session.get(Transaction, other_id)
             if other and (not current_user or other.account_id in accessible_acc_ids):
                 refund_info["allocations"].append({"other_transaction_id": str(other_id), **allocation_metadata(allocation)})
+        if txn.transaction_type == "refund":
+            from services.refund_money import refund_category_details
+            refund_info.update(refund_category_details(session, txn, accessible_acc_ids, allocs))
+            if not refund_info['category_editable']:
+                linked = refund_info['linked_categories']
+                cat_name = " / ".join(c['name'] for c in linked) or "随原消费分类"
+                cat_icon = linked[0]['icon'] if len(linked) == 1 else "🗂️"
+                displayed_category_id = linked[0]['id'] if len(linked) == 1 else None
 
     # 拆分项
     splits = session.exec(
@@ -1696,7 +1788,7 @@ def get_transaction_detail(
         "currency": txn.currency,
         "narration": txn.narration,
         "name": txn.narration,
-        "category_id": str(txn.category_id) if txn.category_id else None,
+        "category_id": displayed_category_id,
         "category_name": cat_name,
         "category_icon": cat_icon,
         "transaction_type": txn.transaction_type,
@@ -1837,6 +1929,10 @@ def update_transaction(
     guard_transaction(txn)
 
     # 前置校验 1：目标账户合法性与写权限（严禁在校验前进行任何状态修改或提交）
+    if "category_id" in payload.model_fields_set:
+        from services.refund_money import guard_refund_category_edit
+        guard_refund_category_edit(session, txn)
+
     target_acc = None
     if payload.account_id is not None:
         target_account_id = None
@@ -2028,6 +2124,9 @@ def update_transaction(
 
     txn.updated_at = datetime.now(timezone.utc)
     session.add(txn)
+    if txn.transaction_type == "refund":
+        from services.refund_money import auto_allocate
+        auto_allocate(session, user_or_ctx, txn)
     session.commit()
     session.refresh(txn)
 

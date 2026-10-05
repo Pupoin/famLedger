@@ -31,6 +31,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/refunds", tags=["Refunds"])
 
 
+@router.post("/auto-match")
+def replay_auto_matches(session: Session = Depends(get_session),
+                        user_or_ctx: Any = Depends(get_current_user_or_token)):
+    from services.refund_money import match_historical_refunds
+    result = match_historical_refunds(session, user_or_ctx)
+    session.commit()
+    return result
+
+
 def _verify_refund_permission(
     session: Session,
     user_or_ctx: Any,
@@ -397,6 +406,7 @@ def unlink_refund(
         session.delete(a)
 
     refund_txn.refund_of_transaction_id = None
+    refund_txn.extra = {**(refund_txn.extra or {}), "auto_refund_blocked": True}
     session.add(refund_txn)
     session.commit()
 

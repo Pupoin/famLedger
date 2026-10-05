@@ -111,6 +111,8 @@ export default function BudgetsPage() {
 
   useEffect(() => {
     loadBudgets();
+    window.addEventListener('transaction-updated', loadBudgets);
+    return () => window.removeEventListener('transaction-updated', loadBudgets);
   }, [selectedMonth]);
 
   useEffect(() => {

@@ -592,6 +592,7 @@ class UserPreference(SQLModel, table=True):
     date_format: str = Field(default="YYYY-MM-DD", max_length=20)
     currency: str = Field(default="CNY", max_length=10)
     income_mode_enabled: bool = Field(default=False)
+    auto_refund_enabled: bool = Field(default=True)
     has_chosen_currency: bool = Field(default=True)
     language: str = Field(default='en', max_length=10)
     has_chosen_language: bool = Field(default=True)

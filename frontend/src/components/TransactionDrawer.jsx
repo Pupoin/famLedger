@@ -13,6 +13,7 @@ import { formatDateTime, toLocalISODate, toLocalISOTime, localToUTCISO } from '.
 import { getReimbursementSummary, resolveCounterpartyName, formatReimbursementStatus } from '../utils/reimbursement';
 import { formatAccountWithEmoji } from '../utils/accountIcons';
 import SplitTransactionModal from './SplitTransactionModal';
+import RefundCategoryField, { transactionCategoryLabel } from './RefundCategoryField';
 
 export default function TransactionDrawer({
   transactionId,
@@ -67,6 +68,8 @@ export default function TransactionDrawer({
   const [saving, setSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const refundCategoryLocked = txn?.transaction_type === 'refund' && txn.refund_info?.category_editable === false;
+  const displayedCategoryName = transactionCategoryLabel(txn);
 
   const handleStartEditing = () => {
     if (!txn) return;
@@ -182,7 +185,7 @@ export default function TransactionDrawer({
         time: editTime,
         occurred_at: localToUTCISO(editDate, editTime),
         account_id: editAccountId || txn.account_id,
-        ...(categoryTouched ? { category_id: editCategoryId || null } : {}),
+        ...(categoryTouched && !refundCategoryLocked ? { category_id: editCategoryId || null } : {}),
         tags: editTags,
         notes: editNotes.trim(),
         is_reimbursable: editIsReimbursable,
@@ -309,6 +312,7 @@ export default function TransactionDrawer({
       const res = await fetchWithAuth(url, { method: 'POST' });
       if (res.ok) {
         showToast(tx("已成功将退款与原消费冲抵关联！"), 'success');
+        window.dispatchEvent(new CustomEvent('transaction-updated'));
         loadTransaction();
         if (onTransactionUpdated) onTransactionUpdated();
       } else {
@@ -330,6 +334,7 @@ export default function TransactionDrawer({
       const res = await fetchWithAuth(`/api/v1/refunds/${txn.id}/unlink`, { method: 'POST' });
       if (res.ok) {
         showToast(tx("已解除退款冲抵关联"), 'info');
+        window.dispatchEvent(new CustomEvent('transaction-updated'));
         loadTransaction();
         if (onTransactionUpdated) onTransactionUpdated();
       } else {
@@ -646,26 +651,8 @@ export default function TransactionDrawer({
                       </select>
                     </div>
 
-                    {(
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{tx("交易分类 (单选)")}</label>
-                        <select
-                          data-testid="edit-category-select"
-                          value={editCategoryId}
-                          onChange={(e) => { setEditCategoryId(e.target.value); setCategoryTouched(true); }}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                        >
-                          <option value="">{tx("其他")}</option>
-                          {allCategories
-                            .filter((c) => editType === 'transfer' || editType === 'refund' || c.name === '其他' || !c.category_type || c.category_type === editType)
-                            .map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.icon} {categoryLabel(c.name)}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    )}
+                    <RefundCategoryField transaction={txn} categories={allCategories} value={editCategoryId}
+                      transactionType={editType} onChange={value => { setEditCategoryId(value); setCategoryTouched(true); }} />
                   </div>
 
                   {/* 4.1 交易标签 (可多选) */}
@@ -919,13 +906,13 @@ export default function TransactionDrawer({
                   {txn.transaction_type !== 'transfer' && (
                     <div className="flex items-center gap-1.5 shrink-0 text-zinc-500 dark:text-zinc-400">
                       <span>{txn.category_icon || '📦'}</span>
-                      <span>{categoryLabel(txn.category_name) || tx("未分类")}</span>
+                      <span>{displayedCategoryName || tx("未分类")}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {txn.extra?.classification && <p className="text-xs text-zinc-500" data-testid="classification-rule">
+              {!refundCategoryLocked && txn.extra?.classification && <p className="text-xs text-zinc-500" data-testid="classification-rule">
                 {txn.extra.classification.reason === 'no_match' ? tx('未命中分类规则，归入其他') : `${tx('分类规则')}: #${txn.extra.classification.priority} ${txn.extra.classification.rule_name}`}
               </p>}
 
@@ -1004,11 +991,15 @@ export default function TransactionDrawer({
                   ) : (
                     <>
                       <div>
-                        <span className="text-zinc-400 block text-[11px] mb-0.5">{tx("交易分类")}</span>
+                        <span className="text-zinc-400 block text-[11px] mb-0.5">{tx(refundCategoryLocked ? '退款分类（随原消费）' : txn.transaction_type === 'refund' && txn.refund_info?.is_linked ? '未关联部分的分类' : '交易分类')}</span>
                         <span className="font-medium text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                           <span>{txn.category_icon || '📦'}</span>
-                          <span>{categoryLabel(txn.category_name) || tx("未分类")}</span>
+                          <span>{displayedCategoryName || tx("未分类")}</span>
                         </span>
+                        {txn.transaction_type === 'refund' && txn.refund_info?.is_linked && <p className="text-[11px] text-zinc-500 mt-1">
+                          {!refundCategoryLocked && <span className="block">{tx('已关联部分分类')}: {txn.refund_info.linked_categories?.map(c => categoryLabel(c.name)).join(' / ') || tx('随原消费分类')}</span>}
+                          {tx('已关联退款随原消费分类；修改分类请编辑原消费。')}
+                        </p>}
                       </div>
                       <div>
                         <span className="text-zinc-400 block text-[11px] mb-0.5">{tx("记账类型")}</span>
@@ -1052,7 +1043,7 @@ export default function TransactionDrawer({
               </div>
 
               {/* 1.4 拆分账单 / 拆分退款 (Transaction Split) */}
-              {(txn.transaction_type === 'expense' || txn.transaction_type === 'refund') && (
+              {(txn.transaction_type === 'expense' || txn.transaction_type === 'refund') && !refundCategoryLocked && (
                 <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/50 space-y-3 shadow-xs">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1307,6 +1298,15 @@ export default function TransactionDrawer({
                   </div>
 
                   {/* If linked: display original expense & unlink button */}
+                  {txn.extra?.refund_match && (
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {tx("自动匹配评分")}: {Number(txn.extra.refund_match.score).toFixed(3)}
+                      {' · '}{txn.extra.refund_match.status === 'matched' ? tx("已自动关联") : tx("保留待确认")}
+                    </p>
+                  )}
+                  {txn.refund_info?.needs_allocation_review && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">{tx("历史关联缺少已核实的金额，请重新核对关联。")}</p>
+                  )}
                   {txn.refund_info?.is_linked ? (
                     <div className="space-y-3">
                       <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-800/60 text-xs space-y-2">

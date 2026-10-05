@@ -227,11 +227,11 @@ def get_budgets_summary(
         is_over = spent > c_budget
         over = round(spent - c_budget, 2) if is_over else 0.0
         rem = round(c_budget - spent, 2) if not is_over else 0.0
-        progress = round((spent / c_budget * 100), 1) if c_budget > 0 else 100.0
+        progress = max(0.0, round((spent / c_budget * 100), 1)) if c_budget > 0 else (100.0 if spent > 0 else 0.0)
         daily = round((rem / remaining_days), 2) if (remaining_days > 0 and rem > 0) else 0.0
 
         # 仅展示有消费或有预算的分类
-        if spent > 0 or c_budget > 0:
+        if spent != 0 or c_budget > 0:
             categories_list.append({
                 "name": cname,
                 "icon": item["icon"],

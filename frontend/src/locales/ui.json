@@ -10614,5 +10614,57 @@
   "贷款及其他负债": {
     "zh": "贷款及其他负债",
     "en": "Loans / Other debt"
+  },
+  "净支出（扣除退款）": {
+    "zh": "净支出（扣除退款）",
+    "en": "Net spending (after refunds)"
+  },
+  "计入当前筛选的净支出": {
+    "zh": "计入当前筛选的净支出",
+    "en": "Net spending in this filter"
+  },
+  "自动匹配评分": {
+    "zh": "自动匹配评分",
+    "en": "Automatic matching score"
+  },
+  "已自动关联": {
+    "zh": "已自动关联",
+    "en": "Automatically linked"
+  },
+  "保留待确认": {
+    "zh": "保留待确认",
+    "en": "Needs review"
+  },
+  "退款分类（随原消费）": {
+    "zh": "退款分类（随原消费）",
+    "en": "Refund category (from purchase)"
+  },
+  "随原消费分类": {
+    "zh": "随原消费分类",
+    "en": "Follows the original purchase"
+  },
+  "未关联部分的分类": {
+    "zh": "未关联部分的分类",
+    "en": "Category of unlinked amount"
+  },
+  "已关联部分分类": {
+    "zh": "已关联部分分类",
+    "en": "Categories of linked amounts"
+  },
+  "已关联退款随原消费分类；修改分类请编辑原消费。": {
+    "zh": "已关联退款随原消费分类；修改分类请编辑原消费。",
+    "en": "Linked refunds follow their original purchases. Edit the purchase to change its category."
+  },
+  "此设置只影响未关联的剩余退款，不改变原消费或已关联部分。": {
+    "zh": "此设置只影响未关联的剩余退款，不改变原消费或已关联部分。",
+    "en": "This changes only the unlinked remainder, not the purchase or linked amounts."
+  },
+  "已全部关联的退款分类随原消费，请修改原消费分类或先解除关联": {
+    "zh": "已全部关联的退款分类随原消费，请修改原消费分类或先解除关联",
+    "en": "A fully linked refund follows its original purchase. Edit the purchase category or unlink the refund first."
+  },
+  "历史关联缺少已核实的金额，请重新核对关联。": {
+    "zh": "历史关联缺少已核实的金额，请重新核对关联。",
+    "en": "This historical link lacks verified amounts. Please review the allocation."
   }
 }

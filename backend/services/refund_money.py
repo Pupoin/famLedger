@@ -1,13 +1,14 @@
 """Every refund entry point uses native quotas and fixed booked offsets."""
 import re
+from difflib import SequenceMatcher
 from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlmodel import select
+from sqlmodel import select, func
 
-from models import Account, RefundAllocation, Transaction, User
-from services.booking_money import fixed_conversion, money, native_money, money_text
+from models import Account, RefundAllocation, Transaction, User, UserPreference
+from services.booking_money import PendingExchangeRate, fixed_conversion, money, native_money, money_text
 from services.transaction_lock import lock_mutation
 
 
@@ -43,6 +44,52 @@ def remaining_native(session, txn, refund=False, exclude_pair=None):
         else:
             used += row.allocated_amount
     return max(Decimal(0), total - used)
+
+
+def refund_category_editable(session, refund, allocations=None):
+    if refund.transaction_type != "refund":
+        return True
+    if allocations is None:
+        allocations = session.exec(select(RefundAllocation).where(
+            RefundAllocation.refund_transaction_id == refund.id)).all()
+    if not allocations:
+        return True
+    # Unverified historical allocations must be reviewed before reclassification.
+    if refund.original_amount is None or not refund.original_currency:
+        return False
+    return remaining_native(session, refund, refund=True) > 0
+
+
+def guard_refund_category_edit(session, refund):
+    if not refund_category_editable(session, refund):
+        raise HTTPException(400, "已全部关联的退款分类随原消费，请修改原消费分类或先解除关联")
+
+
+def refund_category_details(session, refund, allowed_ids, allocations=None):
+    """Linked categories are live original classifications; only the remainder is editable."""
+    from models import Category, TransactionSplit
+    from services.stats_engine import classify_transaction, transaction_category_portions
+    allocations = allocations if allocations is not None else session.exec(select(RefundAllocation).where(
+        RefundAllocation.refund_transaction_id == refund.id)).all()
+    account = session.get(Account, refund.account_id)
+    category_map = {c.id: c for c in session.exec(select(Category).where(
+        Category.family_id == account.family_id)).all()} if account else {}
+    categories = {}
+    for allocation in allocations:
+        original = session.get(Transaction, allocation.original_transaction_id)
+        if not original or original.account_id not in allowed_ids:
+            continue
+        original_account = session.get(Account, original.account_id)
+        if not original_account or not account or original_account.family_id != account.family_id:
+            continue
+        splits = session.exec(select(TransactionSplit).where(
+            TransactionSplit.transaction_id == original.id)).all() if original.is_split else []
+        for category, weight in transaction_category_portions(original, splits, Decimal(1), category_map):
+            if weight > 0:
+                categories[category['id']] = category
+    return {"category_editable": refund_category_editable(session, refund, allocations),
+            "linked_categories": list(categories.values()),
+            "unallocated_category": classify_transaction(refund, category_map)}
 
 
 def allocate(session, principal, refund, original, quantity=None, original_currency=None, refund_quantity=None):
@@ -96,8 +143,69 @@ def allocate(session, principal, refund, original, quantity=None, original_curre
 
 
 def merchant_name(name):
-    name = re.sub(r"退款|退货|撤销|refunds?|returns?", "", (name or "").casefold())
+    name = re.sub(r"退款|退货|撤销|refunds?|returns?", "", str(name or "").casefold())
     return re.sub(r"[\W_]+", "", name)
+
+
+AUTO_REFUND_THRESHOLD = 0.9
+AUTO_REFUND_MARGIN = 0.03
+
+
+def refund_actor(session, principal):
+    if isinstance(principal, str):
+        return principal if principal.startswith("service:") else session.exec(
+            select(User).where(User.username == principal)).first()
+    return principal
+
+
+def auto_refund_enabled(session, principal, account=None):
+    actor = refund_actor(session, principal)
+    # Service imports follow the account owner's preference, never a global toggle.
+    if isinstance(actor, str):
+        actor = session.get(User, account.owner_id) if account and account.owner_id else None
+    if not actor:
+        return False
+    pref = session.exec(select(UserPreference).where(UserPreference.username == actor.username)).first()
+    return pref.auto_refund_enabled if pref else True
+
+
+def refund_match_score(refund, original, remaining):
+    """Opposite directions and verified same-native quotas are hard gates.
+
+    Amount 30%, narration 35%, merchant name 20%, recency 10%, same account 5%.
+    Explicit direction metadata cannot contradict the transaction's type.
+    """
+    def valid_direction(txn, kind, direction):
+        explicit = (txn.extra or {}).get("direction")
+        aliases = {"inflow": (None, "in", "inflow"), "outflow": (None, "out", "outflow")}
+        return txn.transaction_type == kind and explicit in aliases[direction]
+
+    if not valid_direction(refund, "refund", "inflow") or not valid_direction(original, "expense", "outflow"):
+        return 0.0, {"opposite_directions": False}
+    if (refund.original_amount is None or original.original_amount is None
+            or not refund.original_currency or refund.original_currency != original.original_currency
+            or refund.original_amount <= 0 or remaining < refund.original_amount):
+        return 0.0, {"opposite_directions": True, "eligible_amount": False}
+    days = (refund.transacted_at - original.transacted_at).days
+    if days < 0 or days > 90:
+        return 0.0, {"opposite_directions": True, "eligible_date": False}
+
+    def similarity(a, b):
+        a, b = merchant_name(a), merchant_name(b)
+        return SequenceMatcher(None, a, b, autojunk=False).ratio() if a and b else 0.0
+
+    def name(txn):
+        extra = txn.extra or {}
+        return extra.get("merchant_name") or extra.get("merchant") or txn.narration
+
+    parts = {"amount": float(refund.original_amount / remaining),
+             "narration": similarity(refund.narration, original.narration),
+             "name": similarity(name(refund), name(original)),
+             "time": 1 - days / 90, "same_account": float(refund.account_id == original.account_id),
+             "opposite_directions": True, "days_apart": days}
+    score = sum(parts[key] * weight for key, weight in
+                (("amount", .30), ("narration", .35), ("name", .20), ("time", .10), ("same_account", .05)))
+    return round(score, 12), parts
 
 
 def auto_allocate(session, principal, refund, original_id=None, quantity=None, original_currency=None, refund_quantity=None):
@@ -117,22 +225,77 @@ def auto_allocate(session, principal, refund, original_id=None, quantity=None, o
                 return None
         return allocate(session, principal, refund, original, quantity, original_currency, refund_quantity)
     from services.stats_engine import get_user_writable_account_ids
-    actor = principal if isinstance(principal, str) and principal.startswith("service:") else session.exec(select(User).where(User.username == principal)).first()
+    if (not auto_refund_enabled(session, principal, account) or refund.excluded_from_stats
+            or (refund.extra or {}).get("auto_refund_blocked")):
+        return None
+    if session.exec(select(RefundAllocation.id).where(RefundAllocation.refund_transaction_id == refund.id)).first():
+        return None  # Never overwrite manual or already allocated refunds.
+    if refund.refund_of_transaction_id:
+        return None  # Legacy explicit links require verification, not a guessed replacement.
+    actor = refund_actor(session, principal)
     ids = get_user_writable_account_ids(session, actor, account.family_id)
-    name = merchant_name(refund.narration)
-    if not name:
+    if not ids or not refund.original_currency or refund.original_amount is None:
         return None
     candidates = session.exec(select(Transaction).where(
         Transaction.account_id.in_(ids), Transaction.transaction_type == "expense",
+        Transaction.excluded_from_stats == False,
         Transaction.original_currency == refund.original_currency,
         Transaction.transacted_at <= refund.transacted_at,
         Transaction.transacted_at >= refund.transacted_at - timedelta(days=90))).all()
-    candidates = [row for row in candidates if row.original_amount is not None
-                  and merchant_name(row.narration) == name and remaining_native(session, row) > 0
-                  and row.original_amount >= refund.original_amount]
-    if len(candidates) != 1:
+    used = dict(session.exec(select(RefundAllocation.original_transaction_id,
+        func.sum(RefundAllocation.allocated_amount)).where(
+            RefundAllocation.original_transaction_id.in_([row.id for row in candidates]))
+        .group_by(RefundAllocation.original_transaction_id)).all()) if candidates else {}
+    ranked = []
+    for row in candidates:
+        if row.original_amount is None or not row.original_currency:
+            continue
+        remaining = max(Decimal(0), row.original_amount - used.get(row.id, Decimal(0)))
+        score, parts = refund_match_score(refund, row, remaining)
+        if score > 0:
+            ranked.append((score, str(row.id), row, parts))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    if not ranked:
         return None
-    return allocate(session, principal, refund, candidates[0])
+    best = ranked[0]
+    ambiguous = len(ranked) > 1 and best[0] - ranked[1][0] < AUTO_REFUND_MARGIN
+    matched = best[0] > AUTO_REFUND_THRESHOLD and not ambiguous
+    refund.extra = {**(refund.extra or {}), "refund_match": {
+        "score": round(best[0], 6), "threshold": AUTO_REFUND_THRESHOLD,
+        "components": best[3], "status": "matched" if matched else "ambiguous" if ambiguous else "below_threshold"}}
+    session.add(refund)
+    if not matched:
+        return None
+    try:
+        return allocate(session, principal, refund, best[2])
+    except PendingExchangeRate:
+        # A best-effort automation must not reject an otherwise booked refund.
+        refund.extra = {**(refund.extra or {}), "refund_match": {
+            **refund.extra["refund_match"], "status": "pending_fx"}}
+        session.add(refund)
+        return None
+
+
+def match_historical_refunds(session, principal):
+    """Explicit, repeatable replay within the caller's writable account scope."""
+    from services.stats_engine import get_user_writable_account_ids
+    lock_mutation(session)
+    actor = refund_actor(session, principal)
+    if not actor:
+        raise HTTPException(401, "用户未认证")
+    from services.principals import resolve_family_id
+    family_id = resolve_family_id(session, principal if isinstance(principal, str) else principal.username)
+    ids = get_user_writable_account_ids(session, actor, family_id)
+    if not ids:
+        return {"examined": 0, "matched": 0, "pending": 0}
+    linked = select(RefundAllocation.refund_transaction_id)
+    rows = session.exec(select(Transaction).where(Transaction.account_id.in_(ids),
+        Transaction.transaction_type == "refund", Transaction.excluded_from_stats == False,
+        Transaction.id.not_in(linked)).order_by(Transaction.transacted_at, Transaction.id)).all()
+    matched = 0
+    for refund in rows:
+        matched += auto_allocate(session, principal, refund) is not None
+    return {"examined": len(rows), "matched": matched, "pending": len(rows) - matched}
 
 
 def allocation_metadata(row):
@@ -151,9 +314,9 @@ def report_offsets(session, refund, allowed_account_ids, report_money):
         original = session.get(Transaction, row.original_transaction_id)
         if not original or original.account_id not in allowed_account_ids:
             continue
-        if row.original_book_amount is not None:
+        if row.original_book_amount is not None and row.refund_book_amount is not None:
             original_book, refund_book = row.original_book_amount, row.refund_book_amount
-        elif original.original_amount is not None and raw.original_amount is not None and original.original_currency == raw.original_currency:
+        elif original.original_amount and raw.original_amount and original.original_currency == raw.original_currency:
             original_book = money(original.amount * row.allocated_amount / original.original_amount)
             refund_book = money(raw.amount * row.allocated_amount / raw.original_amount)
         else:

@@ -11,6 +11,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useCurrency } from '../CurrencyContext';
 import { useToast } from '../ToastContext';
 import TransactionDrawer from '../components/TransactionDrawer';
+import { transactionCategoryLabel } from '../components/RefundCategoryField';
 import useTransactionDrawer from '../hooks/useTransactionDrawer';
 import TransactionFilterModal from '../components/TransactionFilterModal';
 import ReimbursementBadge from '../components/ReimbursementBadge';
@@ -37,6 +38,7 @@ export default function TransactionsPage() {
   const querySearch = searchParams.get('search') || '';
   const categoryNameFilter = searchParams.get('category_name') || '';
   const typeFilter = searchParams.get('transaction_type') || '';
+  const spendingNet = searchParams.get('spending_net') === 'true';
   const isRefundFilter = searchParams.get('is_refund') === 'true';
   const hasRefundFilter = searchParams.get('has_refund') === 'true';
   const tagFilter = searchParams.get('tag') || '';
@@ -93,6 +95,7 @@ export default function TransactionsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [spendingSummary, setSpendingSummary] = useState(null);
   const nextCursorRef = useRef(null);
   const loadMoreRef = useRef(null);
 
@@ -222,6 +225,7 @@ export default function TransactionsPage() {
         if (endDateFilter) params.append('end_date', endDateFilter);
         if (categoryNameFilter) params.append('category_name', categoryNameFilter);
         if (typeFilter) params.append('transaction_type', typeFilter);
+        if (spendingNet) params.append('spending_net', 'true');
         if (isRefundFilter) params.append('is_refund', 'true');
         if (hasRefundFilter) params.append('has_refund', 'true');
         if (tagFilter) params.append('tag', tagFilter);
@@ -241,6 +245,7 @@ export default function TransactionsPage() {
         if (res.ok) {
           const data = await res.json();
           const items = data.items || [];
+          setSpendingSummary(data.spending_summary || null);
           setTransactions((prev) => (reset ? items : [...prev, ...items]));
           setHasMore(Boolean(data.has_more));
           nextCursorRef.current = data.next_cursor || null;
@@ -264,6 +269,7 @@ export default function TransactionsPage() {
       endDateFilter,
       categoryNameFilter,
       typeFilter,
+      spendingNet,
       isRefundFilter,
       hasRefundFilter,
       tagFilter,
@@ -426,7 +432,13 @@ export default function TransactionsPage() {
     });
 
     groups.forEach((g) => {
-      g.currencyTotals = totalsByCurrency(g.items, 'net', 'original');
+      if (spendingNet) {
+        g.currencyTotals = g.items.reduce((totals, txn) => {
+          const code = txn.spending_currency || txn.currency;
+          totals[code] = (totals[code] || 0) + Number(txn.spending_amount || 0);
+          return totals;
+        }, {});
+      } else g.currencyTotals = totalsByCurrency(g.items, 'net', 'original');
       g.items.sort((a, b) => {
         const timeA = new Date(a.occurred_at || a.created_at || a.transacted_at).getTime() || 0;
         const timeB = new Date(b.occurred_at || b.created_at || b.transacted_at).getTime() || 0;
@@ -437,16 +449,18 @@ export default function TransactionsPage() {
     groups.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
     return groups;
-  }, [transactions]);
+  }, [transactions, spendingNet]);
 
   // Overall metrics (Total transactions, Income, Expenses)
   const metrics = useMemo(() => {
     return {
-      count: transactions.length,
+      count: totalCount,
       income: formatCurrencyTotals(totalsByCurrency(transactions, "income", 'original')),
-      expense: formatCurrencyTotals(totalsByCurrency(transactions, "expense", 'original')),
+      expense: spendingNet && spendingSummary
+        ? formatCurrencyTotals({ [spendingSummary.currency]: spendingSummary.net })
+        : formatCurrencyTotals(totalsByCurrency(transactions, "expense", 'original')),
     };
-  }, [transactions]);
+  }, [transactions, totalCount, spendingNet, spendingSummary]);
 
   // Selection toggle
   const toggleSelect = (id) => {
@@ -686,7 +700,7 @@ export default function TransactionsPage() {
         </div>
 
         <div className="min-w-0 px-1.5 py-1 sm:px-3 text-center sm:text-left">
-          <p className="text-2xs sm:text-xs font-medium text-zinc-500 dark:text-zinc-400">{tx("支出（原币）")}</p>
+          <p className="text-2xs sm:text-xs font-medium text-zinc-500 dark:text-zinc-400">{tx(spendingNet ? "净支出（扣除退款）" : "支出（原币）")}</p>
           <div data-testid="transaction-expense-totals" className="flex flex-wrap justify-center sm:justify-start gap-x-3 gap-y-1 text-xs sm:text-base md:text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-0.5 tracking-tight tabular-nums">
             {privacyMode ? '••••••' : metrics.expense.split(' / ').map((amount) => (
               <span key={amount} className="max-w-full [overflow-wrap:anywhere]">{amount}</span>
@@ -1063,7 +1077,7 @@ export default function TransactionsPage() {
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200/70 dark:border-zinc-800 shadow-xs overflow-hidden">
                   {group.items.map((txn) => {
                     const isSelected = selectedIds.has(txn.id);
-                    const isRefund = txn.transaction_type === 'refund' || (txn.narration || '').includes("退款") || !!txn.refund_of_transaction_id;
+                    const isRefund = txn.transaction_type === 'refund';
                     const isTransfer = txn.transaction_type === 'transfer' || !!txn.transfer_id;
                     const badge = getTransactionInitialBadge(txn.narration);
                     const originalMoney = originalTransactionMoney(txn);
@@ -1200,6 +1214,12 @@ export default function TransactionsPage() {
                                 )}
                               </div>
                               <BookingMoneyInfo transaction={txn} privacy={privacyMode} />
+                              {spendingNet && txn.spending_amount !== undefined && (
+                                <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                  {tx("计入当前筛选的净支出")}: {privacyMode ? '••••••' : formatCurrencyTotals({ [txn.spending_currency]: txn.spending_amount })}
+                                  {' · '}{[...new Set(txn.spending_categories || [])].map(categoryLabel).join(', ')}
+                                </div>
+                              )}
                               <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 min-w-0 flex items-center gap-1.5">
                                 {isTransfer ? (
                                   <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center flex-wrap gap-x-1 gap-y-0.5 leading-tight">
@@ -1253,7 +1273,7 @@ export default function TransactionsPage() {
                                         className="sm:hidden inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 shrink-0"
                                       >
                                         <span>{txn.category_icon || '📦'}</span>
-                                        <span className="truncate max-w-[85px]">{categoryLabel(txn.category_name) || tx("日常消费")}</span>
+                                        <span className="truncate max-w-[85px]">{transactionCategoryLabel(txn) || tx("日常消费")}</span>
                                       </span>
                                     )}
                                   </>
@@ -1272,7 +1292,7 @@ export default function TransactionsPage() {
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
                                 <span>{txn.category_icon || '📦'}</span>
-                                <span className="truncate max-w-[90px]">{categoryLabel(txn.category_name) || tx("日常消费")}</span>
+                                <span className="truncate max-w-[90px]">{transactionCategoryLabel(txn) || tx("日常消费")}</span>
                               </span>
                             )}
                           </div>

@@ -203,6 +203,46 @@ def classify_split_item(split_cat_id, split_notes, fallback_txn, category_map):
     return category_definition(category) if category else classify_transaction(fallback_txn, category_map)
 
 
+def transaction_category_portions(txn, splits, amount, category_map):
+    """Use the same proportional category attribution in reports and drilldowns."""
+    zero = Decimal(0)
+    native_total, consumed = Decimal(str(txn.amount)), zero
+    if txn.is_split and native_total > 0:
+        for split in splits or []:
+            weight = min(max(Decimal(str(split.amount)), zero), max(native_total - consumed, zero))
+            if weight:
+                consumed += weight
+                yield classify_split_item(split.category_id, split.notes, txn, category_map), amount * weight / native_total
+    if consumed < native_total or native_total <= 0:
+        weight = (native_total - consumed) / native_total if native_total > 0 else Decimal(1)
+        yield classify_transaction(txn, category_map), amount * weight
+
+
+def spending_category_portions(session, txn, category_map, allowed_ids, converter, account_ids=None):
+    from models import TransactionSplit
+    from services.refund_money import report_offsets
+
+    def portions(source, amount):
+        splits = session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == source.id)).all() if source.is_split else []
+        return transaction_category_portions(source, splits, amount, category_map)
+
+    if txn.excluded_from_stats:
+        return []
+    if txn.transaction_type == "expense":
+        if account_ids is not None and txn.account_id not in account_ids:
+            return []
+        return list(portions(txn, converter.ledger_amount(txn)))
+    if txn.transaction_type != "refund":
+        return []
+    links, remainder, _, _ = report_offsets(session, txn, allowed_ids, converter)
+    result = [(category, -amount) for original, share in links
+              if account_ids is None or original.account_id in account_ids
+              for category, amount in portions(original, share)]
+    if account_ids is None or txn.account_id in account_ids:
+        result.extend((category, -amount) for category, amount in portions(txn, remainder) if amount)
+    return result
+
+
 def compute_netted_category_distribution(
     expense_txns: List[Transaction],
     refund_txns: List[Transaction],
@@ -234,19 +274,7 @@ def compute_netted_category_distribution(
         buckets[key]["count"] += count
 
     def portions(txn, splits, amount):
-        native_total = Decimal(str(txn.amount))
-        consumed = zero
-        if txn.is_split and native_total > 0:
-            for split in splits or []:
-                native_amount = Decimal(str(split.amount))
-                weight = min(max(native_amount, zero), max(native_total - consumed, zero))
-                if not weight:
-                    continue
-                consumed += weight
-                yield classify_split_item(split.category_id, split.notes, txn, category_map), amount * weight / native_total
-        if consumed < native_total or native_total <= 0:
-            weight = (native_total - consumed) / native_total if native_total > 0 else Decimal("1")
-            yield classify_transaction(txn, category_map), amount * weight
+        return transaction_category_portions(txn, splits, amount, category_map)
 
     for txn in expense_txns:
         for category, amount in portions(txn, (splits_map or {}).get(txn.id, []), Decimal(str(txn.amount))):

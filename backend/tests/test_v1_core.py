@@ -119,7 +119,7 @@ def test_auto_transfer_matching(client: TestClient):
     assert data["transfers"][0]["status"] == "confirmed"
 
 
-def test_auto_refund_matching(client: TestClient):
+def test_partial_refund_below_confidence_requires_manual_link(client: TestClient):
     headers = {"X-Api-Key": "dev-token"}
 
     # 1. 录入原消费 150 元
@@ -142,12 +142,16 @@ def test_auto_refund_matching(client: TestClient):
         "external_id": "jd_refund_50",
     }, headers=headers)
 
-    # 3. 验证退款是否关联成功
+    # Partial amounts alone do not clear the >0.9 confidence threshold.
     txns = client.get("/api/v1/transactions", headers=headers).json()["items"]
     refund_txn = next(t for t in txns if t["external_id"] == "jd_refund_50")
     orig_txn = next(t for t in txns if t["external_id"] == "jd_orig_150")
 
-    assert refund_txn["refund_of_transaction_id"] == orig_txn["id"]
+    assert refund_txn["refund_of_transaction_id"] is None
+    linked = client.post(f"/api/v1/refunds/{refund_txn['id']}/link/{orig_txn['id']}", headers=headers)
+    assert linked.status_code == 200, linked.text
+    txns = client.get("/api/v1/transactions", headers=headers).json()["items"]
+    assert next(t for t in txns if t['id'] == refund_txn['id'])["refund_of_transaction_id"] == orig_txn['id']
 
 
 def test_transaction_split(client):
@@ -234,11 +238,12 @@ def test_explicit_refund_matching_and_candidates(client):
     assert res_refund.status_code == 200
     refund_id = res_refund.json()["id"]
 
-    # 4. 退款关联成功；未显式设置分类且未命中规则时归入其他。
+    # 4. 全部关联的退款显示原消费分类；未关联部分才使用自身分类。
     txns = client.get("/api/v1/transactions", headers=headers).json()["items"]
     refund_txn = next(t for t in txns if t["id"] == refund_id)
     assert refund_txn["refund_of_transaction_id"] == orig_id
-    assert refund_txn["category_name"] == "其他"
+    assert refund_txn["category_name"] == "数码电器"
+    assert refund_txn["refund_category_info"]["category_editable"] is False
 
     # 5. 再次查询候选消费，剩余可退额度应已减为 499.00
     res_candidates_2 = client.get("/api/v1/refunds/candidates?search=Apple", headers=headers)

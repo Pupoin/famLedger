@@ -80,7 +80,7 @@ export default function SureCashflowSankey({
   };
 
   const handleExpenseClick = (categoryName) => {
-    navigate(buildUrl({ category_name: categoryName, transaction_type: 'expense' }));
+    navigate(buildUrl({ category_name: categoryName, transaction_type: 'expense,refund', spending_net: 'true' }));
   };
 
   const handleIncomeClick = (categoryName) => {
@@ -92,7 +92,7 @@ export default function SureCashflowSankey({
   };
 
   const handlePoolClick = () => {
-    navigate(buildUrl({ transaction_type: 'expense' }));
+    navigate(buildUrl({ transaction_type: 'expense,refund', spending_net: 'true' }));
   };
 
   if (!incomes.length && !expenses.length) {

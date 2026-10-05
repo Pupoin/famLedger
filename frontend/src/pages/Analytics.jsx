@@ -65,6 +65,11 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRetryCount(value => value + 1);
+    window.addEventListener('transaction-updated', refresh);
+    return () => window.removeEventListener('transaction-updated', refresh);
+  }, []);
   usePageScrollRestoration(!loading && !!reportData);
 
   useEffect(() => {

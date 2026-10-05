@@ -537,9 +537,10 @@ def test_concurrent_accepts_have_one_winner_and_cancel_the_other_invitation(tmp_
     finally: engine.dispose()
 
 
-def test_development_lifespan_does_not_create_backups(monkeypatch):
+def test_development_lifespan_does_not_create_backups(monkeypatch, db):
     import asyncio
     import main
+    monkeypatch.setattr(main, 'engine', db.get_bind())
     monkeypatch.setenv('ENV','development')
     monkeypatch.setattr(main,'check_db_integrity',lambda:True)
     monkeypatch.setattr(main,'assert_schema_not_newer',lambda engine:None)

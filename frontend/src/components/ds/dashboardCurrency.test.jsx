@@ -33,6 +33,9 @@ describe('overview chart money uses display currency', () => {
 });
 
 describe('overview charts preserve the complete selected period', () => {
+  it.each([undefined, null])('renders the calendar safely before dashboard data arrives (%s)', data => {
+    expect(() => renderToStaticMarkup(<MemoryRouter><SureSpendingCalendar data={data} /></MemoryRouter>)).not.toThrow();
+  });
   it.each([
     ['month', '2026-09-01', '2026-09-30'],
     ['quarter', '2026-07-01', '2026-09-30'],
