@@ -32,6 +32,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
   const parentAccountEdited = useRef(false);
   const [currentParent, setCurrentParent] = useState(null);
   const [parentsLoading, setParentsLoading] = useState(false);
+  const [linkCanChange, setLinkCanChange] = useState(true);
   const [candidateParents, setCandidateParents] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -51,6 +52,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
       setParentAccountId(account.parent_account_id ? String(account.parent_account_id) : '');
       parentAccountEdited.current = false;
       setCurrentParent(account.parent_account || null);
+      setLinkCanChange(account.card_link_can_change !== false);
       setCandidateParents([]);
       setParentsLoading(true);
 
@@ -62,6 +64,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
           const list = Array.isArray(data) ? data : data.accounts || data.items || [];
           const latest = list.find((a) => String(a.id) === String(account.id));
           if (latest) {
+            setLinkCanChange(latest.card_link_can_change !== false);
             if (!externalIdentifierEdited.current) setExternalIdentifier(latest.external_identifier || '');
             if (!parentAccountEdited.current) setParentAccountId(latest.parent_account_id || '');
             setCurrentParent(latest.parent_account || null);
@@ -174,6 +177,7 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
                 }}
                 testId="edit-account-type-select"
                 useShortLabel
+                disabled={Boolean(account.parent_account_id) && !linkCanChange}
               />
             </div>
 
@@ -212,15 +216,18 @@ export function EditAccountModal({ isOpen, onClose, account, onSuccess }) {
                   setParentAccountId(e.target.value);
                 }}
                 accounts={candidateParents}
-                selectedAccountFallback={currentParent ? { ...currentParent, is_owner: false, relationship_only: true } : null}
-                disabled={parentsLoading}
+                selectedAccountFallback={currentParent}
+                showPrimaryOwner
+                disabled={parentsLoading || !linkCanChange}
                 emptyLabel={tx("无 (独立主卡)")}
                 placeholder={tx("选择所属信用卡主卡")}
                 testId="edit-account-parent-select"
               />
-              <p className="mt-1 text-[11px] text-zinc-400">{tx("请先共享给主卡所有者，再设置为副卡。取消共享会解除副卡关系。更改外币主卡会按交易日期固定结算历史流水，未核实原币的记录需先核对。")}</p>
+              <p className="mt-1 text-[11px] text-zinc-400">{tx("请先共享给主卡所有者，再设置为副卡。副卡待还清零后才能更换主卡、解绑或取消关联共享；历史还款分配保留。")}</p>
             </div>
           )}
+
+          {!linkCanChange && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{tx("副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除")}</p>}
 
           <div>
             <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">{tx("当前余额 (")} {currencies?.find((c) => c.code === currency)?.symbol || '¥'})
@@ -395,8 +402,10 @@ export function DeleteAccountModal({ isOpen, onClose, account, onSuccess }) {
   const [submitting, setSubmitting] = useState(false);
 
   if (!isOpen || !account) return null;
+  const blocked = Boolean(account.parent_account_id) && account.card_link_can_change === false;
 
   const handleDelete = async () => {
+    if (blocked) return;
     try {
       setSubmitting(true);
       const res = await fetchWithAuth(`/api/v1/accounts/${account.id}`, {
@@ -435,6 +444,7 @@ export function DeleteAccountModal({ isOpen, onClose, account, onSuccess }) {
           <div>
             <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{tx("确定要删除此账户吗？")}</h3>
             <p className="mt-1 text-xs text-zinc-500">{tx("您即将删除账户")} <span className="font-semibold text-zinc-800 dark:text-zinc-200">“{account.name}”</span> {tx("。相关的共享权限将被一并移除。此操作无法撤销。")}</p>
+            {blocked && <p role="alert" className="mt-2 text-xs text-rose-600">{tx("副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除")}</p>}
           </div>
 
           <div className="pt-2 flex justify-end gap-2">
@@ -446,7 +456,7 @@ export function DeleteAccountModal({ isOpen, onClose, account, onSuccess }) {
             <button
               type="button"
               onClick={handleDelete}
-              disabled={submitting}
+              disabled={submitting || blocked}
               className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
             >
               {submitting ? tx("删除中...") : tx("确认删除")}

@@ -25,12 +25,19 @@ export default function AccountSelectDropdown({
   emptyLabel = null,
   isReadOnly = false,
   showSharedTip = false,
+  showPrimaryOwner = false,
+  wrapLabels = false,
   testId,
   className = '',
 }) {
   useLocale();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const labelClass = wrapLabels ? 'min-w-0 break-words whitespace-normal sm:truncate' : 'truncate';
+  const accountDetailsClass = wrapLabels
+    ? 'flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 min-w-0 flex-1'
+    : 'contents';
+  const accountNameClass = wrapLabels ? `${labelClass} basis-full sm:basis-auto sm:flex-1` : labelClass;
 
   const selectedAccount = useMemo(() => {
     if (!value) return null;
@@ -91,21 +98,23 @@ export default function AccountSelectDropdown({
             className: 'w-3.5 h-3.5',
             containerClassName: 'w-6 h-6 rounded-lg border shadow-2xs',
           })}
-          <span className="truncate text-zinc-900 dark:text-zinc-100">
-            {formatAccountDisplayName(acc)}
-          </span>
-          {isShared && (
-            <span
-              title={tx("由 {p0} 共享", {p0: (acc.owner)})}
-              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10.5px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60 shrink-0"
-            >
-              <Users className="w-2.5 h-2.5" />
-              {acc.owner}
+          <div className={accountDetailsClass}>
+            <span className={`${accountNameClass} text-zinc-900 dark:text-zinc-100`}>
+              {formatAccountDisplayName(acc)}
             </span>
-          )}
-          {acc.can_edit === false && (
-            <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 shrink-0 font-medium">{tx("只读")}</span>
-          )}
+            {(showPrimaryOwner || isShared) && (
+              <span
+                title={showPrimaryOwner ? tx("主卡所有者：{p0}", {p0: acc.owner}) : tx("由 {p0} 共享", {p0: acc.owner})}
+                className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10.5px] font-medium bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60 shrink-0 max-w-full"
+              >
+                <Users className="w-2.5 h-2.5 shrink-0" />
+                <span className="min-w-0 break-words">{showPrimaryOwner ? tx("主卡所有者：{p0}", {p0: acc.owner}) : acc.owner}</span>
+              </span>
+            )}
+            {acc.can_edit === false && (
+              <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 shrink-0 font-medium">{tx("只读")}</span>
+            )}
+          </div>
         </div>
         {isSelected && (
           <Check className="w-3.5 h-3.5 text-zinc-900 dark:text-zinc-100 shrink-0 ml-1" />
@@ -132,7 +141,7 @@ export default function AccountSelectDropdown({
           <div className="w-6 h-6 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-center shrink-0">
             <span className="text-[11px] text-zinc-400 font-medium">—</span>
           </div>
-          <span className="truncate text-zinc-700 dark:text-zinc-300">
+          <span className={`${labelClass} text-zinc-700 dark:text-zinc-300`}>
             {tx(emptyLabel)}
           </span>
         </div>
@@ -187,30 +196,32 @@ export default function AccountSelectDropdown({
                 className: 'w-3.5 h-3.5',
                 containerClassName: 'w-6 h-6 rounded-lg border shadow-2xs',
               })}
-              <span className="truncate text-zinc-900 dark:text-zinc-100 font-medium">
-                {formatAccountDisplayName(selectedAccount)}
-              </span>
-              {selectedAccount.is_owner === false && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60 shrink-0">
-                  <Users className="w-2.5 h-2.5" />
-                  {selectedAccount.relationship_only ? tx("主卡所有者：{p0}", {p0: (selectedAccount.owner)}) : tx("{p0} 共享", {p0: (selectedAccount.owner)})}
+              <div className={accountDetailsClass}>
+                <span className={`${accountNameClass} text-zinc-900 dark:text-zinc-100 font-medium`}>
+                  {formatAccountDisplayName(selectedAccount)}
                 </span>
-              )}
-              {selectedAccount.can_edit === false && (
-                <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 shrink-0 font-medium">{tx("只读")}</span>
-              )}
+                {(showPrimaryOwner || selectedAccount.relationship_only || selectedAccount.is_owner === false) && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-800/60 shrink-0 max-w-full">
+                    <Users className="w-2.5 h-2.5 shrink-0" />
+                    <span className="min-w-0 break-words">{showPrimaryOwner || selectedAccount.relationship_only ? tx("主卡所有者：{p0}", {p0: selectedAccount.owner}) : tx("{p0} 共享", {p0: selectedAccount.owner})}</span>
+                  </span>
+                )}
+                {selectedAccount.can_edit === false && (
+                  <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 shrink-0 font-medium">{tx("只读")}</span>
+                )}
+              </div>
             </>
           ) : emptyLabel && !value ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <div className="w-5 h-5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-center shrink-0 text-[10px] text-zinc-400 font-medium">
                 —
               </div>
-              <span className="truncate text-zinc-700 dark:text-zinc-300 font-medium">
+              <span className={`${labelClass} text-zinc-700 dark:text-zinc-300 font-medium`}>
                 {tx(emptyLabel)}
               </span>
             </div>
           ) : (
-            <span className="text-zinc-400 dark:text-zinc-500">{tx(placeholder)}</span>
+            <span className={`${labelClass} text-zinc-400 dark:text-zinc-500`}>{tx(placeholder)}</span>
           )}
         </div>
         <ChevronDown

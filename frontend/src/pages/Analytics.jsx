@@ -1,27 +1,27 @@
 import { categoryLabel, tx, useLocale } from "../localization.js";
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Printer, ChevronLeft, ChevronRight, ChevronDown, Download, ExternalLink, TrendingUp, TrendingDown, PieChart as PieIcon, Layers } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from 'recharts';
-import { fetchWithAuth } from '../api/fetchWithAuth';
+import useReportData from '../hooks/useReportData';
 import { useCurrency } from '../CurrencyContext';
 import { formatCurrency } from '../utils/currency';
-import { useTheme } from '../ThemeContext';
+import { loadNetWorthChart } from '../utils/analyticsLoader';
+import { combineReportSections } from '../utils/reportSections';
 import CalendarDateInput from '../components/CalendarDateInput';
 import { usePageViewState, usePageScrollRestoration } from '../PageViewContext';
+
+const NetWorthChart = lazy(loadNetWorthChart);
+
+function HistoryStatus({ error, onRetry }) {
+  return error ? <div role="alert" className="p-5 text-sm text-rose-600 space-y-2">
+    <p>{tx(error)}</p><button onClick={onRetry} className="px-3 py-2 rounded-lg border border-current">{tx('重试')}</button>
+  </div> : <div role="status" className="p-5 text-sm text-zinc-500">{tx('正在加载历史走势…')}</div>;
+}
 
 export default function Analytics() {
   useLocale();
   const { t, i18n } = useTranslation();
   const { privacyMode, symbol, currency } = useCurrency();
-  const { theme } = useTheme();
   const isEn = (i18n.language || '').startsWith('en');
 
   // Period Preset
@@ -59,53 +59,27 @@ export default function Analytics() {
     setSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Live report data state from DB
-  const [reportData, setReportData] = useState(null);
-  const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, reportData?.currency_symbol || symbol);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
-  useEffect(() => {
-    const refresh = () => setRetryCount(value => value + 1);
-    window.addEventListener('transaction-updated', refresh);
-    return () => window.removeEventListener('transaction-updated', refresh);
-  }, []);
-  usePageScrollRestoration(!loading && !!reportData);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    async function loadReport() {
-      try {
-        setLoading(true);
-        setLoadError('');
-        setReportData(null);
-        const queryParams = new URLSearchParams();
-        queryParams.set('period', period);
-        if (period === 'custom') {
-          if (customStartDate) queryParams.set('start_date', customStartDate);
-          if (customEndDate) queryParams.set('end_date', customEndDate);
-        } else {
-          queryParams.set('selected_month', selectedMonth);
-        }
-        const res = await fetchWithAuth(
-          `/api/v1/analytics/report?${queryParams.toString()}`,
-          { signal: controller.signal }
-        );
-        if (!res.ok) {
-          const failure = await res.json().catch(() => ({}));
-          throw new Error(typeof failure.detail === 'string' ? failure.detail : (isEn ? 'Unable to load report' : '无法加载报表'));
-        }
-        const data = await res.json();
-        if (!controller.signal.aborted) setReportData(data);
-      } catch (err) {
-        if (!controller.signal.aborted) setLoadError(tx(err.message || (isEn ? 'Unable to load report' : '无法加载报表')));
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
+  const reportQuery = useMemo(() => {
+    const params = new URLSearchParams({ period });
+    if (period === 'custom') {
+      if (customStartDate) params.set('start_date', customStartDate);
+      if (customEndDate) params.set('end_date', customEndDate);
+    } else {
+      params.set('selected_month', selectedMonth);
     }
-    loadReport();
-    return () => controller.abort();
-  }, [period, selectedMonth, customStartDate, customEndDate, currency, retryCount, isEn]);
+    return params.toString();
+  }, [period, selectedMonth, customStartDate, customEndDate]);
+  const { data: currentData, loading, error: loadError } = useReportData(
+    `/api/v1/analytics/report?${reportQuery}&include_history=false`, currency, '无法加载报表', retryCount);
+  const { data: historyData, loading: historyLoading, error: historyError } = useReportData(
+    currentData ? `/api/v1/analytics/history?${reportQuery}` : null, currency, '无法加载报表', retryCount);
+  const { data: reportData, historyReady } = useMemo(
+    () => combineReportSections(currentData, historyData), [currentData, historyData]);
+  const retry = () => setRetryCount(value => value + 1);
+  const historyFailure = historyError || (historyData && !historyReady && !historyLoading ? '无法加载报表' : '');
+  const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, reportData?.currency_symbol || symbol);
+  usePageScrollRestoration(!!reportData && (historyReady || !!historyFailure));
 
   // Format dynamic period title based on selected period and language
   const periodDisplay = useMemo(() => {
@@ -339,7 +313,8 @@ export default function Analytics() {
         )}
       </div>
 
-      {loading ? (
+      {(loading || historyLoading) && reportData && <div role="status" className="text-xs text-zinc-500">{tx(historyLoading && !historyReady ? '正在加载历史走势…' : '正在刷新...')}</div>}
+      {loading && !reportData ? (
         <div role="status" className="p-8 text-center text-sm text-zinc-500">{isEn ? tx("Loading report…") : tx("正在加载报表…")}</div>
       ) : loadError ? (
         <div role="alert" className="p-6 rounded-xl border border-rose-200 text-sm text-rose-600 space-y-3">
@@ -462,7 +437,7 @@ export default function Analytics() {
           </div>
         </div>
 
-        {sectionsOpen.trends && (
+        {sectionsOpen.trends && (historyReady ? (
           <div className="p-5 space-y-6">
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -554,7 +529,7 @@ export default function Analytics() {
               </div>
             </div>
           </div>
-        )}
+        ) : <HistoryStatus error={historyFailure} onRetry={retry} />)}
       </div>
 
       {/* ── 5. Section 2: 活动明细 (Activity Breakdown with Refunds!) ── */}
@@ -759,29 +734,10 @@ export default function Analytics() {
             {/* Rising Green Line Chart */}
             <p className="text-[11px] text-zinc-500">{tx(reportData?.net_worth?.trend_label)} {tx("；依据期初、消费、转账、退款和对账活动。个人借贷未记录完整还款历史，未纳入历史曲线。")}</p>
             <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={netWorthTrend} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                  <XAxis dataKey="date" stroke="#888888" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis hide domain={['dataMin - 1000', 'dataMax + 1000']} />
-                  <Tooltip
-                    formatter={(val) => [fmt(val), tx("账户净资产")]}
-                    contentStyle={{
-                      backgroundColor: theme === 'dark' ? '#18181b' : '#ffffff',
-                      border: '1px solid #27272a',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#10b981"
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 4, fill: '#10b981' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<div role="status" className="h-full flex items-center justify-center text-xs text-zinc-500">{tx('正在加载图表…')}</div>}>
+                {historyReady ? <NetWorthChart data={netWorthTrend} currencySymbol={reportData?.currency_symbol || symbol} />
+                  : <HistoryStatus error={historyFailure} onRetry={retry} />}
+              </Suspense>
             </div>
 
             {/* Assets vs Liabilities Breakdown Table */}

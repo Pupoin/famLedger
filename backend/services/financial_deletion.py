@@ -11,8 +11,21 @@ def delete_account_data(session, account_ids):
     account_ids = set(account_ids)
     if not account_ids:
         return []
+    from services.card_history import require_clear, archive_account
+    accounts = session.exec(select(Account).where(Account.id.in_(account_ids))).all()
+    children = session.exec(select(Account).where(Account.parent_account_id.in_(account_ids))).all()
+    # Validate every affected relationship before deleting any records.
+    for card in {card.id: card for card in [*accounts, *children]}.values():
+        if card.parent_account_id:
+            require_clear(session, card)
+    for card in accounts:
+        archive_account(session, card)
     from services.schedules import delete_plans_for_accounts
     delete_plans_for_accounts(session, account_ids)
+    for child in {card.id: card for card in [*accounts, *children] if card.parent_account_id}.values():
+        child.parent_account_id = None
+        session.add(child)
+    session.flush()
     for pending in session.exec(select(PendingFxTransaction).where(PendingFxTransaction.account_id.in_(account_ids))).all():
         session.delete(pending)
     session.flush()

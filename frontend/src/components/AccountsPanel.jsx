@@ -16,6 +16,8 @@ import { formatCurrency } from '../utils/currency';
 const accountCurrencySymbols = {USD:'$', EUR:'€', GBP:'£', CAD:'C$', AUD:'A$', INR:'₹', JPY:'¥', CNY:'¥', CHF:'CHF', SGD:'S$', HKD:'HK$'};
 import { useAuth } from '../auth/AuthContext';
 import { renderAccountLogo, formatAccountDisplayName } from '../utils/accountIcons';
+import useSidebarExpansion from '../hooks/useSidebarExpansion';
+import { sidebarBalanceContributions } from '../utils/sidebarAccountsStore';
 
 export const ACCOUNT_TYPES = [
   { code: 'cash', label: '现金', category: 'asset' },
@@ -155,6 +157,7 @@ export const organizeAccountsWithSubAccounts = (accList, locale = 'zh-CN') => {
 
 
 export default function AccountsPanel({
+  accountData,
   selectedAccountId,
   onSelectAccount,
   onClose,
@@ -167,10 +170,8 @@ export default function AccountsPanel({
   const { user } = useAuth();
   const { privacyMode, currency: prefCurrency, currencies, symbol } = useCurrency();
 
-  const [accounts, setAccounts] = useState([]);
-  const [accountsError, setAccountsError] = useState("");
+  const { accounts, accountsError, loading, fetchAccounts } = accountData;
   const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, accountCurrencySymbols[accounts[0]?.report_currency] || symbol);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'asset' | 'liability'
   useEffect(() => {
     if (!loading && accountOutsideScope(accounts, location.pathname, activeTab)) {
@@ -231,12 +232,7 @@ export default function AccountsPanel({
   const groupMenuRef = useRef(null);
 
   // Expanded state map for group nodes: { [groupId]: boolean }
-  const [expandedGroups, setExpandedGroups] = useState({
-    'group-0': true,
-    'group-1': true,
-    'group-2': true,
-    'group-3': true,
-  });
+  const [expandedGroups, setExpandedGroups] = useSidebarExpansion(user);
 
   const toggleGroup = (id) => {
     setExpandedGroups((prev) => ({
@@ -284,67 +280,6 @@ export default function AccountsPanel({
     balance: '0',
     parent_account_id: '',
   });
-
-  const fetchAccounts = async () => {
-    try {
-      setLoading(true);
-      setAccountsError("");
-      const res = await fetchWithAuth('/api/v1/accounts');
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(typeof error.detail === "string" ? error.detail : "账户加载失败");
-      }
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data)
-          ? data
-          : data.accounts || data.items || [];
-        setAccounts(list);
-      }
-    } catch (err) {
-      setAccountsError(err.message);
-      console.error('Failed to load accounts in SureAccountsPanel', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAccounts();
-
-    let debounceTimer = null;
-    const triggerRefresh = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        fetchAccounts();
-      }, 50);
-    };
-
-    const handleAccountsUpdated = (e) => {
-      if (e?.detail?.deletedAccountId) {
-        setAccounts((prev) => prev.filter((a) => a.id !== e.detail.deletedAccountId));
-      }
-      if (typeof e?.detail?.hiddenInSidebar === 'boolean') {
-        setAccounts((prev) => prev.map((account) => account.id === e.detail.accountId
-          ? { ...account, hidden_in_sidebar: e.detail.hiddenInSidebar } : account));
-      }
-      triggerRefresh();
-    };
-
-    // 监听所有账户和交易生命周期事件，任何变动毫秒级实时刷新侧边栏余额
-    window.addEventListener('accounts-updated', handleAccountsUpdated);
-    window.addEventListener('transaction-added', triggerRefresh);
-    window.addEventListener('transaction-updated', triggerRefresh);
-    window.addEventListener('transaction-deleted', triggerRefresh);
-
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      window.removeEventListener('accounts-updated', handleAccountsUpdated);
-      window.removeEventListener('transaction-added', triggerRefresh);
-      window.removeEventListener('transaction-updated', triggerRefresh);
-      window.removeEventListener('transaction-deleted', triggerRefresh);
-    };
-  }, []);
 
   const handleCreateAccount = async (e) => {
     e.preventDefault();
@@ -458,7 +393,8 @@ export default function AccountsPanel({
       collator.compare(translateTitles ? tx(a.title) : a.title, translateTitles ? tx(b.title) : b.title) ||
       String(a.id).localeCompare(String(b.id)));
 
-    const groupBalance = (a) => Number(a.report_own_balance ?? a.report_balance ?? a.balance ?? 0);
+    const contributions = sidebarBalanceContributions(filteredAccounts);
+    const groupBalance = (a) => contributions.get(a.id);
 
     if (groupBy === 'owner_by_institution') {
       // Group by Owner -> Institution
@@ -845,6 +781,7 @@ export default function AccountsPanel({
 
       {/* ── 3. Accounts Hierarchy List (Exact Sure Style from 1.png) ── */}
       <div className={`flex-1 overflow-y-auto px-2 pt-1 ${isMobileDrawer ? 'pb-8' : 'pb-6'} space-y-2 custom-scrollbar overscroll-contain`}>
+        {loading && accounts.length === 0 && <p role="status" className="px-3 py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">{tx('正在加载账户…')}</p>}
         {!loading && !accountsError && accountSearch.trim() && filteredAccounts.length === 0 && (
           <p role="status" className="px-3 py-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
             {tx("没有匹配的账户")}
@@ -1270,6 +1207,7 @@ export default function AccountsPanel({
                 value={form.parent_account_id || ''}
                 onChange={(e) => setForm({ ...form, parent_account_id: e.target.value })}
                 accounts={parentCandidates}
+                showPrimaryOwner
                 emptyLabel={tx("无 (独立主卡)")}
                 placeholder={tx("选择所属信用卡主卡")}
                 testId="create-account-parent-select"

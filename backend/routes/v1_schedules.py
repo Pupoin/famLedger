@@ -12,7 +12,7 @@ from auth import get_current_user
 from database import get_session
 from models import Account, Loan, ScheduledPlan, ScheduledOccurrence, Transaction
 from services.request_validation import CurrencyCode
-from services.schedule_math import LoanConfig, check_timezone, interest_for, rounded, active_rate, next_rate_change, occurrence_date, repayment_phase
+from services.schedule_math import LoanConfig, check_timezone, interest_for, rounded, active_rate, next_rate_change, occurrence_date, scheduled_date, repayment_phase
 from services.schedules import actor_for, authorized, projection, records_for, occurrence, post, undo, balance, booking_plan, pending_for_plan, PAID
 from services.transaction_lock import lock_mutation
 
@@ -60,7 +60,7 @@ class PlanInput(BaseModel):
         if self.start_date.year < 1900:
             raise ValueError('计划开始日期不能早于1900年')
         try:
-            occurrence_date(self, self.occurrence_limit)
+            scheduled_date(self, self.occurrence_limit)
         except (ValueError, OverflowError) as error:
             raise ValueError('计划日期超出支持范围') from error
         return self
@@ -119,6 +119,16 @@ def construct(actor, body, previous=None, session=None):
     if previous:
         values['config'] = {**previous.config, **values['config']}
         records = records_for(session, previous)
+        first = max((n for n, r in records.items() if r.status in PAID | {'skipped', 'undone'}), default=0) + 1
+        try:
+            regular_next = scheduled_date(previous, first)
+        except (ValueError, OverflowError):
+            regular_next = previous.start_date
+        # The editor submits the next regular date. Keeping that date must not
+        # re-anchor a Jan-31 schedule on Feb-29 and move later dates to the 29th.
+        anchor_changed = body.start_date != previous.start_date and (not records or body.start_date != regular_next)
+        if records and not anchor_changed:
+            values['start_date'] = previous.start_date
         versions = previous.config.get('history_versions', [])
         captured = {key for v in versions for key in v['occurrence_ids']}
         uncaptured = [str(r.id) for r in records.values() if r.status in PAID | {'skipped', 'undone'} and str(r.id) not in captured]
@@ -126,11 +136,10 @@ def construct(actor, body, previous=None, session=None):
             old_terms = previous.model_dump(mode='json')
             old_terms['config'].pop('history_versions', None)
             values['config']['history_versions'] = [*versions, {'occurrence_ids': uncaptured, 'terms': old_terms}]
-        if body.start_date != previous.start_date or body.frequency != previous.frequency or body.interval != previous.interval:
+        if anchor_changed or body.frequency != previous.frequency or body.interval != previous.interval:
             if records:
-                first = max((n for n, r in records.items() if r.status in PAID | {'skipped', 'undone'}), default=0) + 1
                 try:
-                    anchor = body.start_date if body.start_date != previous.start_date else occurrence_date(previous, first)
+                    anchor = body.start_date if anchor_changed else scheduled_date(previous, first)
                 except (ValueError, OverflowError) as error:
                     raise HTTPException(422, '计划日期超出支持范围') from error
                 if any(r.number > 0 and r.status in PAID | {'skipped', 'undone'} and r.due_date >= anchor for r in records.values()):
@@ -153,7 +162,7 @@ def construct(actor, body, previous=None, session=None):
             setattr(previous, key, value)
         previous.updated_at = datetime.now(timezone.utc)
         try:
-            occurrence_date(previous, previous.occurrence_limit)
+            scheduled_date(previous, previous.occurrence_limit)
         except (ValueError, OverflowError) as error:
             raise HTTPException(422, '计划日期超出支持范围') from error
         return previous
@@ -180,11 +189,15 @@ def serialize(session, actor, plan, detailed=False):
     first = max((n for n, r in records.items() if r.status in PAID | {'skipped', 'undone'}), default=0) + 1
     result['edit_from_period'] = first
     try:
-        result['edit_start_date'] = occurrence_date(plan, first).isoformat()
+        result['edit_start_date'] = scheduled_date(plan, first).isoformat()
     except (ValueError, OverflowError):
         result['edit_start_date'] = plan.start_date.isoformat()
     if plan.kind == 'loan':
         config = LoanConfig.model_validate(plan.config['loan'])
+        final_row = records.get(plan.occurrence_limit)
+        result['final_payment_processed'] = bool(final_row and final_row.status in PAID | {'skipped', 'undone'})
+        final_date = final_row.due_date if result['final_payment_processed'] else occurrence_date(plan, plan.occurrence_limit)
+        result['final_payment_date'] = final_date.isoformat()
         from zoneinfo import ZoneInfo
         today = datetime.now(ZoneInfo(plan.timezone_name)).date()
         result['current_rate'] = str(active_rate(config, max(today, config.interest_start_date)))
@@ -296,6 +309,11 @@ def validate_update(session, plan, body):
     records = records_for(session, plan)
     fixed = [r for r in records.values() if r.status in PAID | {'skipped', 'undone'}]
     last_number = max((r.number for r in fixed), default=0)
+    final_row = records.get(body.occurrence_limit)
+    if body.loan and final_row and final_row.status in PAID | {'skipped', 'undone'}:
+        previous_final = LoanConfig.model_validate(plan.config['loan'])
+        if (body.loan.final_payment_day, body.loan.final_payment_date) != (previous_final.final_payment_day, previous_final.final_payment_date):
+            raise HTTPException(409, '最后一期已处理，不能修改最后一期还款日')
     if body.occurrence_limit < last_number:
         raise HTTPException(409, '期限不能短于已经支付的期次')
     if body.end_date and any(r.due_date > body.end_date for r in fixed):
@@ -373,7 +391,9 @@ def candidates(plan_id: uuid.UUID, number: int, session: Session = Depends(get_s
                      for r in rows if not (r.extra or {}).get('scheduled_occurrence_id') and not r.transfer_id
                      and (((r.original_currency or r.currency) == plan.currency and money(r.original_amount or r.amount) == money(item['total']))
                           or (r.currency != plan.currency and (r.original_currency or r.currency) == r.currency)
-                          or (plan.kind == 'loan' and plan.config['loan']['day_count'] != 'monthly'))]}
+                          or (plan.kind == 'loan' and (plan.config['loan']['day_count'] != 'monthly'
+                              or (number == plan.occurrence_limit and (plan.config['loan'].get('final_payment_day') is not None
+                                  or plan.config['loan'].get('final_payment_date') is not None)))))]}
 
 
 @router.post('/{plan_id}/prepay')

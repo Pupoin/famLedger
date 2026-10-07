@@ -16,7 +16,7 @@ function wrapMobileLabel(text, width, fontSize) {
   return lines;
 }
 
-export default function SureCashflowSankey({
+function SureCashflowSankey({
   data,
   currencySymbol: reportSymbol,
   height = 350,
@@ -432,3 +432,5 @@ export default function SureCashflowSankey({
     </div>
   );
 }
+
+export default React.memo(SureCashflowSankey);

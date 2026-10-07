@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 from sqlmodel import Session, create_engine, select
 
-from models import Account, AccountShare, Family, Transaction, User, UserPreference
+from models import Account, AccountShare, ExchangeRateSnapshot, Family, Transaction, User, UserPreference
 from services.schema import sync_schema
 
 
@@ -54,6 +54,10 @@ def test_zero_balance_hide_restore_is_persistent_and_idempotent(auth_client_a, d
 
 @pytest.mark.parametrize('account_type,expected', [('checking', '-25.0000'), ('credit_card', '25.0000')])
 def test_nonzero_confirmation_uses_transactions_not_stored_balance(auth_client_a, db, account_type, expected):
+    quote_day = date.today()
+    db.add(ExchangeRateSnapshot(requested_date=quote_day, base_currency='EUR', effective_date=quote_day,
+                               rates={'EUR': '1', 'USD': '1.1', 'CNY': '7.9', 'CAD': '1.5'}))
+    db.commit()
     account_id = create_account(auth_client_a, account_type=account_type, currency='USD')
     row = Transaction(account_id=account_id, transacted_at=date(2026, 10, 1),
                       narration='Actual expense', amount=Decimal('25'), currency='USD', transaction_type='expense')

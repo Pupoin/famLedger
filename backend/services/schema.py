@@ -40,13 +40,13 @@ from sqlalchemy import text
 
 logger = logging.getLogger("mosaic")
 
-# Bumped only when the code requires a schema change this additive migrator
-# cannot perform on its own. Stored via `PRAGMA user_version`, which costs no
-# extra table and is therefore not itself a schema change.
+# Bumped when older writers cannot safely maintain the database's invariants.
+# Version 5 requires ledger writes to maintain materialized account balances.
+# Stored via `PRAGMA user_version` on SQLite, and schema_version on PostgreSQL.
 #
 # 1 -- first stamped version (Mosaic v2.1.0). Structurally identical to the
 #      v2.0.0 schema: v2.1.0 introduces the stamp, not a schema change.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def get_db_schema_version(engine) -> int:

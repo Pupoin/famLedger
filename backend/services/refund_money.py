@@ -26,10 +26,10 @@ def authorize(session, principal, txn):
     return account
 
 
-def remaining_native(session, txn, refund=False, exclude_pair=None):
+def remaining_native(session, txn, refund=False, exclude_pair=None, allocations=None):
     total, native = native_money(txn)
     key = RefundAllocation.refund_transaction_id if refund else RefundAllocation.original_transaction_id
-    allocations = session.exec(select(RefundAllocation).where(key == txn.id)).all()
+    allocations = allocations if allocations is not None else session.exec(select(RefundAllocation).where(key == txn.id)).all()
     used = Decimal(0)
     for row in allocations:
         if row.id == exclude_pair:
@@ -57,7 +57,7 @@ def refund_category_editable(session, refund, allocations=None):
     # Unverified historical allocations must be reviewed before reclassification.
     if refund.original_amount is None or not refund.original_currency:
         return False
-    return remaining_native(session, refund, refund=True) > 0
+    return remaining_native(session, refund, refund=True, allocations=allocations) > 0
 
 
 def guard_refund_category_edit(session, refund):
@@ -65,25 +65,25 @@ def guard_refund_category_edit(session, refund):
         raise HTTPException(400, "已全部关联的退款分类随原消费，请修改原消费分类或先解除关联")
 
 
-def refund_category_details(session, refund, allowed_ids, allocations=None):
+def refund_category_details(session, refund, allowed_ids, allocations=None, read=None):
     """Linked categories are live original classifications; only the remainder is editable."""
     from models import Category, TransactionSplit
     from services.stats_engine import classify_transaction, transaction_category_portions
     allocations = allocations if allocations is not None else session.exec(select(RefundAllocation).where(
         RefundAllocation.refund_transaction_id == refund.id)).all()
-    account = session.get(Account, refund.account_id)
-    category_map = {c.id: c for c in session.exec(select(Category).where(
-        Category.family_id == account.family_id)).all()} if account else {}
+    account = read.account(refund.account_id) if read else session.get(Account, refund.account_id)
+    category_map = (read.family_categories(account.family_id) if read else
+        {c.id: c for c in session.exec(select(Category).where(Category.family_id == account.family_id)).all()}) if account else {}
     categories = {}
     for allocation in allocations:
-        original = session.get(Transaction, allocation.original_transaction_id)
+        original = read.transaction(allocation.original_transaction_id) if read else session.get(Transaction, allocation.original_transaction_id)
         if not original or original.account_id not in allowed_ids:
             continue
-        original_account = session.get(Account, original.account_id)
+        original_account = read.account(original.account_id) if read else session.get(Account, original.account_id)
         if not original_account or not account or original_account.family_id != account.family_id:
             continue
-        splits = session.exec(select(TransactionSplit).where(
-            TransactionSplit.transaction_id == original.id)).all() if original.is_split else []
+        splits = (read.transaction_splits(original) if read else session.exec(select(TransactionSplit).where(
+            TransactionSplit.transaction_id == original.id)).all()) if original.is_split else []
         for category, weight in transaction_category_portions(original, splits, Decimal(1), category_map):
             if weight > 0:
                 categories[category['id']] = category
@@ -169,11 +169,13 @@ def auto_refund_enabled(session, principal, account=None):
     return pref.auto_refund_enabled if pref else True
 
 
-def refund_match_score(refund, original, remaining):
-    """Opposite directions and verified same-native quotas are hard gates.
+def refund_match_score(refund, original, remaining, *, allow_partial=False, allow_cross_currency=False, allow_historical=False):
+    """Opposite directions and verified native quotas are hard gates.
 
     Amount 30%, narration 35%, merchant name 20%, recency 10%, same account 5%.
     Explicit direction metadata cannot contradict the transaction's type.
+    Only manual recommendations may relax the full-quota/same-currency gates;
+    automation retains its existing strict eligibility checks.
     """
     def valid_direction(txn, kind, direction):
         explicit = (txn.extra or {}).get("direction")
@@ -182,12 +184,15 @@ def refund_match_score(refund, original, remaining):
 
     if not valid_direction(refund, "refund", "inflow") or not valid_direction(original, "expense", "outflow"):
         return 0.0, {"opposite_directions": False}
+    same_currency = refund.original_currency == original.original_currency
     if (refund.original_amount is None or original.original_amount is None
-            or not refund.original_currency or refund.original_currency != original.original_currency
-            or refund.original_amount <= 0 or remaining < refund.original_amount):
+            or not refund.original_currency or not original.original_currency
+            or (not same_currency and not allow_cross_currency)
+            or refund.original_amount <= 0 or remaining <= 0
+            or (not allow_partial and remaining < refund.original_amount)):
         return 0.0, {"opposite_directions": True, "eligible_amount": False}
     days = (refund.transacted_at - original.transacted_at).days
-    if days < 0 or days > 90:
+    if days < 0 or (days > 90 and not allow_historical):
         return 0.0, {"opposite_directions": True, "eligible_date": False}
 
     def similarity(a, b):
@@ -198,10 +203,12 @@ def refund_match_score(refund, original, remaining):
         extra = txn.extra or {}
         return extra.get("merchant_name") or extra.get("merchant") or txn.narration
 
-    parts = {"amount": float(refund.original_amount / remaining),
+    amount_similarity = (min(refund.original_amount, remaining) / max(refund.original_amount, remaining)
+                         if same_currency else Decimal(0))
+    parts = {"amount": float(amount_similarity),
              "narration": similarity(refund.narration, original.narration),
              "name": similarity(name(refund), name(original)),
-             "time": 1 - days / 90, "same_account": float(refund.account_id == original.account_id),
+             "time": max(0, 1 - days / 90), "same_account": float(refund.account_id == original.account_id),
              "opposite_directions": True, "days_apart": days}
     score = sum(parts[key] * weight for key, weight in
                 (("amount", .30), ("narration", .35), ("name", .20), ("time", .10), ("same_account", .05)))
@@ -307,11 +314,13 @@ def allocation_metadata(row):
 
 def report_offsets(session, refund, allowed_account_ids, report_money):
     """Offset original booked spending; show actual cash/FX independently."""
-    raw = session.get(Transaction, refund.id)
-    links = session.exec(select(RefundAllocation).where(RefundAllocation.refund_transaction_id == refund.id)).all()
+    read = report_money.read
+    raw = read.transaction(refund.id)
+    read.prepare([raw])
+    links = read.allocations[refund.id]
     portions, used_book, gain, loss = [], Decimal(0), Decimal(0), Decimal(0)
     for row in links:
-        original = session.get(Transaction, row.original_transaction_id)
+        original = read.transaction(row.original_transaction_id)
         if not original or original.account_id not in allowed_account_ids:
             continue
         if row.original_book_amount is not None and row.refund_book_amount is not None:
@@ -335,6 +344,9 @@ def report_offsets(session, refund, allowed_account_ids, report_money):
 
 
 def refund_report_summary(session, refunds, allowed_ids, converter):
+    refunds = list(refunds)
+    converter.read.load_transactions(row.id for row in refunds)
+    converter.read.prepare(converter.read.transactions[row.id] for row in refunds)
     gain, loss, actual, offset = (Decimal(0) for _ in range(4))
     for refund in refunds:
         portions, remainder, g, l = report_offsets(session, refund, allowed_ids, converter)

@@ -6,6 +6,8 @@ from services.transaction_lock import lock_mutation
 
 import logging
 import uuid
+from calendar import monthrange
+from types import SimpleNamespace
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -15,8 +17,8 @@ from sqlmodel import Session, select, func, desc
 
 from database import get_session
 from models import Account, Family, RefundAllocation, Transaction, User
-from services.booking_money import money_metadata
-from services.refund_money import allocate, allocation_metadata, remaining_native
+from services.booking_money import money_metadata, money_text
+from services.refund_money import allocate, allocation_metadata, remaining_native, refund_match_score
 from services.request_validation import CurrencyCode
 from auth import get_current_user_or_token
 from routes.v1_transactions import serialize_utc_datetime
@@ -222,7 +224,7 @@ def search_expense_candidates_for_refund(
                 "amount": str(c.amount.quantize(Decimal("0.01"))),
                 "currency": c.currency,
                 "already_allocated": str(already_allocated.quantize(Decimal("0.01"))),
-                "remaining_refundable": str(remaining.quantize(Decimal("0.01"))),
+                "remaining_refundable": money_text(remaining),
                 "transacted_at": c.transacted_at.isoformat(),
                 "occurred_at": c_occurred_at,
                 "account_id": str(c.account_id) if c.account_id else None,
@@ -268,58 +270,85 @@ def get_refund_candidates(
     refund_id: uuid.UUID,
     search: Optional[str] = Query(None, description="搜索商户名或流水名称"),
     limit: int = Query(15, ge=1, le=50),
+    recommendations_only: bool = Query(True),
+    preview_refund: bool = Query(False),
     session: Session = Depends(get_session),
     user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
     """
-    智能检索可供退款冲抵的候选原消费流水。
-    支持按商户名称、关键词筛选，或根据商户相似度自动检索过去 90 天内的同名/相关消费支出。
+    推荐退款日前两个日历月内、相似度严格大于 0.5 的原消费。
+    显式关闭推荐筛选可手动搜索其他历史消费；始终保留租户、权限、方向及额度校验。
     """
-    from datetime import timedelta
-
     refund_txn = session.get(Transaction, refund_id)
     if not refund_txn:
         raise HTTPException(status_code=404, detail="Refund transaction not found")
 
     _verify_refund_permission(session, user_or_ctx, refund_txn, "查询候选原消费")
+    if refund_txn.transaction_type != "refund" and not preview_refund:
+        raise HTTPException(400, "请选择退款类型后查询候选原消费")
+    refund_account = session.get(Account, refund_txn.account_id)
+    if not refund_account:
+        raise HTTPException(404, "交易所属账户不存在")
 
     current_user = None
     if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
         current_user = session.exec(select(User).where(User.username == user_or_ctx)).first()
 
     is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:")
-    is_admin = is_service or (current_user and current_user.role == "admin")
+    actor = user_or_ctx if is_service else current_user
+    writable_acc_ids = get_user_writable_account_ids(session, actor, family_id=refund_account.family_id)
+    if not writable_acc_ids:
+        return {"candidates": [], "count": 0}
 
-    stmt = select(Transaction).where(
+    stmt = select(Transaction).join(Account, Transaction.account_id == Account.id).where(
         Transaction.transaction_type == "expense",
         Transaction.id != refund_txn.id,
+        Transaction.account_id.in_(writable_acc_ids),
+        Account.family_id == refund_account.family_id,
+        Account.is_active == True,
+        Transaction.transacted_at <= refund_txn.transacted_at,
     )
-
-    if not is_admin:
-        visible_acc_ids = get_user_visible_account_ids(session, current_user, family_id=current_user.family_id if current_user else None)
-        if not visible_acc_ids:
-            return {"candidates": [], "count": 0}
-        stmt = stmt.where(Transaction.account_id.in_(visible_acc_ids))
-
-    if search:
+    # Existing allocations are shown separately, not offered as a new allocation
+    # (allocate replaces a pair's quantity rather than adding to it).
+    stmt = stmt.where(Transaction.id.not_in(select(RefundAllocation.original_transaction_id).where(
+        RefundAllocation.refund_transaction_id == refund_txn.id)))
+    if search and search.strip():
         search_pattern = f"%{search.strip()}%"
         stmt = stmt.where(Transaction.narration.ilike(search_pattern))
-    else:
-        # 默认推荐过去 90 天内的消费
-        cutoff = refund_txn.transacted_at - timedelta(days=90)
+    if recommendations_only:
+        month_index = max(12, refund_txn.transacted_at.year * 12 + refund_txn.transacted_at.month - 1 - 2)
+        year, month = divmod(month_index, 12)
+        month += 1
+        cutoff = refund_txn.transacted_at.replace(year=year, month=month,
+            day=min(refund_txn.transacted_at.day, monthrange(year, month)[1]))
         stmt = stmt.where(Transaction.transacted_at >= cutoff)
-        if refund_txn.narration:
-            stmt = stmt.where(Transaction.narration.ilike(f"%{refund_txn.narration[:4]}%"))
-
-    candidates = session.exec(stmt.order_by(desc(Transaction.transacted_at)).limit(limit)).all()
+    candidates = session.exec(stmt).all()
+    used = dict(session.exec(select(RefundAllocation.original_transaction_id,
+        func.sum(RefundAllocation.allocated_amount)).where(
+            RefundAllocation.original_transaction_id.in_([c.id for c in candidates]))
+        .group_by(RefundAllocation.original_transaction_id)).all()) if candidates else {}
+    account_names = {account.id: account.name for account in session.exec(select(Account).where(
+        Account.id.in_({c.account_id for c in candidates}))).all()} if candidates else {}
+    # A scoring snapshot must never copy ORM instrumentation or dirty a GET's
+    # persisted transaction while simulating a type change.
+    scored_refund = SimpleNamespace(**{name: getattr(refund_txn, name) for name in (
+        "transaction_type", "extra", "original_amount", "original_currency", "transacted_at", "account_id", "narration")})
+    if preview_refund and refund_txn.transaction_type != "refund":
+        scored_refund.transaction_type = "refund"
+        scored_refund.extra = {**(scored_refund.extra or {}), "direction": "inflow"}
+    elif refund_txn.original_amount is not None:
+        scored_refund.original_amount = remaining_native(session, refund_txn, refund=True)
 
     results = []
     for c in candidates:
-        existing = session.exec(
-            select(RefundAllocation).where(RefundAllocation.original_transaction_id == c.id)
-        ).all()
-        already_allocated = sum((a.allocated_amount for a in existing), Decimal("0"))
-        remaining = remaining_native(session, c) if c.original_amount is not None else Decimal(0)
+        already_allocated = used.get(c.id, Decimal("0"))
+        remaining = max(Decimal(0), c.original_amount - already_allocated) if c.original_amount is not None else Decimal(0)
+        score, components = refund_match_score(scored_refund, c, remaining,
+            allow_partial=True, allow_cross_currency=True, allow_historical=not recommendations_only)
+        if not components.get("opposite_directions"):
+            continue
+        if recommendations_only and score <= 0.5:
+            continue
 
         # 仅返回仍有可抵扣额度的流水
         if remaining > Decimal("0"):
@@ -339,13 +368,18 @@ def get_refund_candidates(
                 "amount": str(c.amount.quantize(Decimal("0.01"))),
                 "currency": c.currency,
                 "already_allocated": str(already_allocated.quantize(Decimal("0.01"))),
-                "remaining_refundable": str(remaining.quantize(Decimal("0.01"))),
+                "remaining_refundable": money_text(remaining),
                 "transacted_at": c.transacted_at.isoformat(),
                 "occurred_at": c_occurred_at,
                 "account_id": str(c.account_id),
+                "account_name": account_names[c.account_id],
+                "similarity_score": score,
+                "score_components": components,
             })
-
-    return {"candidates": results, "count": len(results)}
+    results.sort(key=lambda row: (-row["similarity_score"], -int(row["transacted_at"].replace("-", "")), row["id"]))
+    results = results[:limit]
+    return {"candidates": results, "count": len(results), "min_score": 0.5 if recommendations_only else None,
+            "recommendations_only": recommendations_only}
 
 
 @router.post("/{refund_id}/link/{original_id}")

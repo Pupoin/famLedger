@@ -2832,6 +2832,8 @@ export default function Settings() {
                                             institution_name: acc.institution_name,
                                             external_identifier: acc.external_identifier,
                                             account_type: acc.account_type || 'checking',
+                                            currency: acc.currency,
+                                            card_link_can_change: acc.card_link_can_change,
                                             balance: acc.balance || 0,
                                             can_manage: acc.can_manage,
                                             parent_account_id: acc.parent_account_id,
@@ -2890,6 +2892,8 @@ export default function Settings() {
                                           setDeletingAccount({
                                             id: acc.account_id,
                                             name: acc.account_name,
+                                            parent_account_id: acc.parent_account_id,
+                                            card_link_can_change: acc.card_link_can_change,
                                           });
                                         }}
                                         className="w-full text-left px-3 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-2.5 cursor-pointer transition-colors"

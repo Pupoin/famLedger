@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { tx, useLocale } from '../localization';
 import { fetchWithAuth } from '../api/fetchWithAuth';
+import { readJsonResponse } from '../api/errorMessages';
 import { useToast } from '../ToastContext';
 import { useCurrency } from '../CurrencyContext';
 import { toLocalISODate } from '../utils/dates';
@@ -16,9 +17,7 @@ const primaryClass = 'rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-
 
 async function request(path, options) {
   const response = await fetchWithAuth(`/api/v1/plans${path}`, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(typeof body.detail === 'string' ? tx(body.detail) : tx('请检查计划设置'));
-  return body;
+  return readJsonResponse(response, '请检查计划设置');
 }
 const jsonBody = (body, method='POST') => ({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 
@@ -48,7 +47,14 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
   });
   const [busy,setBusy]=useState(false);
   const [preview,setPreview]=useState(null);
-  const [advancedOpen,setAdvancedOpen]=useState(()=>!!(plan?.config.loan?.phases?.length>1||plan?.config.loan?.interest_free_periods?.length||plan?.config.loan?.interest_only_periods?.length));
+  const [advancedOpen,setAdvancedOpen]=useState(()=>!!(plan?.config.loan?.final_payment_day||plan?.config.loan?.final_payment_date||plan?.config.loan?.phases?.length>1||plan?.config.loan?.interest_free_periods?.length||plan?.config.loan?.interest_only_periods?.length));
+  const [finalPaymentMode,setFinalPaymentMode]=useState(plan?.config.loan?.final_payment_date?'date':'day');
+  const finalPaymentLocked=Boolean(plan?.final_payment_processed&&Number(form.loan?.term_months)===plan.occurrence_limit);
+  const finalAnchor=plan&&form.start_date===plan.start_date?plan.edit_start_date||plan.start_date:form.start_date;
+  const [anchorYear,anchorMonth]=finalAnchor.split('-').map(Number);
+  const firstPeriod=plan?.edit_from_period||1;
+  const finalMonthEnd=new Date(anchorYear,anchorMonth+Number(form.loan?.term_months||1)-firstPeriod,0);
+  const latestFinalDate=Number.isNaN(finalMonthEnd.getTime())?undefined:toLocalISODate(finalMonthEnd);
   const modalRef=useRef(null);
   const closeRef=useRef(onClose),busyRef=useRef(busy);
   closeRef.current=onClose;busyRef.current=busy;
@@ -77,7 +83,9 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
   };
   const payload = () => ({...form,end_date:form.end_date||null,amount:form.kind==='loan'?0:form.amount,
     occurrence_limit:form.kind==='loan'?Number(form.loan.term_months):Number(form.occurrence_limit),interval:Number(form.interval),
-    loan:form.loan?{...form.loan,term_months:Number(form.loan.term_months),phases:form.loan.phases.map(p=>({...p,from_period:Number(p.from_period),
+    loan:form.loan?{...form.loan,final_payment_day:finalPaymentMode==='day'&&form.loan.final_payment_day?Number(form.loan.final_payment_day):null,
+      final_payment_date:finalPaymentMode==='date'?form.loan.final_payment_date||null:null,
+      term_months:Number(form.loan.term_months),phases:form.loan.phases.map(p=>({...p,from_period:Number(p.from_period),
       amount:['custom','principal_only'].includes(p.method)?p.amount:null,interest_treatment:p.method==='principal_only'?p.interest_treatment:null}))}:null});
   const submit = async (event,onlyPreview=false) => {
     event.preventDefault();setBusy(true);
@@ -147,6 +155,26 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
           <details data-testid="loan-advanced-settings" className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3" open={advancedOpen} onToggle={e=>setAdvancedOpen(e.currentTarget.open)}>
             <summary className="cursor-pointer font-semibold text-sm">{tx('高级设置')}</summary>
             <div className="mt-4 space-y-5">
+              <section className="space-y-2">
+                <Field label="最后一期日期设置"><select data-testid="loan-final-payment-mode" className={fieldClass} value={finalPaymentMode}
+                  disabled={finalPaymentLocked} onChange={e=>{setFinalPaymentMode(e.target.value);setPreview(null);}}>
+                  <option value="day">{tx('只改日号')}</option><option value="date">{tx('指定完整日期')}</option>
+                </select></Field>
+                {finalPaymentMode==='day'?<><Field label="最后一期还款日（可选）"><input data-testid="loan-final-payment-day" className={fieldClass} type="number"
+                  min="1" max="31" step="1" inputMode="numeric" placeholder="1–31"
+                  value={form.loan.final_payment_day||''} disabled={finalPaymentLocked}
+                  onChange={e=>changeLoan('final_payment_day',e.target.value)}/></Field>
+                <p className="text-xs text-zinc-500">{tx('只调整日号，年月和期数不变；留空沿用每月还款日。')}</p>
+                <p className="text-xs text-zinc-500">{tx('当月没有所选日号时，使用当月最后一天。')}</p>
+                </>:<><Field label="最后一期还款日期（可选）"><input data-testid="loan-final-payment-date" className={fieldClass} type="date" max={latestFinalDate}
+                  value={form.loan.final_payment_date||''} disabled={finalPaymentLocked}
+                  onChange={e=>changeLoan('final_payment_date',e.target.value)}/></Field>
+                <p className="text-xs text-zinc-500">{tx('可与倒数第二期在同一个月，但必须晚于上一期和已发生的还款；期数不变。')}</p>
+                {latestFinalDate&&<p className="text-xs text-zinc-500">{tx('最晚可选择 {p0}，并且必须晚于上一期还款。',{p0:latestFinalDate})}</p>}
+                <p className="text-xs text-zinc-500">{tx('留空沿用每月还款日。')}</p></>}
+                <p className="text-xs text-zinc-500">{tx('最后一期利息按指定日期和当前计息方式计算。')}</p>
+                {finalPaymentLocked&&<p className="text-xs text-zinc-500">{tx('最后一期已处理，不能修改最后一期还款日')}</p>}
+              </section>
               {['interest_free_periods','interest_only_periods'].map(kind=><section key={kind} className="space-y-2">
                 <h3 className="font-semibold text-sm">{tx(kind==='interest_free_periods'?'免息期':'仅还利息时间段')}</h3>
                 <p className="text-xs text-zinc-500">{tx(kind==='interest_free_periods'?'免息期间不计利息，结束日期包含当天；本金和手续费按计划处理。':'按还款日判断是否仅还利息；区间结束后恢复常规本金及利息还款。')}</p>
@@ -184,6 +212,9 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
         }}>{tx('预览计划')}</button><button type="submit" className={primaryClass} disabled={busy||!form.account_id||!form.destination_id}>{tx('保存计划')}</button></div>
         {preview&&<div data-testid="plan-preview" className="rounded-xl bg-zinc-50 dark:bg-zinc-800 p-3 space-y-2">
           {preview.slice(0,6).map(row=><div key={row.number} className="flex flex-wrap justify-between gap-2 text-xs"><span>{row.due_date}</span><span className="font-mono">{row.total} {row.currency}</span></div>)}
+          {form.kind==='loan'&&preview.length>6&&<div data-testid="plan-preview-final" className="flex flex-wrap justify-between gap-2 text-xs border-t border-zinc-200 dark:border-zinc-700 pt-2">
+            <span>{tx('最后一期')} · {preview.at(-1).due_date}</span><span className="font-mono">{preview.at(-1).total} {preview.at(-1).currency}</span>
+          </div>}
           <span className="text-xs text-zinc-500">{tx('共 {p0} 期',{p0:preview.length})}</span>
         </div>}
       </form>
@@ -191,33 +222,68 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
   </div>,document.body);
 }
 
-export default function ScheduledPlans({account=null,onChanged,onSelectTransaction}) {
+export default function ScheduledPlans(props) {
+  return <AccountScheduledPlans key={props.account?.id||'all'} {...props}/>;
+}
+
+function AccountScheduledPlans({account=null,onChanged,onSelectTransaction}) {
   const locale=useLocale();
   const {showToast}=useToast();
   const {privacyMode}=useCurrency();
   const [plans,setPlans]=useState([]),[accounts,setAccounts]=useState([]),[detail,setDetail]=useState(null);
   const [editor,setEditor]=useState(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
+  const [loadError,setLoadError]=useState(null);
   const [bankChoices,setBankChoices]=useState(null),[prepay,setPrepay]=useState(null);
   const [settlement,setSettlement]=useState(null);
+  const scope=useRef(null),loadVersion=useRef(0);
+  const isCurrent=controller=>controller&&scope.current===controller&&!controller.signal.aborted;
   const money=(amount,currency)=>privacyMode?'••••••':new Intl.NumberFormat(locale,{style:'currency',currency}).format(Number(amount||0));
   const reload=useCallback(async()=>{
-    setLoading(true);
+    const controller=scope.current;
+    if(!controller||controller.signal.aborted)return;
+    const version=++loadVersion.current;
+    const current=()=>scope.current===controller&&!controller.signal.aborted&&version===loadVersion.current;
+    setLoading(true);setLoadError(null);
     try{
-      const [list,response]=await Promise.all([request(account?`?account_id=${account.id}`:''),fetchWithAuth('/api/v1/accounts')]);
-      if(!response.ok)throw new Error(tx('账户加载失败'));
-      const accts=await response.json();setPlans(list.items);setAccounts(accts.items||[]);
-    }catch(error){showToast(error.message,'error');}finally{setLoading(false);}
+      const [list,response]=await Promise.all([request(account?`?account_id=${account.id}`:'',{signal:controller.signal}),fetchWithAuth('/api/v1/accounts',{signal:controller.signal})]);
+      const accts=await readJsonResponse(response,'账户加载失败');
+      if(current()){setPlans(list.items);setAccounts(accts.items||[]);}
+    }catch(error){if(current()){setLoadError(error.message);showToast(error.message,'error');}}finally{if(current())setLoading(false);}
   },[account?.id,showToast]);
-  useEffect(()=>{reload();},[reload]);
+  useEffect(()=>{
+    const controller=new AbortController();scope.current=controller;reload();
+    return()=>{controller.abort();if(scope.current===controller)scope.current=null;};
+  },[reload]);
   const run=async(path,body,method='POST')=>{
-    setBusy(true);try{const result=await request(path,jsonBody(body,method));setDetail(result);await reload();onChanged?.();return true;}
-    catch(error){showToast(error.message,'error');return false;}finally{setBusy(false);}
+    const controller=scope.current;
+    if(!isCurrent(controller))return false;
+    setBusy(true);try{
+      const result=await request(path,jsonBody(body,method));
+      if(!isCurrent(controller))return false;
+      setDetail(result);await reload();
+      if(!isCurrent(controller))return false;
+      onChanged?.();return true;
+    }catch(error){if(isCurrent(controller))showToast(error.message,'error');return false;}finally{if(isCurrent(controller))setBusy(false);}
   };
-  const open=async(plan)=>{try{setDetail(await request(`/${plan.id}`));setBankChoices(null);setPrepay(null);setSettlement(null);}catch(error){showToast(error.message,'error');}};
-  const edit=async(plan)=>{try{setEditor(await request(`/${plan.id}`));}catch(error){showToast(error.message,'error');}};
+  const open=async(plan)=>{
+    const controller=scope.current;
+    if(!isCurrent(controller))return;
+    try{
+      const result=await request(`/${plan.id}`,{signal:controller.signal});
+      if(isCurrent(controller)){setDetail(result);setBankChoices(null);setPrepay(null);setSettlement(null);}
+    }catch(error){if(isCurrent(controller))showToast(error.message,'error');}
+  };
+  const edit=async(plan)=>{
+    const controller=scope.current;
+    if(!isCurrent(controller))return;
+    try{const result=await request(`/${plan.id}`,{signal:controller.signal});if(isCurrent(controller))setEditor(result);}
+    catch(error){if(isCurrent(controller))showToast(error.message,'error');}
+  };
   const link=async(row)=>{
-    try{const result=await request(`/${detail.id}/candidates/${row.number}`);setBankChoices({row,items:result.items});}
-    catch(error){showToast(error.message,'error');}
+    const controller=scope.current;
+    if(!isCurrent(controller))return;
+    try{const result=await request(`/${detail.id}/candidates/${row.number}`,{signal:controller.signal});if(isCurrent(controller))setBankChoices({row,items:result.items});}
+    catch(error){if(isCurrent(controller))showToast(error.message,'error');}
   };
   const loanAccount=['loan','mortgage'].includes(account?.account_type);
   const canCreate=loanAccount?account.can_manage===true||account.is_owner===true:
@@ -225,9 +291,13 @@ export default function ScheduledPlans({account=null,onChanged,onSelectTransacti
   return <section data-testid="scheduled-plans" className="space-y-4 text-zinc-900 dark:text-zinc-100">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="font-bold text-sm">{tx(loanAccount?'还款计划':'计划')}</h2>
-      {canCreate&&(!loanAccount||!plans.some(p=>p.kind==='loan'&&p.destination_id===account.id&&p.status!=='cancelled'))&&<button className={primaryClass} data-testid="new-plan" onClick={()=>setEditor({})}>{tx(loanAccount?'配置还款计划':'新增定期转账')}</button>}
+      {canCreate&&(!loanAccount||!plans.some(p=>p.kind==='loan'&&p.destination_id===account.id&&p.status!=='cancelled'))&&<button className={primaryClass} data-testid="new-plan" disabled={loading||!!loadError} onClick={()=>setEditor({})}>{tx(loanAccount?'配置还款计划':'新增定期转账')}</button>}
     </div>
-    {loading?<p className="text-sm text-zinc-500">{tx('加载中...')}</p>:!plans.length?<p className="p-8 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center text-sm text-zinc-500">{tx('暂无计划')}</p>:<div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+    {loading?<p className="text-sm text-zinc-500">{tx('加载中...')}</p>:loadError?<div data-testid="plan-load-error" role="alert" className="p-5 rounded-xl border border-red-200 dark:border-red-900 space-y-3">
+      <p className="text-sm font-semibold">{tx('计划加载失败')}</p>
+      <p className="text-sm text-red-600 dark:text-red-400 break-words">{tx(loadError)}</p>
+      <button className={buttonClass} onClick={reload}>{tx('重试')}</button>
+    </div>:!plans.length?<p className="p-8 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center text-sm text-zinc-500">{tx('暂无计划')}</p>:<div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       {plans.map(plan=><div key={plan.id} className="min-w-0 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
         <button data-testid="scheduled-plan-card" className="w-full min-w-0 text-left p-4 space-y-2" onClick={()=>open(plan)}>
         <div className="flex flex-wrap items-start justify-between gap-2"><strong className="text-sm break-words min-w-0">{plan.name}</strong><span className="text-xs text-zinc-500">{tx(statuses[plan.status])}</span></div>
@@ -256,8 +326,9 @@ export default function ScheduledPlans({account=null,onChanged,onSelectTransacti
           {tx('已支付（历史币种）')} · {code}<span className="block mt-1">{tx('本金')} {money(totals.principal,code)} · {tx('利息')} {money(totals.interest,code)} · {tx('手续费')} {money(totals.fee,code)}</span>
         </div>)}
       </div>}
-      {detail.kind==='loan'&&(detail.config.loan.interest_free_periods?.length||detail.config.loan.interest_only_periods?.length)?<div className="space-y-2 text-xs">
+      {detail.kind==='loan'&&(detail.config.loan.final_payment_day||detail.config.loan.final_payment_date||detail.config.loan.interest_free_periods?.length||detail.config.loan.interest_only_periods?.length)?<div className="space-y-2 text-xs">
         <h4 className="font-semibold">{tx('高级设置')}</h4>
+        {(detail.config.loan.final_payment_day||detail.config.loan.final_payment_date)&&<p data-testid="plan-final-payment-date">{tx('最后一期还款日期')} · {detail.final_payment_date}</p>}
         {(detail.config.loan.interest_free_periods||[]).map((period,i)=><p key={`free-${i}`}>{tx('免息期')} · {period.start_date} — {period.end_date}</p>)}
         {(detail.config.loan.interest_only_periods||[]).map((period,i)=><p key={`only-${i}`}>{tx('仅还利息时间段')} · {period.start_date} — {period.end_date}</p>)}
         {!!detail.config.loan.interest_only_periods?.length&&<p className="text-zinc-500">{tx('仅还利息区间结束后，后续期次自动恢复本金加利息。')}</p>}
@@ -322,6 +393,10 @@ export default function ScheduledPlans({account=null,onChanged,onSelectTransacti
         </div>)}
       </div>
     </div>}
-    {editor&&<PlanEditor plan={editor.id?editor:null} account={account} accounts={accounts} onClose={()=>setEditor(null)} onSaved={async result=>{setEditor(null);setDetail(result);await reload();onChanged?.();}}/>}
+    {editor&&<PlanEditor plan={editor.id?editor:null} account={account} accounts={accounts} onClose={()=>setEditor(null)} onSaved={async result=>{
+      const controller=scope.current;
+      if(!isCurrent(controller))return;
+      setEditor(null);setDetail(result);await reload();if(isCurrent(controller))onChanged?.();
+    }}/>}
   </section>;
 }

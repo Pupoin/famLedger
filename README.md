@@ -123,6 +123,10 @@ PostgreSQL tests are optional in a local run and are skipped unless their isolat
 
 ### Data and configuration
 
+Current account balances are stored in the account's currency and updated in the same transaction as ledger changes. Primary cards store the group debt; supplementary cards store their allocated shares. Display-currency conversion uses the exchange-rate cache. Institution, owner, and type groups attribute each visible card's allocated share once; a primary retains inaccessible shares and pooled overpayment. Historical charts continue to use dated ledger calculations. The mobile and desktop sidebars share an in-memory account list, so reopening the drawer displays loaded accounts immediately while refreshing in the background.
+
+To check or rebuild current balances in the configured SQLite or PostgreSQL database, run `python -m cli balances` or `python -m cli balances --rebuild` from `backend/` (in Docker: `docker compose --env-file .env.docker exec famledger python -m cli balances`). Rebuilding updates derived balances without changing transactions. Application writes update them automatically; direct administrative SQL changes require an explicit rebuild.
+
 Ledger data resides in the configured SQLite or PostgreSQL database. Exchange-rate retrieval contacts an external provider; OIDC and email ingestion contact their configured services. Passwords and API keys are stored as hashes, and newly generated API keys are shown in plaintext only once. Keep environment secrets, databases, token caches, uploads, audit logs, and backups out of Git.
 
 ### Documentation
@@ -254,6 +258,10 @@ npm --prefix frontend run build
 - 主应用：设置 `FAMLEDGER_TEST_PG_URL`，数据库名必须为 `fix104_verify`，再运行 `backend/tests/test_fix104_postgres.py`。真实备份恢复测试还需专用容器 `famledger-fix104-pg-verification`，以及 `FAMLEDGER_TEST_PG_CONTAINER`、`FAMLEDGER_TEST_PG_MOUNT`；具体设置见测试文件。
 
 ### 数据与配置
+
+账户最新余额以账户原币保存，与流水变化在同一事务更新。主卡保存整组待还，副卡保存分摊后的待还金额；展示币种换算复用汇率缓存。金融机构、用户和账户类型分组按各可见卡的分摊金额归集一次，不可见副卡的份额及溢缴款保留在主卡。历史图表仍按对应日期的流水计算。手机与桌面侧栏共用内存中的账户列表，重新打开时先显示已有数据，再后台刷新。
+
+在 `backend/` 中运行 `python -m cli balances` 可核对当前 SQLite 或 PostgreSQL 的余额，`python -m cli balances --rebuild` 可重建。Docker 中可运行 `docker compose --env-file .env.docker exec famledger python -m cli balances`。重建只更新派生余额，不修改交易流水。正常应用写入自动维护余额；管理员直接用 SQL 修改账本后需要手动重建。
 
 账本数据保存在配置的 SQLite 或 PostgreSQL 数据库中。获取汇率时会访问外部汇率服务；OIDC 和邮件抓取会访问对应的已配置服务。密码和 API Key 保存哈希，新生成的 API Key 仅展示一次明文。环境密钥、数据库、令牌缓存、上传文件、审计日志和备份不应提交到 Git。
 

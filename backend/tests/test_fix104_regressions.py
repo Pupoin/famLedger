@@ -203,7 +203,8 @@ def test_bad_fx_quotes_are_not_saved(db, monkeypatch, rates):
 
 def test_reports_convert_splits_by_transaction_date_and_preserve_ledger(auth_client_a, db):
     _, _, _, accounts = setup_accounts(db, 'USD')
-    for day, cny in [(date(2020,1,3), '8'), (date.today(), '9')]:
+    # Analytics also values the historical balance at the month-end cutoff.
+    for day, cny in [(date(2020,1,3), '8'), (date(2020,1,31), '8'), (date.today(), '9')]:
         db.add(ExchangeRateSnapshot(requested_date=day, effective_date=day, rates={'EUR':'1','USD':'1','CNY':cny}))
     txn = Transaction(narration='Test merchant', account_id=accounts[0].id, amount=Decimal('100'), currency='USD', transacted_at=date(2020,1,3), is_split=True)
     db.add(txn)

@@ -219,11 +219,10 @@ def transaction_category_portions(txn, splits, amount, category_map):
 
 
 def spending_category_portions(session, txn, category_map, allowed_ids, converter, account_ids=None):
-    from models import TransactionSplit
     from services.refund_money import report_offsets
 
     def portions(source, amount):
-        splits = session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == source.id)).all() if source.is_split else []
+        splits = converter.read.transaction_splits(source) if source.is_split else []
         return transaction_category_portions(source, splits, amount, category_map)
 
     if txn.excluded_from_stats:
@@ -259,7 +258,6 @@ def compute_netted_category_distribution(
     categories. Negative buckets remain visible. Percentages describe the
     positive category subtotal; negative adjustments have no pie share.
     """
-    from models import RefundAllocation, TransactionSplit
     buckets = {}
     zero = Decimal("0")
     gross = sum((Decimal(str(t.amount)) for t in expense_txns), zero)
@@ -281,17 +279,23 @@ def compute_netted_category_distribution(
             add(category, amount, 1)
 
     refunds = zero
+    if refund_txns and session is not None and allowed_account_ids:
+        from services.report_currency import ReportCurrency
+        converter = report_money or ReportCurrency(session, currency=refund_txns[0].currency)
+        converter.read.load_transactions(row.id for row in refund_txns)
+        converter.read.prepare(converter.read.transactions[row.id] for row in refund_txns)
     for refund in refund_txns:
         remainder = Decimal(str(refund.amount))
         links = []
         if session is not None and allowed_account_ids:
             from services.refund_money import report_offsets
             from services.report_currency import ReportCurrency
-            converter = report_money or ReportCurrency(session, currency=refund.currency)
+            if report_money is None and converter.currency != refund.currency:
+                converter = ReportCurrency(session, currency=refund.currency)
             links, remainder, _, _ = report_offsets(session, refund, allowed_account_ids, converter)
         for original, converted_share in links:
             refunds += converted_share
-            original_splits = session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == original.id)).all() if original.is_split else []
+            original_splits = converter.read.transaction_splits(original) if original.is_split else []
             for category, amount in portions(original, original_splits, converted_share):
                 add(category, -amount)
         refunds += remainder
@@ -320,10 +324,13 @@ def compute_netted_category_distribution(
     return rows, float(net), float(gross.quantize(Decimal("0.01"))), float(refunds.quantize(Decimal("0.01")))
 
 
-def get_user_report_account_ids(session, user, family_id=None):
+def get_user_report_account_ids(session, user, family_id=None, *, visible_ids=None):
     """Report participation is narrower than authorization to read an account."""
     from models import AccountShare
-    visible = get_user_visible_account_ids(session, user, family_id)
+    # Reuse only a scope already authorized for this user in this request.
+    # This is an internal read context, never an account list from API input.
+    visible = (get_user_visible_account_ids(session, user, family_id)
+               if visible_ids is None else set(visible_ids))
     if not visible:
         return set()
     included = set(session.exec(select(Account.id).where(Account.id.in_(visible),
@@ -336,18 +343,40 @@ def get_user_report_account_ids(session, user, family_id=None):
     return included
 
 
-def get_report_account_balances(session, accounts, money):
-    """Each participating account contributes its own ledger exactly once."""
-    from routes.v1_accounts import _calc_raw_account_balance
-    from models import Account
-    from services.booking_money import master_contribution
-    included = {account.id for account in accounts}
+def get_report_account_balances(session, accounts, money, balances=None):
+    """A visible primary contributes its group; otherwise a child its own debt."""
+    from services.account_balances import current_balances, own_settlement_balance
+    accounts = list(accounts)
+    ids = {account.id for account in accounts}
+    balances = balances if balances is not None else current_balances(session, accounts)
     values = {}
     for account in accounts:
-        parent = session.get(Account, account.parent_account_id) if account.parent_account_id in included else None
-        if parent:
-            balance = master_contribution(session, account, parent)
-            values[account.id] = float(money.amount(balance, parent.currency))
+        if account.parent_account_id in ids:
+            values[account.id] = 0.0
         else:
-            values[account.id] = float(money.amount(_calc_raw_account_balance(session, account.id, financial_classification(account), account.balance), account.currency))
+            balance = balances[account.id]
+            currency = account.currency
+            if account.parent_account_id:
+                balance, currency = own_settlement_balance(session, account, balance)
+            values[account.id] = float(money.amount(balance, currency))
     return values
+
+
+def get_grouped_account_balances(session, accounts, money, balances=None):
+    """Attribute visible card shares to their own institution/owner once.
+
+    A primary retains any inaccessible share and pooled overpayment. Its card
+    balance remains the full group; only grouping contributions are divided.
+    """
+    from services.account_balances import current_balances, own_settlement_balance
+    accounts = list(accounts)
+    balances = balances if balances is not None else current_balances(session, accounts)
+    values = {account.id: money.amount(balances[account.id], account.currency) for account in accounts}
+    for account in accounts:
+        if not account.parent_account_id:
+            continue
+        value, currency = own_settlement_balance(session, account, balances[account.id])
+        values[account.id] = money.amount(value, currency)
+        if account.parent_account_id in values:
+            values[account.parent_account_id] -= values[account.id]
+    return {account_id: float(value) for account_id, value in values.items()}

@@ -17,6 +17,13 @@ from services.account_types import account_type_is, financial_classification
 router = APIRouter()
 
 
+def _report_user(session, user_or_ctx):
+    username = user_or_ctx.get("username") if isinstance(user_or_ctx, dict) else user_or_ctx
+    if isinstance(username, str) and not username.startswith("service:"):
+        return session.exec(select(User).where(User.username == username)).first()
+    return None
+
+
 @router.get("/v1/analytics/report")
 def get_comprehensive_report(
     request: Request,
@@ -24,26 +31,21 @@ def get_comprehensive_report(
     selected_month: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    include_history: bool = True,
     session: Session = Depends(get_session),
     user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
     """
     全面财务统计报表接口（100% 依据真实 SQLite 交易流水与账户计算，严禁假数据）。
     """
-    import datetime
-    import calendar
-    from models import Transaction, Account, Category, TransactionSplit
+    from models import Transaction, Account, Category
 
     from services.report_period import resolve_period
     start_d, end_d, prev_start, prev_end, y, m = resolve_period(period, selected_month, start_date, end_date)
     selected_month = f"{y:04d}-{m:02d}"
 
     # 确定当前用户家庭范围
-    user_db = None
-    if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
-        user_db = session.exec(select(User).where(User.username == user_or_ctx)).first()
-    elif isinstance(user_or_ctx, dict):
-        user_db = session.exec(select(User).where(User.username == user_or_ctx.get("username"))).first()
+    user_db = _report_user(session, user_or_ctx)
 
     family_id = user_db.family_id if user_db else None
     from services.report_currency import ReportCurrency
@@ -103,7 +105,8 @@ def get_comprehensive_report(
     curr_split_ids = [t.id for t in (expense_txns + refund_txns) if t.is_split]
     curr_splits_map = {}
     if curr_split_ids:
-        for sp in report_money.splits(session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id.in_(curr_split_ids))).all(), curr_original):
+        splits = [sp for key in curr_split_ids for sp in report_money.read.splits.get(key, [])]
+        for sp in report_money.splits(splits, curr_original):
             curr_splits_map.setdefault(sp.transaction_id, []).append(sp)
 
     categories_data, total_expense, total_expense_raw, total_refund = compute_netted_category_distribution(
@@ -120,7 +123,8 @@ def get_comprehensive_report(
     prev_split_ids = [t.id for t in (prev_expense_txns + prev_refund_txns) if t.is_split]
     prev_splits_map = {}
     if prev_split_ids:
-        for sp in report_money.splits(session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id.in_(prev_split_ids))).all(), prev_original):
+        splits = [sp for key in prev_split_ids for sp in report_money.read.splits.get(key, [])]
+        for sp in report_money.splits(splits, prev_original):
             prev_splits_map.setdefault(sp.transaction_id, []).append(sp)
 
     _, prev_expense, prev_exp_raw, prev_refund = compute_netted_category_distribution(
@@ -173,59 +177,9 @@ def get_comprehensive_report(
             "icon": "💰",
         })
 
-    # 5. 过去若干月真实收支明细
-    history_months = []
-    curr_m = end_d.replace(day=1)
-    m_list = []
-    for _ in range(6):
-        m_list.append(curr_m)
-        curr_m = (curr_m - datetime.timedelta(days=1)).replace(day=1)
-    m_list.reverse()
-
-    for hm in m_list:
-        if hm.month == 12:
-            next_hm = hm.replace(year=hm.year + 1, month=1)
-        else:
-            next_hm = hm.replace(month=hm.month + 1)
-        h_stmt = select(Transaction).where(
-            Transaction.transacted_at >= hm,
-            Transaction.transacted_at < next_hm,
-            Transaction.excluded_from_stats == False,
-        )
-        if active_account_ids:
-            h_stmt = h_stmt.where(Transaction.account_id.in_(active_account_ids))
-        else:
-            h_stmt = h_stmt.where(Transaction.id == None)
-        h_all = report_money.transactions(session.exec(h_stmt).all())
-
-        h_inc = round(sum(float(t.amount) for t in h_all if is_genuine_income(t, all_acc_map)), 2)
-        h_exp_raw = round(sum(float(t.amount) for t in h_all if is_genuine_expense(t, all_acc_map)), 2)
-        h_refunds = [t for t in h_all if is_genuine_refund(t)]
-        h_fx = refund_report_summary(session, h_refunds, set(active_account_ids), report_money)
-        h_ref = round(h_fx['spending_refund_amount'], 2)
-        h_exp = round(h_exp_raw - h_ref, 2)
-        h_net = round(h_inc - h_exp + h_fx['fx_gain'] - h_fx['fx_loss'], 2)
-        h_rate = round((h_net / h_inc * 100), 1) if h_inc > 0 else 0.0
-        history_months.append({
-            "month_label": hm.strftime("%b %Y"),
-            "year_month": hm.strftime("%Y-%m"),
-            "income": h_inc,
-            "expense": h_exp,
-            "net": h_net,
-            "fx_gain": h_fx['fx_gain'],
-            "fx_loss": h_fx['fx_loss'],
-            "savings_rate": f"{h_rate}%",
-            "is_current": hm.strftime("%Y-%m") == selected_month,
-        })
-
-    # 计算 6 个月的月均值
-    avg_income = round(sum(h["income"] for h in history_months) / len(history_months), 2)
-    avg_expense = round(sum(h["expense"] for h in history_months) / len(history_months), 2)
-    avg_savings = round(sum(h["net"] for h in history_months) / len(history_months), 2)
-
     # 6. 真实账户与净资产（严格限定家庭与用户可见权限，杜绝越权泄露）
     is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:")
-    from services.balance_sheet import visible_balance_accounts, ledger_net_worth_history
+    from services.balance_sheet import visible_balance_accounts
     accounts = visible_balance_accounts(session, user_or_ctx if is_service else user_db)
 
     cash_accounts = []
@@ -235,7 +189,10 @@ def get_comprehensive_report(
 
     from services.stats_engine import get_report_account_balances
     report_balances = get_report_account_balances(session, accounts, report_money)
+    visible_ids = {a.id for a in accounts}
     for a in accounts:
+        if a.parent_account_id in visible_ids:
+            continue
         # 基于统一单一口径动态严格计算账户当前净额
         final_bal = report_balances[a.id]
 
@@ -268,20 +225,17 @@ def get_comprehensive_report(
 
     current_net_worth = round(total_assets - total_liabilities, 2)
 
-    # Reconstruct actual account balances; subtracting monthly income/spending
-    # from today's balance loses openings, adjustments, FX and refund cash.
-    cutoffs = [(h['month_label'], min(date.today(), end_d,
-                date.fromisoformat(h['year_month'] + '-01').replace(
-                    day=calendar.monthrange(int(h['year_month'][:4]), int(h['year_month'][5:]))[1])))
-               for h in history_months]
-    net_worth_trend = ledger_net_worth_history(session, accounts, report_money, cutoffs)
+    from services.report_history import build_report_history
+    history = build_report_history(session, accounts, active_account_ids, all_acc_map,
+                                   report_money, end_d, selected_month) if include_history else None
 
     from services.report_currency import persist_fx_cache
     persist_fx_cache(session)
 
     return {
         **report_money.metadata(),
-        **refund_report_summary(session, refund_txns, set(active_account_ids), report_money),
+        **fx_summary,
+        "history_loaded": include_history,
         "period": period,
         "selected_month": selected_month,
         "date_range": {
@@ -297,14 +251,7 @@ def get_comprehensive_report(
             "savings_rate": savings_rate,
             "budget_usage_pct": 0,
         },
-        "trends": {
-            "monthly_breakdown": history_months,
-            "averages": {
-                "income": avg_income,
-                "expense": avg_expense,
-                "savings": avg_savings,
-            },
-        },
+        "trends": history["trends"] if history else None,
         "activity": {
             "income_categories": income_categories,
             "expense_categories": expense_categories,
@@ -318,7 +265,7 @@ def get_comprehensive_report(
             "invest_total": round(total_invest, 2),
             "credit_total": round(total_credit, 2),
             "loan_total": round(total_loan, 2),
-            "trend": net_worth_trend,
+            "trend": history["net_worth"]["trend"] if history else [],
             "trend_basis": "recorded_account_ledger",
             "trend_label": "账户净资产走势（不含个人借贷）",
         },
@@ -327,3 +274,37 @@ def get_comprehensive_report(
             "accounts": investment_accounts,
         },
     }
+
+
+@router.get("/v1/analytics/history")
+def get_report_history(
+    period: str = "monthly",
+    selected_month: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """Load historical curves after the report's current figures are visible."""
+    from models import Account
+    from services.report_period import resolve_period
+    from services.report_currency import ReportCurrency, persist_fx_cache
+    from services.stats_engine import get_user_report_account_ids
+    from services.balance_sheet import visible_balance_accounts
+    from services.report_history import build_report_history
+
+    start_d, end_d, _, _, y, m = resolve_period(period, selected_month, start_date, end_date)
+    user_db = _report_user(session, user_or_ctx)
+    family_id = user_db.family_id if user_db else None
+    report_money = ReportCurrency(session, user_db, cache_independently=True)
+    active_ids = get_user_report_account_ids(session, user_db, family_id=family_id)
+    report_money.account_ids = set(active_ids)
+    all_accs = session.exec(select(Account).where(Account.id.in_(active_ids))).all() if active_ids else []
+    is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith('service:')
+    accounts = visible_balance_accounts(session, user_or_ctx if is_service else user_db)
+    history = build_report_history(session, accounts, active_ids, {a.id: a for a in all_accs},
+                                   report_money, end_d, f'{y:04d}-{m:02d}')
+    persist_fx_cache(session)
+    return {**report_money.metadata(), **history, 'history_loaded': True,
+            'period': period, 'selected_month': f'{y:04d}-{m:02d}',
+            'date_range': {'start': start_d.isoformat(), 'end': end_d.isoformat()}}

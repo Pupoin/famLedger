@@ -75,3 +75,6 @@ code-review-reports
 
 # Local personal transaction review
 /mailbridge_transfer_review.md
+
+# Local archives may contain database or authentication state.
+*.tar

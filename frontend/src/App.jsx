@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { DateFormatProvider } from "./DateFormatContext";
 import { PageViewProvider } from "./PageViewContext";
+import { ReportDataProvider } from "./ReportDataContext";
+import { loadAnalytics } from "./utils/analyticsLoader";
 import ErrorBoundary from "./ErrorBoundary";
 import SureLayout from "./components/SureLayout";
 import Landing from "./pages/Landing";
@@ -57,7 +59,7 @@ function lazyWithReload(importer) {
   );
 }
 
-const Analytics = lazyWithReload(() => import("./pages/Analytics"));
+const Analytics = lazyWithReload(loadAnalytics);
 const Insights = lazyWithReload(() => import("./pages/Insights"));
 const BudgetsPage = lazyWithReload(() => import("./pages/BudgetsPage"));
 
@@ -90,6 +92,7 @@ export default function App() {
   return (
     <PageViewProvider key={user?.username}>
       <DateFormatProvider>
+      <ReportDataProvider>
       <SureLayout>
         <ErrorBoundary>
           <Routes>
@@ -135,6 +138,7 @@ export default function App() {
           </Routes>
         </ErrorBoundary>
       </SureLayout>
+      </ReportDataProvider>
       </DateFormatProvider>
     </PageViewProvider>
   );

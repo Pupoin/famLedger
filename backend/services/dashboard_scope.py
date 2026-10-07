@@ -38,7 +38,7 @@ def dashboard_scope(session, user_or_ctx, user_filter):
 
     # 2. Determine allowed and filtered accounts
     from models import AccountShare
-    shares = session.exec(select(AccountShare)).all()
+    shares = session.exec(select(AccountShare).where(AccountShare.user_id == user_db.id)).all() if user_db else []
     user_shares = {s.account_id: s for s in shares if user_db and s.user_id == user_db.id}
 
     from services.stats_engine import get_family_active_account_ids

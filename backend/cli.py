@@ -106,6 +106,24 @@ def _cmd_inspect(args) -> int:
     return 0
 
 
+def _cmd_balances(args) -> int:
+    """Check/rebuild the configured SQLite or PostgreSQL current balances."""
+    from sqlmodel import Session
+    from database import engine
+    from services.account_balances import rebuild_latest_balances, verify_latest_balances
+    with Session(engine) as session:
+        if args.rebuild:
+            count = rebuild_latest_balances(session)
+            print(f"Rebuilt latest balances for {count} accounts; ledger unchanged.")
+        mismatches = verify_latest_balances(session)
+    if mismatches:
+        for row in mismatches:
+            print(f"Mismatch {row['account_id']}: {', '.join(row['fields']) or 'missing timestamp'}")
+        return 1
+    print("Latest balances match the ledger.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m cli",
@@ -145,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_inspect.add_argument("--archive", required=True)
     p_inspect.set_defaults(func=_cmd_inspect)
+
+    p_balances = sub.add_parser("balances", help="Check current balances against the ledger (SQLite/PostgreSQL).")
+    p_balances.add_argument("--rebuild", action="store_true", help="Rebuild current balances without modifying ledger activities.")
+    p_balances.set_defaults(func=_cmd_balances)
 
     return parser
 

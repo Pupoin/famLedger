@@ -15,7 +15,7 @@ import { calendarWeeksForWidth, expandedCalendarStart } from '../../utils/spendi
  * 3. 短周期向前补充真实历史消费，长周期保留全部日期；周尾的未来格子不可进入流水
  * 4. 桌面悬停/手机点按显示每日明细；桌面点击/手机长按进入当天流水
  */
-export default function SureSpendingCalendar({
+function SureSpendingCalendar({
   data,
   currencySymbol: reportSymbol,
   reportCurrency = '',
@@ -333,8 +333,8 @@ export default function SureSpendingCalendar({
                           className={`block h-8 w-8 rounded-md border touch-manipulation transition-transform hover:scale-105 active:scale-95 cursor-pointer ${getCellColor(
                             day
                           )}`}
-                          title={tx(tooltip)}
-                          aria-label={tx(tooltip)}
+                          title={tooltip}
+                          aria-label={tooltip}
                         />
                       );
                     })}
@@ -358,3 +358,5 @@ export default function SureSpendingCalendar({
     </div>
   );
 }
+
+export default React.memo(SureSpendingCalendar);

@@ -4,6 +4,8 @@ import { X, Plus, Trash2, Scissors, Check, AlertCircle, ArrowDown } from 'lucide
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { useToast } from '../ToastContext';
 import { currencySymbol } from '../utils/currency';
+import { apiErrorMessage } from '../api/errorMessages';
+import { initialTransactionSplits, transactionSplitSummary, buildTransactionSplits, splitMoney } from '../utils/transactionSplits';
 
 export default function SplitTransactionModal({
   isOpen,
@@ -16,64 +18,25 @@ export default function SplitTransactionModal({
   const { showToast } = useToast();
   const symbol = currencySymbol(transaction?.currency);
 
-  const totalAmount = Math.abs(parseFloat(transaction?.amount || 0));
-
-  // 子项列表初始化
-  const [splits, setSplits] = useState([]);
+  const [splits, setSplits] = useState(() => initialTransactionSplits(transaction, categories));
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isOpen || !transaction) return;
-
-    if (transaction.is_split && Array.isArray(transaction.splits) && transaction.splits.length >= 2) {
-      // 从已有拆分载入
-      setSplits(
-        transaction.splits.map((s, idx) => ({
-          id: s.id || `split-${idx}`,
-          category_id: s.category_id || '',
-          amount: parseFloat(s.amount || 0).toFixed(2),
-          notes: s.notes || '',
-        }))
-      );
-    } else {
-      // 默认提供两项初始拆分
-      const half = (totalAmount / 2).toFixed(2);
-      const remaining = (totalAmount - parseFloat(half)).toFixed(2);
-      setSplits([
-        {
-          id: 'split-1',
-          category_id: transaction.category_id || (categories[0]?.id || ''),
-          amount: half,
-          notes: transaction.narration || '',
-        },
-        {
-          id: 'split-2',
-          category_id: categories[1]?.id || categories[0]?.id || '',
-          amount: remaining,
-          notes: '',
-        },
-      ]);
-    }
-  }, [isOpen, transaction, categories, totalAmount]);
+    if (isOpen && transaction) setSplits(initialTransactionSplits(transaction, categories));
+    // Loading categories or changing the language must not discard edited rows.
+  }, [isOpen, transaction?.id]);
 
   if (!isOpen || !transaction) return null;
-
-  // 计算当前已分配与剩余金额
-  const allocatedSum = splits.reduce((acc, cur) => acc + (parseFloat(cur.amount) || 0), 0);
-  const remainingAmount = Math.round((totalAmount - allocatedSum) * 100) / 100;
-  const isBalanced = Math.abs(remainingAmount) < 0.005;
+  const summary = transactionSplitSummary(transaction, splits);
+  const totalAmount = splitMoney(summary.total);
+  const remainingAmount = splitMoney(summary.remaining);
+  const isBalanced = summary.balanced;
 
   const handleAddSplit = () => {
-    const nextAmount = remainingAmount > 0 ? remainingAmount.toFixed(2) : '0.00';
-    setSplits((prev) => [
-      ...prev,
-      {
-        id: `split-${Date.now()}-${prev.length}`,
-        category_id: categories[0]?.id || '',
-        amount: nextAmount,
-        notes: '',
-      },
-    ]);
+    setSplits(prev => [...prev, {
+      id: `split-${Date.now()}-${prev.length}`, category_id: categories[0]?.id || '',
+      amount: summary.remaining > 0n ? splitMoney(summary.remaining) : '0.00', notes: '',
+    }]);
   };
 
   const handleRemoveSplit = (idx) => {
@@ -93,26 +56,16 @@ export default function SplitTransactionModal({
   };
 
   const handleAutoFillRemaining = (idx) => {
-    const currentVal = parseFloat(splits[idx].amount) || 0;
-    const targetVal = Math.max(0, currentVal + remainingAmount);
-    handleUpdateSplit(idx, 'amount', targetVal.toFixed(2));
+    const others = splits.filter((_, index) => index !== idx);
+    const amount = transactionSplitSummary(transaction, others).remaining;
+    handleUpdateSplit(idx, 'amount', splitMoney(amount > 0n ? amount : 0n));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isBalanced) {
-      showToast(tx("拆分金额总和与原始金额不符，仍有 {p0}{p1} 待配平", {p0: (symbol), p1: (remainingAmount)}), 'error');
-      return;
-    }
-
-    // 格式化 payload
-    const payload = {
-      splits: splits.map((s) => ({
-        category_id: s.category_id || null,
-        amount: parseFloat(s.amount),
-        notes: s.notes ? s.notes.trim() : null,
-      })),
-    };
+    let payload;
+    try { payload = buildTransactionSplits(transaction, splits); }
+    catch (error) { showToast(tx(error.message), 'error'); return; }
 
     try {
       setSubmitting(true);
@@ -128,7 +81,7 @@ export default function SplitTransactionModal({
         onClose();
       } else {
         const err = await res.json().catch(() => ({}));
-        showToast(tx(err.detail || '拆分保存失败'), 'error');
+        showToast(tx(apiErrorMessage(err.detail, '拆分保存失败')), 'error');
       }
     } catch (err) {
       console.error('Error saving transaction splits', err);
@@ -138,10 +91,26 @@ export default function SplitTransactionModal({
     }
   };
 
+  const handleClearSplits = async () => {
+    setSubmitting(true);
+    try {
+      const response = await fetchWithAuth(`/api/v1/transactions/${transaction.id}/split`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        showToast(tx(apiErrorMessage(data.detail, '解除拆分失败')), 'error');
+        return;
+      }
+      showToast(tx('已解除拆分'), 'success');
+      onSuccess?.();
+      onClose();
+    } catch { showToast(tx('网络请求失败'), 'error'); }
+    finally { setSubmitting(false); }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-3 sm:p-4">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
-      <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg border border-zinc-200 dark:border-zinc-800 z-10 animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-[80] overflow-y-auto overscroll-contain flex items-center justify-center p-3 sm:p-4">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={() => !submitting && onClose()} />
+      <div role="dialog" aria-modal="true" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); if (!submitting) onClose(); } }} className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto overscroll-contain border border-zinc-200 dark:border-zinc-800 z-10 animate-in fade-in zoom-in-95 duration-150">
         {/* 头部 */}
         <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -161,7 +130,7 @@ export default function SplitTransactionModal({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => !submitting && onClose()}
             className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -174,7 +143,7 @@ export default function SplitTransactionModal({
             <div>
                 <span className="text-[11px] text-zinc-400 block">{tx("账户入账金额 (")} {transaction.currency})</span>
               <span className="font-mono text-sm font-bold text-zinc-900 dark:text-white">
-                {symbol}{totalAmount.toFixed(2)}
+                {symbol}{totalAmount}
               </span>
             </div>
 
@@ -187,7 +156,7 @@ export default function SplitTransactionModal({
                     : 'text-rose-600 dark:text-rose-400'
                 }`}
               >
-                {symbol}{remainingAmount.toFixed(2)}
+                {symbol}{remainingAmount}
               </span>
             </div>
           </div>
@@ -204,7 +173,7 @@ export default function SplitTransactionModal({
                     <span>{tx("子项 #")} {idx + 1}</span>
                   </span>
                   <div className="flex items-center gap-2">
-                    {remainingAmount !== 0 && (
+                    {summary.remaining !== 0n && (
                       <button
                         type="button"
                         onClick={() => handleAutoFillRemaining(idx)}
@@ -250,7 +219,8 @@ export default function SplitTransactionModal({
                     <label className="block text-[10.5px] text-zinc-400 mb-0.5">{tx("入账金额 (")} {transaction.currency})</label>
                     <input
                       type="number"
-                      step="0.01"
+                      min="0.0001"
+                      step="0.0001"
                       required
                       value={s.amount}
                       onChange={(e) => handleUpdateSplit(idx, 'amount', e.target.value)}
@@ -299,10 +269,13 @@ export default function SplitTransactionModal({
               )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              {transaction.is_split && <button type="button" onClick={handleClearSplits} disabled={submitting}
+                className="px-3 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 disabled:opacity-50">{tx('解除拆分')}</button>}
+
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => !submitting && onClose()}
                 className="px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium cursor-pointer"
               >{tx("取消")}</button>
               <button

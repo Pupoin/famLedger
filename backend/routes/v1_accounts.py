@@ -15,12 +15,14 @@ from sqlmodel import Session, select, func, or_
 from database import get_session
 from models import (
     Account, AccountShare, Family, User, Transaction, Transfer,
-    Valuation, Loan, TransactionSplit, RejectedTransfer, RefundAllocation, Category, UserPreference
+    Category, UserPreference
 )
 from auth import get_current_user_or_token, get_current_user
 from services.card_sharing import primary_owner_can_read
 from services.account_permissions import account_capabilities, can_manage_sharing
 from services.account_types import normalize_account_type, account_classification, change_account_type, financial_classification
+from services.card_settlement import group_for_account
+from services.card_history import link_can_change
 
 logger = logging.getLogger(__name__)
 
@@ -139,56 +141,18 @@ def _calc_raw_account_balance(session: Session, account_id: uuid.UUID, classific
     未产生活动的账户可返回登记金额；已有活动只汇总账本，不回退旧基数。
     负债金额为流出减流入，资产金额为流入减流出。
     """
-    txns = session.exec(select(Transaction).where(Transaction.account_id == account_id)).all()
-    if not txns:
+    from services.account_balances import raw_balance
+    account = session.get(Account, account_id)
+    if account is None:
         return stored_balance or Decimal("0.00")
-
-    acc = session.get(Account, account_id)
-
-    # Opening balances are ledger activities at every current creation entry.
-    # Never add a stored historical base on top of existing activities.
-    base_balance = Decimal("0.00")
-
-    total_in = Decimal("0.00")
-    total_out = Decimal("0.00")
-    for t in txns:
-        amt = Decimal(str(t.amount or 0))
-        if t.transaction_type in ("income", "refund"):
-            total_in += amt
-        elif t.transaction_type == "expense":
-            total_out += amt
-        elif t.transaction_type == "transfer":
-            from services.transaction_direction import transaction_direction
-            if transaction_direction(t, session, acc) == "inflow":
-                total_in += amt
-            else:
-                total_out += amt
-        elif t.transaction_type == "adjustment":
-            is_decrease = False
-            if t.extra and isinstance(t.extra, dict):
-                is_decrease = t.extra.get("direction") == "decrease"
-            elif t.narration and "(-" in t.narration:
-                is_decrease = True
-
-            if classification == "liability":
-                if is_decrease:
-                    total_in += amt
-                else:
-                    total_out += amt
-            else:
-                if is_decrease:
-                    total_out += amt
-                else:
-                    total_in += amt
-
-    if classification == "liability":
-        return base_balance + (total_out - total_in)
-    else:
-        return base_balance + (total_in - total_out)
+    txns = session.exec(select(Transaction).where(Transaction.account_id == account_id)).all()
+    return raw_balance(session, account, txns)
 
 
 def _ensure_opening_balance_transaction(session: Session, account: Account) -> None:
     """把没有任何活动的账户期初金额记入流水；只在写操作中调用。"""
+    if account.ledger_initialized:
+        return
     opening = Decimal(str(account.balance or 0))
     if opening == 0:
         return
@@ -231,47 +195,30 @@ def get_account_realtime_balance(
       欠款 = Σ(消费/支出 expense) - Σ(还款/冲减 income + refund)
     - 信用卡主副卡统筹记账体系:
       1. 主卡 (Master Card): 承接全户综合账单，余额 = 全户总消费 - 全户总还款 (对齐银行月度总账单)
-      2. 附属卡 (Child Card): 忠实反映副卡自身实际刷卡额 (方便一眼看清副卡花了多少)
+      2. 附属卡 (Child Card): 显示分摊还款后的待还金额，历史消费仍保留。
     """
     acc = session.get(Account, account_id)
+    from services.account_balances import current_snapshot
+    snapshot = current_snapshot(session, acc)
+    if snapshot is not None:
+        return snapshot.latest_balance
+    if acc is not None and acc not in session.new and acc not in session.dirty and acc not in session.deleted:
+        # A worker may retain this Session while another request unlinks or
+        # reclassifies a card. Do not calculate using its old identity-map link.
+        session.refresh(acc, attribute_names=['parent_account_id', 'account_type', 'classification',
+                                             'family_id', 'currency', 'balance', 'ledger_initialized'])
     classification = financial_classification(acc) if acc else classification
+    stored_balance = acc.balance if acc else stored_balance
     raw_bal = _calc_raw_account_balance(session, account_id, classification, stored_balance)
 
-    # 仅负债类/信用卡参与主副卡统筹逻辑
-    if not acc or classification != "liability":
+    if not acc:
         return raw_bal
 
-    parent_id = getattr(acc, "parent_account_id", None)
-
-    if parent_id is not None:
-        # ── 这是附属卡：直接返回副卡自身的净支出消费额 ──
-        return raw_bal
-
-    else:
-        # ── 这是主卡：检查是否有附属卡，若有则统筹全户合并账单 ──
-        children = session.exec(
-            select(Account)
-            .where(Account.parent_account_id == acc.id)
-            .order_by(Account.created_at.asc(), Account.id.asc())
-        ).all()
-        if not children:
-            return raw_bal
-
-        accessible_acc_ids = None
-        if current_user is not None:
-            from services.balance_sheet import visible_balance_accounts
-            accessible_acc_ids = {a.id for a in visible_balance_accounts(session, current_user)}
-
-        # 全户净债务 = 主卡自身债务 + 所有有权访问的附属卡自身发生的净支出
-        pool_net_debt = raw_bal
-        for child in children:
-            if accessible_acc_ids is not None and child.id not in accessible_acc_ids:
-                continue
-            from services.booking_money import master_contribution
-            child_raw = master_contribution(session, child, acc)
-            pool_net_debt += child_raw
-
-        return pool_net_debt
+    group = group_for_account(session, acc)
+    if group:
+        value = group.native_balance(acc.id) if group.master.id != acc.id else group.balance
+        return -value if group.master.id == acc.id and classification == 'asset' else value
+    return raw_bal
 
 
 class AccountCreate(BaseModel):
@@ -481,40 +428,17 @@ def list_accounts(
     if isinstance(user_or_ctx, str) and not user_or_ctx.startswith("service:"):
         current_user = session.exec(select(User).where(User.username == user_or_ctx)).first()
 
-    is_service = isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:")
-    family = None
-    if current_user and current_user.family_id:
-        family = session.get(Family, current_user.family_id)
-    elif is_service:
-        from services.principals import service_family
-        family = service_family(session)
-
-    if family:
-        all_accounts = session.exec(
-            select(Account).where(Account.family_id == family.id)
-        ).all()
-    elif current_user:
-        all_accounts = session.exec(
-            select(Account).where(Account.owner_id == current_user.id)
-        ).all()
-    else:
-        all_accounts = []
-
-    from models import Transaction
-
-    tx_counts = dict(
-        session.exec(
-            select(Transaction.account_id, func.count(Transaction.id))
-            .group_by(Transaction.account_id)
-        ).all()
-    )
-
-    all_users = session.exec(select(User)).all()
+    from services.balance_sheet import visible_balance_accounts
+    all_accounts = visible_balance_accounts(session, current_user or user_or_ctx)
+    if not all_accounts:
+        return {"accounts": [], "items": [], "count": 0}
+    account_ids = {a.id for a in all_accounts}
+    all_users = session.exec(select(User).where(User.id.in_({a.owner_id for a in all_accounts if a.owner_id}))).all()
     user_map = {u.id: (u.display_name or u.username) for u in all_users}
     owner_usernames = {u.id: u.username for u in all_users}
 
     # 获取全量共享记录
-    all_shares = session.exec(select(AccountShare)).all()
+    all_shares = session.exec(select(AccountShare).where(AccountShare.account_id.in_(account_ids))).all()
     share_map: Dict[uuid.UUID, List[AccountShare]] = {}
     for s in all_shares:
         share_map.setdefault(s.account_id, []).append(s)
@@ -523,7 +447,7 @@ def list_accounts(
     child_counts = dict(
         session.exec(
             select(Account.parent_account_id, func.count(Account.id))
-            .where(Account.parent_account_id.is_not(None))
+            .where(Account.parent_account_id.in_(account_ids))
             .group_by(Account.parent_account_id)
         ).all()
     )
@@ -532,8 +456,9 @@ def list_accounts(
     report_money = ReportCurrency(session, current_user, cache_independently=True) if current_user else None
     from services.stats_engine import get_user_report_account_ids, get_report_account_balances
     report_ids = get_user_report_account_ids(session, current_user, current_user.family_id) if current_user else set()
-    from services.balance_sheet import visible_balance_accounts
-    report_own_balances = get_report_account_balances(session, visible_balance_accounts(session, current_user), report_money) if report_money else {}
+    from services.account_balances import current_balances, own_settlement_balance
+    native_balances = current_balances(session, all_accounts)
+    report_own_balances = get_report_account_balances(session, all_accounts, report_money, native_balances) if report_money else {}
     hidden_sidebar_accounts = _hidden_sidebar_accounts(session, current_user)
     items = []
     for a in all_accounts:
@@ -555,8 +480,8 @@ def list_accounts(
         can_edit, can_manage = account_capabilities(current_user, a, my_share)
         shared_with_count = len(acc_shares)
 
-        # 依据该账户所有交易明细动态计算并严格反映实时余额，只读接口不执行数据库写回
-        realtime_bal = get_account_realtime_balance(session, a.id, financial_classification(a), a.balance, current_user=current_user, cache_independently=True)
+        realtime_bal = native_balances[a.id]
+        own_settlement, settlement_currency = own_settlement_balance(session, a, realtime_bal)
 
         items.append({
             "id": str(a.id),
@@ -569,13 +494,17 @@ def list_accounts(
             "external_identifier": a.external_identifier,
             "balance": str(realtime_bal),
             "report_balance": str(report_money.amount(realtime_bal, a.currency)) if report_money else str(realtime_bal),
-            "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(_calc_raw_account_balance(session, a.id, financial_classification(a), a.balance)),
+            "report_settlement_balance": str(report_money.amount(own_settlement, settlement_currency)) if report_money else str(own_settlement),
+            "report_own_balance": str(report_own_balances.get(a.id, 0)) if report_money else str(realtime_bal),
+            "latest_balance": str(realtime_bal),
+            "balance_version": a.balance_version,
+            "balance_updated_at": a.balance_updated_at.isoformat() if a.balance_updated_at else None,
             "report_included": a.id in report_ids if current_user else not a.exclude_from_reports,
             "report_currency": report_money.currency if report_money else a.currency,
             "owner": owner_name,
             "owner_username": owner_usernames.get(a.owner_id, ""),
             "owner_id": str(a.owner_id) if a.owner_id else None,
-            "transaction_count": tx_counts.get(a.id, 0),
+            "transaction_count": a.latest_transaction_count,
             "is_active": getattr(a, "is_active", True),
             "hidden_in_sidebar": str(a.id) in hidden_sidebar_accounts,
             "is_owner": is_owner,
@@ -587,6 +516,7 @@ def list_accounts(
             "include_in_finances": my_share.include_in_finances if my_share else True,
             "parent_account_id": str(a.parent_account_id) if getattr(a, "parent_account_id", None) else None,
             "parent_account": _parent_account_summary(session, a),
+            "card_link_can_change": link_can_change(session, a),
             "has_sub_accounts": a.id in child_counts,
             "sub_account_count": child_counts.get(a.id, 0),
         })
@@ -679,6 +609,7 @@ def get_shares_matrix(
             "can_manage_shares": can_manage_sharing(current_user, a, my_share),
             "parent_account_id": str(a.parent_account_id) if a.parent_account_id else None,
             "parent_account": _parent_account_summary(session, a),
+            "card_link_can_change": link_can_change(session, a),
             "members": row_members,
         })
 
@@ -754,7 +685,8 @@ def get_account_shares(
         "institution_name": account.institution_name,
         "external_identifier": account.external_identifier,
         "account_type": account.account_type,
-        "balance": float(account.balance) if account.balance is not None else 0.0,
+        "balance": str(get_account_realtime_balance(session, account.id, account.classification, account.balance)),
+        "card_link_can_change": link_can_change(session, account),
         "currency": account.currency,
         "is_owner": is_owner,
         "can_manage": can_manage,
@@ -1011,8 +943,9 @@ def get_account_detail(
         start_date = dt_date(2020, 1, 1)
 
     # 查询该账户流水（若为主卡，级联穿透名下当前用户可见的附属卡明细）
-    from services.stats_engine import get_user_visible_account_ids
-    accessible_acc_ids = get_user_visible_account_ids(session, current_user, family_id=account.family_id)
+    from services.balance_sheet import visible_balance_accounts
+    accessible_acc_ids = {a.id for a in visible_balance_accounts(session, user_or_ctx if isinstance(user_or_ctx, str)
+                          and user_or_ctx.startswith("service:") else current_user)}
 
     target_acc_ids = [account_id]
     if financial_classification(account) == "liability":
@@ -1168,6 +1101,31 @@ def get_account_detail(
             "balance": round(current_balance, 2)
         })
 
+    card_group = group_for_account(session, account)
+    own_balance = _calc_raw_account_balance(session, account.id, financial_classification(account), account.balance)
+    repayment_allocations = []
+    if card_group:
+        own_balance = card_group.native_balance(account.id)
+        if card_group.master.id == account.id and financial_classification(account) == 'asset':
+            own_balance = -own_balance
+        def card_balance_at(day):
+            past = group_for_account(session, account, day)
+            value = past.native_balance(account.id) if past.master.id != account.id else past.balance
+            return -value if past.master.id == account.id and financial_classification(account) == 'asset' else value
+        start_balance = float(card_balance_at(start_date - timedelta(days=1)))
+        change_amount = round(current_balance - start_balance, 2)
+        change_pct = round(change_amount / abs(start_balance) * 100, 1) if start_balance else 0.0
+        points = [{**point, "balance": round(float(card_balance_at(dt_date.fromisoformat(point["date"]))), 2)}
+                  for point in points]
+        points[-1]["balance"] = round(current_balance, 2)
+        # A secondary holder gets only their own allocations, never a private
+        # primary/sibling transaction ID or the full payment amount.
+        repayment_allocations = [
+            {key: value for key, value in row.items() if key not in {"source_account_id", "account_id", "target_transaction_id"}}
+            | {"source_transaction_id": row["source_transaction_id"] if uuid.UUID(row["source_account_id"]) in accessible_acc_ids else None}
+            for row in card_group.allocations if row["account_id"] == str(account.id) and row["date"]
+        ]
+
     from services.report_currency import persist_fx_cache
     persist_fx_cache(session)
     return {
@@ -1181,8 +1139,10 @@ def get_account_detail(
             "external_identifier": account.external_identifier,
             "currency": account.currency or "CNY",
             "balance": str(realtime_bal),
-            "own_balance": str(_calc_raw_account_balance(session, account.id, financial_classification(account), account.balance)),
-            "subcard_settlement_balance": str(realtime_bal - _calc_raw_account_balance(session, account.id, financial_classification(account), account.balance)),
+            "own_balance": str(own_balance),
+            "subcard_settlement_balance": str(realtime_bal - own_balance) if not account.parent_account_id else "0",
+            "balance_included": account.parent_account_id not in accessible_acc_ids,
+            "is_settlement_primary": bool(card_group and card_group.master.id == account.id and len(card_group.cards) > 1),
             "owner": owner_name,
             "owner_id": str(account.owner_id) if account.owner_id else None,
             "is_owner": is_owner,
@@ -1191,6 +1151,7 @@ def get_account_detail(
             "can_edit": can_edit,
             "parent_account_id": str(account.parent_account_id) if account.parent_account_id else None,
             "parent_account": _parent_account_summary(session, account),
+            "card_link_can_change": link_can_change(session, account),
             "shared_with_count": share_count,
             "share_label": share_label,
             "transaction_count": len(txns),
@@ -1203,6 +1164,7 @@ def get_account_detail(
             "change_percent": change_pct,
             "compare_label": "与月初相比" if period == "MTD" else "与期初相比",
         },
+        "repayment_allocations": repayment_allocations,
         "chart": {
             "points": points,
             "start_date": start_date.strftime("%b %d, %Y"),
@@ -1254,8 +1216,6 @@ def update_account(
             has_children = session.exec(select(Account).where(Account.parent_account_id == account.id)).first()
             if has_children:
                 raise HTTPException(status_code=400, detail="该账户下仍有关联的附属卡，无法修改为非信用卡类型")
-            if account.parent_account_id and data.parent_account_id is None:
-                account.parent_account_id = None
         change_account_type(session, account, new_type)
     if data.currency is not None:
         account.currency = data.currency.strip()
@@ -1297,14 +1257,17 @@ def update_account(
         classification = financial_classification(account)
         current_realtime = get_account_realtime_balance(session, account.id, classification, account.balance, current_user=current_user)
         target_balance = Decimal(str(data.balance))
-        diff = target_balance - current_realtime
+        adjustment_time = datetime.now(timezone.utc)
+        adjustment_day = adjustment_time.astimezone(ZoneInfo('Asia/Shanghai')).date()
+        from services.card_settlement import balance_adjustment, adjustment_settlement
+        diff = balance_adjustment(session, account, target_balance, current_realtime, adjustment_day)
         if diff != Decimal("0"):
             _ensure_opening_balance_transaction(session, account)
             # 编辑余额是调账，不能伪装成一笔真实消费或收入。
             adj_txn = Transaction(
                 account_id=account.id,
-                transacted_at=datetime.now(timezone.utc).date(),
-                occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                transacted_at=adjustment_day,
+                occurred_at=adjustment_time.replace(tzinfo=None),
                 amount=abs(diff),
                 currency=account.currency or "CNY",
                 narration=f"手动调整余额 ({'+' if diff > 0 else '-'}{abs(diff)})",
@@ -1315,6 +1278,7 @@ def update_account(
                 excluded_from_stats=True,
                 extra={"diff": str(diff), "source": "account_edit", "direction": "increase" if diff > 0 else "decrease"},
                 notes=f"手动修改余额自动生成交易明细: 原余额 {current_realtime} -> 新设定余额 {target_balance}",
+                **adjustment_settlement(session, account, diff, adjustment_day),
             )
             session.add(adj_txn)
 
@@ -1424,73 +1388,8 @@ def delete_account(
         current_user = session.exec(select(User).where(User.username == user_or_ctx)).first()
 
     _verify_account_management_permission(user_or_ctx if is_service else current_user, account, "删除该账户", session=session)
-    from services.schedules import delete_plans_for_accounts
-    delete_plans_for_accounts(session, {account_id})
-
-    # 1. 解除附属卡关联（防止孤儿外键冲突）
-    child_accs = session.exec(select(Account).where(Account.parent_account_id == account_id)).all()
-    for child in child_accs:
-        child.parent_account_id = None
-        session.add(child)
-
-    # 2. 清理估值快照
-    for v in session.exec(select(Valuation).where(Valuation.account_id == account_id)).all():
-        session.delete(v)
-
-    # 3. 清理贷款记录
-    for l in session.exec(select(Loan).where(Loan.account_id == account_id)).all():
-        session.delete(l)
-
-    # 4. 清理交易流水及关联
-    txns = session.exec(select(Transaction).where(Transaction.account_id == account_id)).all()
-    for txn in txns:
-        # 清理拆分
-        for sp in session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)).all():
-            session.delete(sp)
-        # 解除其他交易对该交易的 refund_of_transaction_id 引用
-        for ext_rf in session.exec(
-            select(Transaction).where(Transaction.refund_of_transaction_id == txn.id)
-        ).all():
-            ext_rf.refund_of_transaction_id = None
-            session.add(ext_rf)
-
-        # 解除/清理转账并解除对端流水 transfer_id
-        for tr in session.exec(
-            select(Transfer).where(
-                (Transfer.outflow_transaction_id == txn.id) | (Transfer.inflow_transaction_id == txn.id)
-            )
-        ).all():
-            other_txn_id = tr.inflow_transaction_id if tr.outflow_transaction_id == txn.id else tr.outflow_transaction_id
-            if other_txn_id:
-                other_txn = session.get(Transaction, other_txn_id)
-                if other_txn:
-                    if other_txn.id == tr.outflow_transaction_id:
-                        other_txn.transaction_type = "expense"
-                    else:
-                        other_txn.transaction_type = "income"
-                    other_txn.transfer_id = None
-                    session.add(other_txn)
-            session.delete(tr)
-        for rj in session.exec(
-            select(RejectedTransfer).where(
-                (RejectedTransfer.outflow_transaction_id == txn.id) | (RejectedTransfer.inflow_transaction_id == txn.id)
-            )
-        ).all():
-            session.delete(rj)
-        for al in session.exec(
-            select(RefundAllocation).where(
-                (RefundAllocation.refund_transaction_id == txn.id) | (RefundAllocation.original_transaction_id == txn.id)
-            )
-        ).all():
-            session.delete(al)
-        session.delete(txn)
-
-    # 5. 删除所有关联 shares
-    shares = session.exec(select(AccountShare).where(AccountShare.account_id == account_id)).all()
-    for s in shares:
-        session.delete(s)
-
-    session.delete(account)
+    from services.financial_deletion import delete_account_data
+    delete_account_data(session, {account_id})
     session.commit()
     return {"status": "ok", "message": "账户已成功删除"}
 
@@ -1558,6 +1457,8 @@ def reconcile_balance(
     except Exception:
         tz_local = timezone.utc
     tx_date = payload.date if payload.date else datetime.now(tz_local).date()
+    from services.card_settlement import balance_adjustment
+    diff = balance_adjustment(session, account, new_balance, old_balance, tx_date)
     tx_occurred_at = None
     if payload.occurred_at:
         try:
@@ -1577,7 +1478,10 @@ def reconcile_balance(
             pass
     if not tx_occurred_at:
         from datetime import datetime as dt_datetime
-        tx_occurred_at = dt_datetime.combine(tx_date, dt_datetime.now().time())
+        tx_occurred_at = dt_datetime.combine(tx_date, dt_datetime.now(tz_local).time())
+    if tx_occurred_at.tzinfo is None:
+        tx_occurred_at = tx_occurred_at.replace(tzinfo=tz_local)
+    tx_occurred_at = tx_occurred_at.astimezone(timezone.utc).replace(tzinfo=None)
 
     created_txn = None
     VALID_RECON_TYPES = {"expense", "income", "transfer", "adjustment"}
@@ -1698,6 +1602,7 @@ def reconcile_balance(
         created_txn = str(txn.id)
 
     elif payload.reconciliation_type == "adjustment" and diff != Decimal("0"):
+        from services.card_settlement import adjustment_settlement
         amt = abs(diff)
         direction = "increase" if diff > 0 else "decrease"
         txn_name = payload.name or f"余额对账调整 ({'+' if diff > 0 else '-'}{amt})"
@@ -1715,6 +1620,7 @@ def reconcile_balance(
             excluded_from_stats=True,
             extra={"direction": direction, "diff": str(diff)},
             notes=f"新余额对账调整生成: 原余额 {old_balance} -> 新余额 {new_balance}",
+            **adjustment_settlement(session, account, diff, tx_date),
         )
         session.add(txn)
         session.flush()

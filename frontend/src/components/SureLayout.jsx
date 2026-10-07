@@ -15,6 +15,9 @@ import AddTransactionModal from './AddTransactionModal';
 import InitialCurrencySelectModal from './InitialCurrencySelectModal';
 import InitialLanguageSelectModal from './InitialLanguageSelectModal';
 import { useSettingsShortcuts } from '../hooks/useSettingsShortcuts';
+import useSidebarAccounts from '../hooks/useSidebarAccounts';
+import { useReportCache } from '../ReportDataContext';
+import { preloadAnalytics } from '../utils/analyticsLoader';
 
 
 export default function SureLayout({ children }) {
@@ -38,6 +41,26 @@ export default function SureLayout({ children }) {
   } = useCurrency();
   const { mode } = useUsers();
   const { showToast } = useToast();
+  const accountData = useSidebarAccounts(user, currency);
+  const reportCache = useReportCache();
+  const warmAnalytics = () => {
+    preloadAnalytics();
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const params = new URLSearchParams({ period: 'monthly', selected_month: month });
+    params.set('include_history', 'false');
+    const resource = reportCache?.get(`/api/v1/analytics/report?${params}`, '无法加载报表');
+    if (resource && !resource.isRecent(30000)) resource.refresh();
+  };
+  useEffect(() => {
+    // Download route/chart code while idle, before the first report navigation.
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(preloadAnalytics, { timeout: 1500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = setTimeout(preloadAnalytics, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const currentLang = i18n.language || 'en';
 
@@ -207,6 +230,9 @@ export default function SureLayout({ children }) {
                 <li key={item.to} className="w-full">
                   <Link
                     to={item.to}
+                    onPointerEnter={item.to === '/analytics' ? warmAnalytics : undefined}
+                    onFocus={item.to === '/analytics' ? warmAnalytics : undefined}
+                    onPointerDown={item.to === '/analytics' ? warmAnalytics : undefined}
                     className={`group relative flex flex-col items-center justify-center py-2.5 px-1 rounded-xl transition-all duration-150 text-center ${
                       isActive
                         ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-semibold shadow-xs'
@@ -404,7 +430,7 @@ export default function SureLayout({ children }) {
           }`}
         >
           <div className="w-full h-full flex flex-col min-w-0 overflow-hidden">
-            <AccountsPanel />
+            <AccountsPanel accountData={accountData} />
           </div>
 
           {/* Draggable resize handle */}
@@ -435,7 +461,7 @@ export default function SureLayout({ children }) {
         {/* Left: [|] Panel Icon to open Accounts Drawer */}
         <button
           data-testid="open-mobile-accounts-btn"
-          onClick={() => setMobileSidebarOpen(true)}
+          onClick={() => { setMobileSidebarOpen(true); accountData.refreshAccounts(); }}
           title={tx("打开银行卡账户列表")}
           className="w-8 h-8 rounded-lg text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-colors active:scale-95"
         >
@@ -487,7 +513,7 @@ export default function SureLayout({ children }) {
           />
           <div className="relative w-80 max-w-[85vw] bg-white dark:bg-zinc-900 h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-left duration-200 overscroll-contain">
             <div className="flex-1 h-full min-h-0 overflow-hidden">
-              <AccountsPanel isMobileDrawer onClose={() => setMobileSidebarOpen(false)} />
+              <AccountsPanel accountData={accountData} isMobileDrawer onClose={() => setMobileSidebarOpen(false)} />
             </div>
           </div>
         </div>
@@ -612,6 +638,9 @@ export default function SureLayout({ children }) {
 
         <Link
           to="/analytics"
+          onPointerEnter={warmAnalytics}
+          onFocus={warmAnalytics}
+          onPointerDown={warmAnalytics}
           className={`min-h-[40px] min-w-[40px] py-1 px-2 flex flex-col items-center justify-center rounded-xl transition-colors ${
             location.pathname.startsWith('/analytics')
               ? 'text-zinc-900 dark:text-white font-semibold'

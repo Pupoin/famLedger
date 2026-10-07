@@ -1,11 +1,11 @@
 import { chartMoney } from '../utils/chartMoney';
 import { dateLabel, tx, useLocale, currentLocale } from "../localization.js";
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, ChevronLeft, ChevronDown, ChevronRight, Maximize2, SlidersHorizontal, Eye, EyeOff, BookOpen } from 'lucide-react';
 import { useCurrency } from '../CurrencyContext';
 import { useAuth } from '../auth/AuthContext';
-import { fetchWithAuth } from '../api/fetchWithAuth';
+import useReportData from '../hooks/useReportData';
 import SureCashflowSankey from '../components/ds/SureCashflowSankey';
 import SureOutflowsDonut from '../components/ds/SureOutflowsDonut';
 import SureMerchantSpending from '../components/ds/SureMerchantSpending';
@@ -19,9 +19,6 @@ export default function Landing() {
   useLocale();
   const { user } = useAuth();
   const { privacyMode, togglePrivacyMode, currency, symbol } = useCurrency();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
 
   // Period Preset: 'monthly' | 'quarterly' | 'ytd' | '6m' | 'custom'
@@ -65,7 +62,19 @@ export default function Landing() {
 
   const [balanceSheetMode, setBalanceSheetMode] = usePageViewState('balanceSheetMode', 'type'); // 'type' | 'institution'
   const [expandedGroups, setExpandedGroups] = usePageViewState('expandedGroups', {});
-  usePageScrollRestoration(!loading && !!data);
+  const reportUrl = useMemo(() => {
+    const params = new URLSearchParams({ period });
+    if (period === 'custom') {
+      if (customStartDate) params.set('start_date', customStartDate);
+      if (customEndDate) params.set('end_date', customEndDate);
+    } else {
+      params.set('selected_month', selectedMonth);
+    }
+    if (userFilter && userFilter !== '全部') params.set('user', userFilter);
+    return `/api/v1/dashboard/summary?${params}`;
+  }, [period, selectedMonth, customStartDate, customEndDate, userFilter]);
+  const { data, loading, error: loadError } = useReportData(reportUrl, currency, '无法加载财务概览', retryCount);
+  usePageScrollRestoration(!!data);
 
   const toggleGroup = (key) => {
     setExpandedGroups((prev) => ({
@@ -153,58 +162,6 @@ export default function Landing() {
     }
   };
 
-  useEffect(() => {
-    let activeController;
-    async function loadDashboardData() {
-      activeController?.abort();
-      const controller = new AbortController();
-      activeController = controller;
-      try {
-        setLoading(true);
-        setLoadError('');
-        setData(null);
-        const queryParams = new URLSearchParams();
-        queryParams.set('period', period);
-        if (period === 'custom') {
-          if (customStartDate) queryParams.set('start_date', customStartDate);
-          if (customEndDate) queryParams.set('end_date', customEndDate);
-        } else {
-          queryParams.set('selected_month', selectedMonth);
-        }
-        if (userFilter && userFilter !== '全部') {
-          queryParams.set('user', userFilter);
-        }
-        const res = await fetchWithAuth(`/api/v1/dashboard/summary?${queryParams.toString()}`, { signal: controller.signal });
-        if (!res.ok) {
-          const failure = await res.json().catch(() => ({}));
-          throw new Error(typeof failure.detail === 'string' ? failure.detail : '无法加载财务概览');
-        }
-        const json = await res.json();
-        if (!controller.signal.aborted) setData(json);
-      } catch (err) {
-        if (!controller.signal.aborted) setLoadError(tx(err.message || '无法加载财务概览'));
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-    loadDashboardData();
-
-    window.addEventListener('transaction-added', loadDashboardData);
-    window.addEventListener('transaction-updated', loadDashboardData);
-    window.addEventListener('transaction-deleted', loadDashboardData);
-    window.addEventListener('accounts-updated', loadDashboardData);
-    window.addEventListener('preferences-updated', loadDashboardData);
-
-    return () => {
-      activeController?.abort();
-      window.removeEventListener('transaction-added', loadDashboardData);
-      window.removeEventListener('transaction-updated', loadDashboardData);
-      window.removeEventListener('transaction-deleted', loadDashboardData);
-      window.removeEventListener('accounts-updated', loadDashboardData);
-      window.removeEventListener('preferences-updated', loadDashboardData);
-    };
-  }, [period, selectedMonth, customStartDate, customEndDate, userFilter, currency, retryCount]);
-
   const userName = data?.user_name || user?.displayName || user?.username || '用户';
   const currencySymbol = data?.currency_symbol || symbol;
   const formatAmount = value => chartMoney(value, currencySymbol, privacyMode, currentLocale());
@@ -220,6 +177,7 @@ export default function Landing() {
 
   return (
     <div className="flex flex-col gap-3 lg:gap-4 pb-12 max-w-7xl mx-auto w-full max-w-full overflow-x-hidden">
+      {loading && data && <div role="status" className="text-xs text-zinc-500">{tx('正在刷新...')}</div>}
       {!privacyMode && (data?.fx_gain || data?.fx_loss) ? <div className="text-sm text-zinc-500">{tx("汇兑收益")} {currencySymbol}{data.fx_gain || 0} {tx("· 汇兑损失")} {currencySymbol}{data.fx_loss || 0} {tx("（已包含在实际退款到账中）")}</div> : null}
       {/* 首次收到家庭组邀请提示弹窗（二次免扰） */}
       <FamilyInvitationPromptModal />

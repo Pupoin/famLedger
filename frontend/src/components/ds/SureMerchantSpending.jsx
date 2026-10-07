@@ -18,7 +18,7 @@ const MERCHANT_TILE_LAYOUTS = [
 ];
 const OTHER_TILE_LAYOUT = { placement: '5 / 3 / 7 / 4', color: 'bg-zinc-50 dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700' };
 
-export default function SureMerchantSpending({
+function SureMerchantSpending({
   data,
   currencySymbol: reportSymbol,
   userFilter = '',
@@ -147,3 +147,5 @@ export default function SureMerchantSpending({
     </div>
   );
 }
+
+export default React.memo(SureMerchantSpending);

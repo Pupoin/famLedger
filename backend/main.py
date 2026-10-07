@@ -2,6 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import perf_counter
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -191,6 +192,12 @@ async def lifespan(app: FastAPI):
     with Session(engine) as rules_session:
         initialize_existing_families(rules_session)
 
+    from services.account_balances import rebuild_latest_balances
+    with Session(engine) as balance_session:
+        initialized = rebuild_latest_balances(balance_session, missing_only=True)
+        if initialized:
+            logger.info('Initialized latest balances for %s accounts', initialized)
+
     from services.mutations import set_listener
     set_listener(None)
     # Development does not create startup or mutation-triggered backups.
@@ -225,11 +232,30 @@ app.include_router(v1_schedules.router, prefix="/api")
 from services.csrf import protect_cookie_write
 app.middleware("http")(protect_cookie_write)
 
+
+@app.middleware("http")
+async def report_response_timing(request, call_next):
+    if request.url.path not in {'/api/v1/analytics/report', '/api/v1/analytics/history', '/api/v1/dashboard/summary'}:
+        return await call_next(request)
+    started = perf_counter()
+    response = await call_next(request)
+    elapsed = (perf_counter() - started) * 1000
+    response.headers['Server-Timing'] = f'app;dur={elapsed:.1f}'
+    logger.info('Report timing: path=%s duration_ms=%.1f', request.url.path, elapsed)
+    return response
+
 from sqlalchemy.exc import IntegrityError
 
 @app.exception_handler(IntegrityError)
 async def integrity_conflict(request, exc):
     return JSONResponse(status_code=409, content={"detail": "数据约束冲突，请刷新后重试或检查重复记录"})
+
+
+@app.exception_handler(Exception)
+async def unhandled_request_error(request, exc):
+    logger.error("Unhandled request error: %s %s", request.method, request.url.path,
+                 exc_info=(type(exc), exc, exc.__traceback__))
+    return JSONResponse(status_code=500, content={"detail": "服务器内部错误，请稍后重试。"})
 
 
 app.add_middleware(

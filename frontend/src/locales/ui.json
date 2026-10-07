@@ -1,4 +1,64 @@
 {
+  "副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除": {
+    "zh": "副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除",
+    "en": "Pay off this additional card before changing its primary card, unlinking, changing its type, revoking the required share or deleting it."
+  },
+  "该修改会使已解绑的副卡结算期间重新产生欠款，请同时核对该期间的消费、退款和还款": {
+    "zh": "该修改会使已解绑的副卡结算期间重新产生欠款，请同时核对该期间的消费、退款和还款",
+    "en": "This change would reopen debt in a closed card period. Check the purchases, refunds and payments in that period together."
+  },
+  "请先共享给主卡所有者，再设置为副卡。副卡待还清零后才能更换主卡、解绑或取消关联共享；历史还款分配保留。": {
+    "zh": "请先共享给主卡所有者，再设置为副卡。副卡待还清零后才能更换主卡、解绑或取消关联共享；历史还款分配保留。",
+    "en": "Share with the primary card owner before linking. Pay off the additional card before switching, unlinking or revoking that share. Historical payment allocations are retained."
+  },
+  "副卡待还清零后，才能取消对主卡所有者的共享并解除副卡关系。账户、流水和历史还款分配保留。": {
+    "zh": "副卡待还清零后，才能取消对主卡所有者的共享并解除副卡关系。账户、流水和历史还款分配保留。",
+    "en": "Pay off the additional card before revoking its primary owner's share and unlinking it. The account, transactions and historical allocations are retained."
+  },
+  "主卡自身待还": {
+    "zh": "主卡自身待还",
+    "en": "Primary card's portion"
+  },
+  "· 副卡待还合计": {
+    "zh": "· 副卡待还合计",
+    "en": "· Additional cards' portion"
+  },
+  "副卡待还已扣除分摊还款，不重复计入总负债；历史消费仍保留。": {
+    "zh": "副卡待还已扣除分摊还款，不重复计入总负债；历史消费仍保留。",
+    "en": "Payments reduce this card's outstanding share. It is excluded from debt totals; spending history is retained."
+  },
+  "本卡还款与冲抵分配": {
+    "zh": "本卡还款与冲抵分配",
+    "en": "Payments and credits allocated to this card"
+  },
+  "副卡待还金额": {
+    "zh": "副卡待还金额",
+    "en": "This card's outstanding share"
+  },
+  "主副卡合计待还": {
+    "zh": "主副卡合计待还",
+    "en": "Combined card balance"
+  },
+  "溢缴款抵扣": {
+    "zh": "溢缴款抵扣",
+    "en": "Overpayment credit"
+  },
+  "余额调整冲抵": {
+    "zh": "余额调整冲抵",
+    "en": "Balance adjustment"
+  },
+  "还款分配": {
+    "zh": "还款分配",
+    "en": "Payment allocation"
+  },
+  "组内欠款转移": {
+    "zh": "组内欠款转移",
+    "en": "Debt moved within the card group"
+  },
+  "副卡待还金额不能为负数，溢缴款请在主卡调整": {
+    "zh": "副卡待还金额不能为负数，溢缴款请在主卡调整",
+    "en": "An additional card's outstanding balance cannot be negative. Adjust overpayments on the primary card."
+  },
   "账户类别变更余额调整": {
     "zh": "账户类别变更余额调整",
     "en": "Balance adjustment after changing account type"
@@ -3506,6 +3566,14 @@
   "正在加载报表…": {
     "zh": "正在加载报表…",
     "en": "Loading reports…"
+  },
+  "正在加载历史走势…": {
+    "zh": "正在加载历史走势…",
+    "en": "Loading history…"
+  },
+  "正在加载图表…": {
+    "zh": "正在加载图表…",
+    "en": "Loading chart…"
   },
   "正在发送...": {
     "zh": "正在发送...",
@@ -10663,8 +10731,444 @@
     "zh": "已全部关联的退款分类随原消费，请修改原消费分类或先解除关联",
     "en": "A fully linked refund follows its original purchase. Edit the purchase category or unlink the refund first."
   },
+  "最后一期还款日（可选）": {
+    "zh": "最后一期还款日（可选）",
+    "en": "Final payment day (optional)"
+  },
+  "最后一期日期设置": {
+    "zh": "最后一期日期设置",
+    "en": "Final payment date setting"
+  },
+  "只改日号": {
+    "zh": "只改日号",
+    "en": "Change day only"
+  },
+  "指定完整日期": {
+    "zh": "指定完整日期",
+    "en": "Set an exact date"
+  },
+  "最后一期还款日期（可选）": {
+    "zh": "最后一期还款日期（可选）",
+    "en": "Final payment date (optional)"
+  },
+  "可与倒数第二期在同一个月，但必须晚于上一期和已发生的还款；期数不变。": {
+    "zh": "可与倒数第二期在同一个月，但必须晚于上一期和已发生的还款；期数不变。",
+    "en": "It can be in the same month as the previous installment, but must be after that installment and any payments already made. The installment count stays the same."
+  },
+  "留空沿用每月还款日。": {
+    "zh": "留空沿用每月还款日。",
+    "en": "Leave blank to keep the regular monthly payment date."
+  },
+  "最后一期还款日期请填写有效的年月日。": {
+    "zh": "最后一期还款日期请填写有效的年月日。",
+    "en": "Enter a valid year, month and day for the final payment date."
+  },
+  "最后一期只能选择日号或完整日期其中一种": {
+    "zh": "最后一期只能选择日号或完整日期其中一种",
+    "en": "Choose either a day number or an exact date for the final installment."
+  },
+  "最后一期还款月份不能晚于 {p0}": {
+    "zh": "最后一期还款月份不能晚于 {p0}",
+    "en": "The final payment month cannot be later than {p0}."
+  },
+  "最晚可选择 {p0}，并且必须晚于上一期还款。": {
+    "zh": "最晚可选择 {p0}，并且必须晚于上一期还款。",
+    "en": "The latest allowed date is {p0}; it must also be after the previous installment."
+  },
+  "最后一期还款日期": {
+    "zh": "最后一期还款日期",
+    "en": "Final payment date"
+  },
+  "最后一期": {
+    "zh": "最后一期",
+    "en": "Final installment"
+  },
+  "只调整日号，年月和期数不变；留空沿用每月还款日。": {
+    "zh": "只调整日号，年月和期数不变；留空沿用每月还款日。",
+    "en": "Only the day changes; the year, month and installment count stay the same. Leave blank to use the regular payment day."
+  },
+  "当月没有所选日号时，使用当月最后一天。": {
+    "zh": "当月没有所选日号时，使用当月最后一天。",
+    "en": "If that day does not exist in the final month, use the month's last day."
+  },
+  "最后一期利息按指定日期和当前计息方式计算。": {
+    "zh": "最后一期利息按指定日期和当前计息方式计算。",
+    "en": "Final interest uses the selected date and the current interest calculation method."
+  },
+  "最后一期还款日期必须晚于计息开始日期": {
+    "zh": "最后一期还款日期必须晚于计息开始日期",
+    "en": "The final payment date must fall after the interest start date."
+  },
+  "最后一期还款日期必须晚于上一期还款日": {
+    "zh": "最后一期还款日期必须晚于上一期还款日",
+    "en": "The final payment date must fall after the previous payment."
+  },
+  "最后一期还款日期必须晚于已发生的还款日期": {
+    "zh": "最后一期还款日期必须晚于已发生的还款日期",
+    "en": "The final payment date must fall after all payments already recorded."
+  },
+  "最后一期已处理，不能修改最后一期还款日": {
+    "zh": "最后一期已处理，不能修改最后一期还款日",
+    "en": "The final installment has already been processed, so its payment day cannot be changed."
+  },
+  "最后一期还款日只需填写1–31的整数，年月由计划确定。": {
+    "zh": "最后一期还款日只需填写1–31的整数，年月由计划确定。",
+    "en": "Enter a whole number from 1 to 31 for the final payment day. The plan determines the year and month."
+  },
+  "服务器响应格式不正确，请刷新后重试。": {
+    "zh": "服务器响应格式不正确，请刷新后重试。",
+    "en": "The server returned an invalid response. Refresh and try again."
+  },
+  "请求失败（HTTP {p0}），请稍后重试。": {
+    "zh": "请求失败（HTTP {p0}），请稍后重试。",
+    "en": "Request failed (HTTP {p0}). Please try again later."
+  },
+  "服务器内部错误，请稍后重试。": {
+    "zh": "服务器内部错误，请稍后重试。",
+    "en": "The server encountered an internal error. Please try again later."
+  },
+  "计划加载失败": {
+    "zh": "计划加载失败",
+    "en": "Unable to load plans"
+  },
   "历史关联缺少已核实的金额，请重新核对关联。": {
     "zh": "历史关联缺少已核实的金额，请重新核对关联。",
     "en": "This historical link lacks verified amounts. Please review the allocation."
+  },
+  "删除已配对的转账？": {
+    "zh": "删除已配对的转账？",
+    "en": "Delete this paired transfer?"
+  },
+  "无权查看配对交易详情": {
+    "zh": "无权查看配对交易详情",
+    "en": "Paired transaction details are private"
+  },
+  "当前交易": {
+    "zh": "当前交易",
+    "en": "Current transaction"
+  },
+  "配对交易": {
+    "zh": "配对交易",
+    "en": "Paired transaction"
+  },
+  "请选择删除范围": {
+    "zh": "请选择删除范围",
+    "en": "Choose what to delete"
+  },
+  "只删除这笔，解除配对": {
+    "zh": "只删除这笔，解除配对",
+    "en": "Delete only this transaction and unlink the pair"
+  },
+  "保留另一笔的金额、方向和转账类型。": {
+    "zh": "保留另一笔的金额、方向和转账类型。",
+    "en": "Keep the other transaction’s amount, direction and transfer type."
+  },
+  "同时删除配对的两笔": {
+    "zh": "同时删除配对的两笔",
+    "en": "Delete both paired transactions"
+  },
+  "两侧账户的余额都会重新计算。": {
+    "zh": "两侧账户的余额都会重新计算。",
+    "en": "Both account balances will be recalculated."
+  },
+  "同时删除需要两侧账户的写入权限。": {
+    "zh": "同时删除需要两侧账户的写入权限。",
+    "en": "Deleting both requires write access to both accounts."
+  },
+  "这笔消费关联了 {p0} 笔退款。删除后解除冲抵关联，退款流水会保留。": {
+    "zh": "这笔消费关联了 {p0} 笔退款。删除后解除冲抵关联，退款流水会保留。",
+    "en": "This purchase has {p0} linked refunds. Deleting it removes the allocations and keeps the refund transactions."
+  },
+  "删除这笔退款后解除冲抵关联，原消费流水会保留。": {
+    "zh": "删除这笔退款后解除冲抵关联，原消费流水会保留。",
+    "en": "Deleting this refund removes its allocations and keeps the original purchases."
+  },
+  "该交易已配对，请选择只删除这笔或同时删除两笔。": {
+    "zh": "该交易已配对，请选择只删除这笔或同时删除两笔。",
+    "en": "This transaction is paired. Choose to delete only this transaction or both transactions."
+  },
+  "转账配对已变化，请刷新详情后重新确认删除。": {
+    "zh": "转账配对已变化，请刷新详情后重新确认删除。",
+    "en": "The transfer pair has changed. Refresh the details and confirm deletion again."
+  },
+  "转账关联不完整，请先修复配对后再删除。": {
+    "zh": "转账关联不完整，请先修复配对后再删除。",
+    "en": "The transfer link is incomplete. Repair the pair before deleting."
+  },
+  "查看 {p0} 的交易明细": {
+    "zh": "查看 {p0} 的交易明细",
+    "en": "View transactions for {p0}"
+  },
+  "选择转入账户": {
+    "zh": "选择转入账户",
+    "en": "Choose a destination account"
+  },
+  "转账方向": {
+    "zh": "转账方向",
+    "en": "Transfer direction"
+  },
+  "实际到账金额": {
+    "zh": "实际到账金额",
+    "en": "Amount received"
+  },
+  "保存后同步转入流水与两侧账户余额。": {
+    "zh": "保存后同步转入流水与两侧账户余额。",
+    "en": "Saving updates the incoming transaction and both account balances."
+  },
+  "本笔为转入流水，可通过所属账户修改转入账户。": {
+    "zh": "本笔为转入流水，可通过所属账户修改转入账户。",
+    "en": "This is an incoming transfer. Change its destination using the account selector."
+  },
+  "只有转账可以设置转入账户和到账金额。": {
+    "zh": "只有转账可以设置转入账户和到账金额。",
+    "en": "Only transfers can have a destination account and received amount."
+  },
+  "已配对转账不能直接反转方向，请先解除配对。": {
+    "zh": "已配对转账不能直接反转方向，请先解除配对。",
+    "en": "Unlink the transfer pair before reversing its direction."
+  },
+  "请在转出流水中设置转入账户。": {
+    "zh": "请在转出流水中设置转入账户。",
+    "en": "Set the destination on the outgoing transaction."
+  },
+  "请先解除转账配对，再改成外部账户转账。": {
+    "zh": "请先解除转账配对，再改成外部账户转账。",
+    "en": "Unlink the pair before changing to an external transfer."
+  },
+  "跨币种转账请填写转入账户实际到账金额。": {
+    "zh": "跨币种转账请填写转入账户实际到账金额。",
+    "en": "Enter the amount actually received for a transfer between currencies."
+  },
+  "同币种转账的到账金额必须等于转出金额。": {
+    "zh": "同币种转账的到账金额必须等于转出金额。",
+    "en": "For transfers in the same currency, the received amount must equal the outgoing amount."
+  },
+  "请先解除转账对端的退款关联或分类拆分。": {
+    "zh": "请先解除转账对端的退款关联或分类拆分。",
+    "en": "Remove the counterpart’s refund allocations or category splits first."
+  },
+  "请先解除分类拆分，再设置转账对端。": {
+    "zh": "请先解除分类拆分，再设置转账对端。",
+    "en": "Remove category splits before setting the transfer counterpart."
+  },
+  "转账到账金额必须大于 0。": {
+    "zh": "转账到账金额必须大于 0。",
+    "en": "The amount received must be greater than zero."
+  },
+  "搜索原消费": {
+    "zh": "搜索原消费",
+    "en": "Search original purchases"
+  },
+  "选择原消费": {
+    "zh": "选择原消费",
+    "en": "Choose an original purchase"
+  },
+  "保持现有关联／暂不指定": {
+    "zh": "保持现有关联／暂不指定",
+    "en": "Keep existing links / leave unspecified"
+  },
+  "原消费冲抵金额": {
+    "zh": "原消费冲抵金额",
+    "en": "Amount offset against the original purchase"
+  },
+  "使用退款原币金额": {
+    "zh": "使用退款原币金额",
+    "en": "Refund amount used (original currency)"
+  },
+  "保存交易时同时提交退款匹配与冲抵额度。": {
+    "zh": "保存交易时同时提交退款匹配与冲抵额度。",
+    "en": "The refund match and allocation are saved together with the transaction."
+  },
+  "退款匹配与冲抵额度只能用于指定原消费的退款。": {
+    "zh": "退款匹配与冲抵额度只能用于指定原消费的退款。",
+    "en": "Refund matching and allocations require a refund and an original purchase."
+  },
+  "请先解除退款关联，再切换交易类型。": {
+    "zh": "请先解除退款关联，再切换交易类型。",
+    "en": "Remove refund links before changing the transaction type."
+  },
+  "请先解除分类拆分，再切换交易类型。": {
+    "zh": "请先解除分类拆分，再切换交易类型。",
+    "en": "Remove category splits before changing the transaction type."
+  },
+  "请先解除拆分或关联，再切换交易类型。": {
+    "zh": "请先解除拆分或关联，再切换交易类型。",
+    "en": "Remove splits or links before changing the transaction type."
+  },
+  "保存并拆分退款": {
+    "zh": "保存并拆分退款",
+    "en": "Save and split refund"
+  },
+  "保存并拆分支出": {
+    "zh": "保存并拆分支出",
+    "en": "Save and split expense"
+  },
+  "私有账户": {
+    "zh": "私有账户",
+    "en": "Private account"
+  },
+  "转出": {
+    "zh": "转出",
+    "en": "Outgoing"
+  },
+  "不计入收支统计": {
+    "zh": "不计入收支统计",
+    "en": "Exclude from income and spending reports"
+  },
+  "推荐退款日前两个月内、相似度大于 0.5 的消费，按相似度排序。": {
+    "zh": "推荐退款日前两个月内、相似度大于 0.5 的消费，按相似度排序。",
+    "en": "Recommendations cover the two months before the refund, with similarity above 0.5, highest first."
+  },
+  "搜索全部历史消费（不限两个月及相似度）": {
+    "zh": "搜索全部历史消费（不限两个月及相似度）",
+    "en": "Search all past purchases (any date or similarity)"
+  },
+  "暂无符合条件的消费，可勾选搜索全部历史消费。": {
+    "zh": "暂无符合条件的消费，可勾选搜索全部历史消费。",
+    "en": "No matching purchases. Enable searching all past purchases to find more."
+  },
+  "相似度": {
+    "zh": "相似度",
+    "en": "Similarity"
+  },
+  "留空按双方剩余额度冲抵": {
+    "zh": "留空按双方剩余额度冲抵",
+    "en": "Leave blank to use the remaining quotas"
+  },
+  "确认冲抵": {
+    "zh": "确认冲抵",
+    "en": "Apply refund"
+  },
+  "此交易只读，不能修改退款分配。": {
+    "zh": "此交易只读，不能修改退款分配。",
+    "en": "This transaction is read-only. Refund allocations cannot be changed."
+  },
+  "请输入有效的退款冲抵金额": {
+    "zh": "请输入有效的退款冲抵金额",
+    "en": "Enter a valid refund allocation amount"
+  },
+  "退款冲抵金额必须大于 0": {
+    "zh": "退款冲抵金额必须大于 0",
+    "en": "The refund allocation amount must be greater than zero"
+  },
+  "请选择原消费": {
+    "zh": "请选择原消费",
+    "en": "Select the original purchase"
+  },
+  "请先核实交易的原币金额与币种": {
+    "zh": "请先核实交易的原币金额与币种",
+    "en": "Verify the original amount and currency first"
+  },
+  "跨币种退款需填写双方原币冲抵金额": {
+    "zh": "跨币种退款需填写双方原币冲抵金额",
+    "en": "For different currencies, enter both native allocation amounts"
+  },
+  "分类加载失败": {
+    "zh": "分类加载失败",
+    "en": "Could not load categories"
+  },
+  "读取退款候选失败": {
+    "zh": "读取退款候选失败",
+    "en": "Could not load refund candidates"
+  },
+  "调整退款分配": {
+    "zh": "调整退款分配",
+    "en": "Edit refund allocations"
+  },
+  "退款已全部关联原消费，分类按原消费拆分；调整分配请先解除关联。": {
+    "zh": "退款已全部关联原消费，分类按原消费拆分；调整分配请先解除关联。",
+    "en": "This refund is fully allocated and follows the original purchase categories. Unlink it first to change allocations."
+  },
+  "资金流向": {
+    "zh": "资金流向",
+    "en": "Money flow"
+  },
+  "当前账户 → 对方账户": {
+    "zh": "当前账户 → 对方账户",
+    "en": "This account → Other account"
+  },
+  "对方账户 → 当前账户": {
+    "zh": "对方账户 → 当前账户",
+    "en": "Other account → This account"
+  },
+  "只有支出和退款可以拆分分类": {
+    "zh": "只有支出和退款可以拆分分类",
+    "en": "Only expenses and refunds can be split by category"
+  },
+  "解除拆分": {
+    "zh": "解除拆分",
+    "en": "Remove splits"
+  },
+  "解除拆分失败": {
+    "zh": "解除拆分失败",
+    "en": "Could not remove splits"
+  },
+  "已解除拆分": {
+    "zh": "已解除拆分",
+    "en": "Splits removed"
+  },
+  "拆分金额必须为有效正数": {
+    "zh": "拆分金额必须为有效正数",
+    "en": "Split amounts must be valid positive numbers"
+  },
+  "拆分金额必须为正数，且总和等于交易入账金额": {
+    "zh": "拆分金额必须为正数，且总和等于交易入账金额",
+    "en": "Split amounts must be positive and add up to the booked transaction amount"
+  },
+  "转出账户": {
+    "zh": "转出账户",
+    "en": "From account"
+  },
+  "选择转出账户": {
+    "zh": "选择转出账户",
+    "en": "Choose the sending account"
+  },
+  "实际转出金额": {
+    "zh": "实际转出金额",
+    "en": "Actual sent amount"
+  },
+  "保存后同步转账两侧流水与账户余额。": {
+    "zh": "保存后同步转账两侧流水与账户余额。",
+    "en": "Saving updates both transfer entries and account balances."
+  },
+  "没有对端账户的修改权限，不能调整转账账户或金额。": {
+    "zh": "没有对端账户的修改权限，不能调整转账账户或金额。",
+    "en": "You cannot change transfer accounts or amounts without permission to edit the other account."
+  },
+  "当前流水所属账户不能为空。": {
+    "zh": "当前流水所属账户不能为空。",
+    "en": "This transaction must have an account."
+  },
+  "所属账户与转账方向中的账户不一致。": {
+    "zh": "所属账户与转账方向中的账户不一致。",
+    "en": "The transaction account conflicts with the account specified for this transfer side."
+  },
+  "当前流水金额与转账方向中的金额不一致。": {
+    "zh": "当前流水金额与转账方向中的金额不一致。",
+    "en": "The transaction amount conflicts with the amount specified for this transfer side."
+  },
+  "只有转账可以设置转出、转入账户及金额。": {
+    "zh": "只有转账可以设置转出、转入账户及金额。",
+    "en": "Only transfers can specify sending and receiving accounts and amounts."
+  },
+  "指定的转账对端账户不存在或已停用。": {
+    "zh": "指定的转账对端账户不存在或已停用。",
+    "en": "The other transfer account does not exist or is inactive."
+  },
+  "转账两侧账户必须属于同一家庭。": {
+    "zh": "转账两侧账户必须属于同一家庭。",
+    "en": "Both transfer accounts must belong to the same household."
+  },
+  "请先选择转账对端账户。": {
+    "zh": "请先选择转账对端账户。",
+    "en": "Choose the other transfer account first."
+  },
+  "跨币种转账请核实两侧实际金额。": {
+    "zh": "跨币种转账请核实两侧实际金额。",
+    "en": "Confirm the actual amounts on both sides of a cross-currency transfer."
+  },
+  "正在加载账户…": {
+    "zh": "正在加载账户…",
+    "en": "Loading accounts…"
   }
 }

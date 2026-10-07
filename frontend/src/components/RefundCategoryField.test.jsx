@@ -9,6 +9,15 @@ const render = refund_info => renderToStaticMarkup(<RefundCategoryField transact
   categories={categories} value="other" transactionType="refund" onChange={() => {}} />);
 
 describe('refund category ownership', () => {
+  it('hides category editing for a transfer and filters income/expense categories by type', () => {
+    const rows = [{ id: 'income', name: 'Only income', category_type: 'income' },
+      { id: 'expense', name: 'Only expense', category_type: 'expense' }];
+    const markup = kind => renderToStaticMarkup(<RefundCategoryField transaction={{ transaction_type: kind }}
+      categories={rows} value="" transactionType={kind} onChange={() => {}} />);
+    expect(markup('transfer')).toBe('');
+    expect(markup('income')).toContain('Only income'); expect(markup('income')).not.toContain('Only expense');
+    expect(markup('refund')).toContain('Only expense'); expect(markup('refund')).not.toContain('Only income');
+  });
   it('replaces the selector with the original categories for a fully linked refund', () => {
     const html = render({ is_linked: true, category_editable: false, linked_categories: linked });
     expect(html).toContain('refund-category-readonly');

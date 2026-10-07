@@ -10,6 +10,9 @@ import { useToast } from '../ToastContext';
 import { apiErrorMessage } from '../api/errorMessages';
 import { allocateBudgetAmounts } from '../utils/budgetAllocation';
 import { Button } from '../components/ds/DesignSystem';
+import { Link } from 'react-router-dom';
+import { usePageViewState, usePageScrollRestoration } from '../PageViewContext';
+import { budgetTransactionUrl } from '../utils/budgetDrilldown';
 
 const getCurrentMonthStr = () => {
   const d = new Date();
@@ -23,11 +26,14 @@ export default function BudgetsPage() {
   const { showToast } = useToast();
   const { theme } = useTheme();
 
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr);
-  const [activeTab, setActiveTab] = useState('budget'); // 'budget' | 'actual'
-  const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | 'over' | 'normal'
+  const [selectedMonth, setSelectedMonth] = usePageViewState('selectedMonth', getCurrentMonthStr);
+  const [activeTab, setActiveTab] = usePageViewState('activeTab', 'budget'); // 'budget' | 'actual'
+  const [categoryFilter, setCategoryFilter] = usePageViewState('categoryFilter', 'all'); // 'all' | 'over' | 'normal'
   const [loading, setLoading] = useState(true);
   const [budgetData, setBudgetData] = useState(null);
+  usePageScrollRestoration(!loading && !!budgetData);
+  const budgetRequest = useRef(0);
+  const categoryUrl = name => budgetTransactionUrl(name, selectedMonth, budgetData?.currency);
   const fmt = (value) => privacyMode ? "••••" : formatCurrency(value, budgetData?.currency_symbol || "¥");
 
   // Edit Budget Modal State
@@ -90,11 +96,13 @@ export default function BudgetsPage() {
   };
 
   const loadBudgets = async () => {
+    const request = ++budgetRequest.current;
     try {
       setLoading(true);
       const res = await fetchWithAuth(`/api/v1/budgets/summary?month=${selectedMonth}`);
       if (res.ok) {
         const data = await res.json();
+        if (request !== budgetRequest.current) return;
         setBudgetData(data);
         setEditForm({
           total_budget: data.total_budget ?? 10000,
@@ -105,14 +113,14 @@ export default function BudgetsPage() {
     } catch (err) {
       console.error('Failed to load budget data:', err);
     } finally {
-      setLoading(false);
+      if (request === budgetRequest.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadBudgets();
     window.addEventListener('transaction-updated', loadBudgets);
-    return () => window.removeEventListener('transaction-updated', loadBudgets);
+    return () => { budgetRequest.current += 1; window.removeEventListener('transaction-updated', loadBudgets); };
   }, [selectedMonth]);
 
   useEffect(() => {
@@ -379,7 +387,7 @@ export default function BudgetsPage() {
       </div>
 
       {/* ── 3. Category Breakdown Section ── */}
-      <div className="space-y-4">
+      <div data-view-section="budget-categories" className="space-y-4">
         {/* Section Header with Filters & Edit Button */}
         <div data-testid="budget-category-header" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center justify-between gap-2 sm:contents">
@@ -428,8 +436,10 @@ export default function BudgetsPage() {
             </div>
 
             <div className="space-y-6">
-              {overBudgetCategories.map((cat, idx) => (
-                <div key={idx} className="space-y-2">
+              {overBudgetCategories.map(cat => (
+                <Link key={cat.name} to={categoryUrl(cat.name)} data-view-section={`budget-category-${cat.name}`}
+                  className="block space-y-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-500"
+                  aria-label={tx('查看 {p0} 的交易明细', { p0: categoryLabel(cat.name) })}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center text-sm shadow-2xs">
@@ -455,7 +465,7 @@ export default function BudgetsPage() {
                     <span className="text-zinc-500">{tx("已花费: ¥").replace("¥", "")} {fmt(cat.spent)}</span>
                     <span className="text-zinc-400">{tx("设定预算: ¥").replace("¥", "")} {fmt(cat.budget)}</span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -470,8 +480,10 @@ export default function BudgetsPage() {
             </div>
 
             <div className="space-y-6">
-              {normalBudgetCategories.map((cat, idx) => (
-                <div key={idx} className="space-y-2">
+              {normalBudgetCategories.map(cat => (
+                <Link key={cat.name} to={categoryUrl(cat.name)} data-view-section={`budget-category-${cat.name}`}
+                  className="block space-y-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-500"
+                  aria-label={tx('查看 {p0} 的交易明细', { p0: categoryLabel(cat.name) })}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center text-sm shadow-2xs">
@@ -508,7 +520,7 @@ export default function BudgetsPage() {
                     <span className="text-emerald-600 font-bold">{tx("剩余: ¥").replace("¥", "")} {fmt(cat.remaining)}
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

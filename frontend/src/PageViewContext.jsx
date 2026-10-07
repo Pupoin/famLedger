@@ -26,7 +26,8 @@ export function PageViewProvider({ children }) {
   );
 }
 
-// Keep only controls here; financial data is fetched again when a page returns.
+// Keep controls per history entry; report snapshots live in the user-scoped
+// ReportDataProvider and are revalidated when a page returns.
 export function usePageViewState(name, initialValue) {
   const context = useContext(PageViewContext);
   const [localValue, setLocalValue] = useState(initialValue);

@@ -371,12 +371,12 @@ def test_family_dissolution_archive_and_foreign_keys(client: TestClient, db: Ses
     assert curr_data["members"] == []  # 单人空间 members 应当为空
 
 
-def test_transaction_currency_auto_align_with_account(client: TestClient, db: Session):
+def test_transaction_currency_books_in_account_currency_with_fixed_conversion(client: TestClient, db: Session):
     """
     测试新账户添加交易时流水币种自适应账户基准币种：
     1. 纯新账户币种为 USD；
     2. 创建流水未显式传递 currency 字段 -> 自动适配账户币种 USD 并成功落库（不再报错 400）；
-    3. 创建流水传递了不一致的 currency (如 CNY) -> 后端自适应修正为账户币种 USD 并成功落库。
+    3. CNY 原币通过当日缓存汇率转换成 USD 记账，不直接换币种标签。
     """
     fam = Family(name="币种测试家庭", currency="USD", kind="personal", is_solo=True)
     db.add(fam)
@@ -422,7 +422,14 @@ def test_transaction_currency_auto_align_with_account(client: TestClient, db: Se
     data1 = res1.json()
     assert data1["currency"] == "USD"
 
-    # 2. 提交交易时传递了与账户不一致的 currency ("CNY")
+    # 固定测试汇率，不依赖网络服务是否可用。
+    from datetime import date
+    from models import ExchangeRateSnapshot
+    day = date(2026, 10, 2)
+    db.add(ExchangeRateSnapshot(requested_date=day, base_currency='EUR', effective_date=day,
+                               rates={'EUR': '1', 'USD': '1', 'CNY': '7'}))
+    db.commit()
+    # 2. 提交交易时传递了与账户不一致的原币 ("CNY")
     res2 = client.post(
         "/api/v1/transactions",
         json={
@@ -437,8 +444,14 @@ def test_transaction_currency_auto_align_with_account(client: TestClient, db: Se
     )
     assert res2.status_code == 200, res2.text
     data2 = res2.json()
-    # 验证已被自动对齐为账户基准币种 USD
     assert data2["currency"] == "USD"
+    saved = db.get(Transaction, uuid.UUID(data2['id']))
+    from decimal import Decimal
+    assert saved.amount == Decimal('2.8571')
+    assert saved.original_amount == Decimal('20') and saved.original_currency == 'CNY'
+    assert saved.exchange_rate_source == 'frankfurter'
+    db.refresh(acc)
+    assert acc.latest_balance == Decimal('-18.3571')
 
 
 def test_delete_user_cascade_with_invitations_and_debts(client: TestClient, db: Session):

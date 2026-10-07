@@ -28,6 +28,7 @@ export default function BulkAccountSettingsModal({ isOpen, accounts, members, on
   closeRef.current = onClose;
   const canEdit = accounts.length > 0 && accounts.every(account => account.can_manage === true);
   const canShare = accounts.length > 0 && accounts.every(account => account.can_manage_shares === true);
+  const lockedCards = accounts.filter(account => account.parent_account_id && account.card_link_can_change === false);
   const hasChanges = hidden !== '' || (canEdit && (applyInstitution || accountType !== ''))
     || (canShare && Object.values(shareChanges).some(Boolean));
   const inputClass = 'w-full min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 px-2.5 py-2 text-sm disabled:opacity-50';
@@ -80,7 +81,7 @@ export default function BulkAccountSettingsModal({ isOpen, accounts, members, on
       if (result.unlinked_account_ids?.length) showToast(tx('共享或账户类型已修改，相关副卡关系已解除'), 'info');
       onSuccess(); onClose();
     } catch (failure) {
-      setError(failure.message || tx('批量设置保存失败'));
+      setError(tx(failure.message || '批量设置保存失败'));
     } finally {
       savingRef.current = false; setSaving(false);
     }
@@ -114,6 +115,7 @@ export default function BulkAccountSettingsModal({ isOpen, accounts, members, on
         </div>
         {accounts.length > 200 && <p role="alert" className="text-xs text-rose-600">{tx('每次最多编辑 200 个账户，请减少选择。')}</p>}
         {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
+        {lockedCards.length > 0 && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{tx('副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除')}</p>}
         <form onSubmit={submit} className="space-y-4">
           <fieldset disabled={saving || Boolean(confirmation)} className="space-y-4">
             <div>
@@ -134,7 +136,7 @@ export default function BulkAccountSettingsModal({ isOpen, accounts, members, on
                 <label htmlFor="bulk-account-type" className="block text-xs font-medium mb-1 text-zinc-600 dark:text-zinc-400">{tx('账户类型')}</label>
                 <select id="bulk-account-type" value={accountType} onChange={event => setAccountType(event.target.value)} className={inputClass}>
                   <option value="">{tx('保持不变')}</option>
-                  {ACCOUNT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{tx(option.shortLabel)}</option>)}
+                  {ACCOUNT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value} disabled={lockedCards.length > 0 && option.value !== 'credit_card'}>{tx(option.shortLabel)}</option>)}
                 </select>
               </div>
             </fieldset>
@@ -143,13 +145,14 @@ export default function BulkAccountSettingsModal({ isOpen, accounts, members, on
               <p className="text-xs text-zinc-500">{tx('只修改指定成员的共享权限；账户拥有者的权限保持不变。')}</p>
               {members.map(member => {
                 const ownsAll = accounts.every(account => account.owner_id === member.id);
+                const cannotUnshare = lockedCards.some(account => account.parent_account?.owner_id === member.id && account.owner_id !== member.id);
                 return <div key={member.id} className="flex items-center gap-2">
                 <label htmlFor={`bulk-share-${member.id}`} title={member.display_name || member.username} className="text-xs min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">{member.display_name || member.username}</label>
                 <select id={`bulk-share-${member.id}`} disabled={ownsAll} value={ownsAll ? 'full_control' : shareChanges[member.id] || ''}
                   onChange={event => setShareChanges(previous => ({ ...previous, [member.id]: event.target.value }))}
                   className={`${inputClass} !w-36 shrink-0`}>
                   <option value="">{tx('保持不变')}</option><option value="read_only">{tx('只读')}</option>
-                  <option value="read_write">{tx('读写')}</option><option value="full_control">{tx('完全控制')}</option><option value="none">{tx('取消共享')}</option>
+                  <option value="read_write">{tx('读写')}</option><option value="full_control">{tx('完全控制')}</option><option value="none" disabled={cannotUnshare}>{tx('取消共享')}</option>
                 </select>
               </div>;
               })}

@@ -6,7 +6,7 @@ import { ChevronRight } from 'lucide-react';
 import { useCurrency } from '../../CurrencyContext';
 import { usePageViewState } from '../../PageViewContext';
 
-export default function SureOutflowsDonut({
+function SureOutflowsDonut({
   data,
   currencySymbol: reportSymbol,
   userFilter = '',
@@ -267,3 +267,5 @@ export default function SureOutflowsDonut({
     </div>
   );
 }
+
+export default React.memo(SureOutflowsDonut);

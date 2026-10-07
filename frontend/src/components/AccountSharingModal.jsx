@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Shield, ChevronDown, Edit2, ArrowRightLeft, Trash2 } from 'lucide-react';
 import { fetchWithAuth } from '../api/fetchWithAuth';
+import { apiErrorMessage } from '../api/errorMessages';
 import { useToast } from '../ToastContext';
 
 export default function AccountSharingModal({
@@ -56,7 +57,11 @@ export default function AccountSharingModal({
 
   if (!isModalOpen) return null;
 
+  const shareLocked = (member) => Boolean(data?.parent_account_id) && data?.card_link_can_change === false
+    && member?.user_id === data?.parent_owner_id && data?.parent_owner_id !== data?.owner?.id;
+
   const handleToggleShare = (index) => {
+    if (shareLocked(members[index])) return;
     setMembers((prev) =>
       prev.map((m, i) => (i === index ? { ...m, shared: !m.shared } : m))
     );
@@ -87,7 +92,8 @@ export default function AccountSharingModal({
         onClose();
         if (handleUpdated) handleUpdated();
       } else {
-        showToast(tx("更新共享失败"), 'error');
+        const result = await res.json().catch(() => ({}));
+        showToast(tx(apiErrorMessage(result.detail, '更新共享失败')), 'error');
       }
     } catch {
       showToast(tx("网络请求失败"), 'error');
@@ -163,6 +169,8 @@ export default function AccountSharingModal({
                             external_identifier: data.external_identifier,
                             account_type: data.account_type || 'checking',
                             balance: data.balance || 0,
+                            currency: data.currency,
+                            card_link_can_change: data.card_link_can_change,
                             parent_account_id: data.parent_account_id,
                             parent_account: data.parent_account,
                             can_manage: data.can_manage,
@@ -204,6 +212,8 @@ export default function AccountSharingModal({
                           onDelete({
                             id: accountId,
                             name: data.account_name,
+                            parent_account_id: data.parent_account_id,
+                            card_link_can_change: data.card_link_can_change,
                           });
                         }}
                         className="px-2.5 py-1 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/50 dark:bg-red-950/30 hover:bg-red-100/60 dark:hover:bg-red-900/40 text-xs font-semibold text-red-600 dark:text-red-400 transition flex items-center gap-1 cursor-pointer"
@@ -219,7 +229,7 @@ export default function AccountSharingModal({
 
               <div className="space-y-2">
                 {data?.parent_account_id && data?.parent_owner_id !== data?.owner?.id && (
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{tx("取消对主卡所有者的共享，会同时解除此账户的副卡关系。账户和流水将保留。")}</p>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{tx("副卡待还清零后，才能取消对主卡所有者的共享并解除副卡关系。账户、流水和历史还款分配保留。")}</p>
                 )}
                 <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-400 uppercase tracking-wider px-1">
                   <span>{tx("家庭成员")}</span>
@@ -268,7 +278,7 @@ export default function AccountSharingModal({
                               : 'bg-zinc-100 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 text-zinc-400'
                           }`}
                         >
-                          <option value="none">{tx("🚫 不共享此账号")}</option>
+                          <option value="none" disabled={shareLocked(m)}>{tx("🚫 不共享此账号")}</option>
                           <option value="read_only">{tx("👁️ 只读 (查看流水)")}</option>
                           <option value="read_write">{tx("✏️ 读写 (可录入)")}</option>
                           <option value="full_control">{tx("⚡ 完全控制")}</option>
@@ -280,6 +290,7 @@ export default function AccountSharingModal({
                       <button
                         type="button"
                         onClick={() => handleToggleShare(idx)}
+                        disabled={shareLocked(m)}
                         className={`w-10 h-6 flex items-center rounded-full p-1 transition-colors shrink-0 cursor-pointer ${
                           m.shared ? 'bg-zinc-900 dark:bg-white' : 'bg-zinc-200 dark:bg-zinc-700'
                         }`}

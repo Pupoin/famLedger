@@ -82,4 +82,5 @@ def _maintain_card_sharing(session):
 @event.listens_for(OrmSession, "after_commit")
 @event.listens_for(OrmSession, "after_rollback")
 def _clear_card_check(session):
-    session.info.pop("card_sharing_check_pending", None)
+    if not session.in_nested_transaction():
+        session.info.pop("card_sharing_check_pending", None)

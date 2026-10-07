@@ -18,6 +18,7 @@ import ReimbursementBadge from '../components/ReimbursementBadge';
 import ScheduledPlans from '../components/ScheduledPlans';
 import AddTransactionModal from '../components/AddTransactionModal';
 import { formatDateTime } from '../utils/dates';
+import { createLatestRequest } from '../utils/latestRequest';
 import { getTransactionInitialBadge, formatAccountDisplayName } from '../utils/accountIcons';
 import AccountSharingModal from '../components/AccountSharingModal';
 import {
@@ -39,6 +40,7 @@ export default function TransactionsPage() {
   const categoryNameFilter = searchParams.get('category_name') || '';
   const typeFilter = searchParams.get('transaction_type') || '';
   const spendingNet = searchParams.get('spending_net') === 'true';
+  const spendingCurrencyFilter = searchParams.get('spending_currency') || '';
   const isRefundFilter = searchParams.get('is_refund') === 'true';
   const hasRefundFilter = searchParams.get('has_refund') === 'true';
   const tagFilter = searchParams.get('tag') || '';
@@ -98,6 +100,8 @@ export default function TransactionsPage() {
   const [spendingSummary, setSpendingSummary] = useState(null);
   const nextCursorRef = useRef(null);
   const loadMoreRef = useRef(null);
+  const requestQueueRef = useRef(null);
+  if (!requestQueueRef.current) requestQueueRef.current = createLatestRequest();
 
   // Filters & Tabs
   const [search, setSearch] = useState(querySearch);
@@ -207,11 +211,15 @@ export default function TransactionsPage() {
   // Load Transactions
   const fetchTransactions = useCallback(
     async (reset = false) => {
+      if (!reset && !nextCursorRef.current) return;
+      const request = requestQueueRef.current.start({ replace: reset });
+      if (!request) return;
       if (reset) {
         setLoading(true);
+        setIsLoadingMore(false);
+        setHasMore(false);
         nextCursorRef.current = null;
       } else {
-        if (!nextCursorRef.current) return;
         setIsLoadingMore(true);
       }
 
@@ -226,6 +234,7 @@ export default function TransactionsPage() {
         if (categoryNameFilter) params.append('category_name', categoryNameFilter);
         if (typeFilter) params.append('transaction_type', typeFilter);
         if (spendingNet) params.append('spending_net', 'true');
+        if (spendingNet && spendingCurrencyFilter) params.append('spending_currency', spendingCurrencyFilter);
         if (isRefundFilter) params.append('is_refund', 'true');
         if (hasRefundFilter) params.append('has_refund', 'true');
         if (tagFilter) params.append('tag', tagFilter);
@@ -241,9 +250,10 @@ export default function TransactionsPage() {
           params.append('cursor', nextCursorRef.current);
         }
 
-        const res = await fetchWithAuth(`/api/v1/transactions?${params.toString()}`);
+        const res = await fetchWithAuth(`/api/v1/transactions?${params.toString()}`, { signal: request.signal });
         if (res.ok) {
           const data = await res.json();
+          if (!request.isCurrent()) return;
           const items = data.items || [];
           setSpendingSummary(data.spending_summary || null);
           setTransactions((prev) => (reset ? items : [...prev, ...items]));
@@ -255,10 +265,13 @@ export default function TransactionsPage() {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch transactions', err);
+        if (request.isCurrent()) console.error('Failed to fetch transactions', err);
       } finally {
-        setLoading(false);
-        setIsLoadingMore(false);
+        if (request.isCurrent()) {
+          setLoading(false);
+          setIsLoadingMore(false);
+        }
+        request.finish();
       }
     },
     [
@@ -270,6 +283,7 @@ export default function TransactionsPage() {
       categoryNameFilter,
       typeFilter,
       spendingNet,
+      spendingCurrencyFilter,
       isRefundFilter,
       hasRefundFilter,
       tagFilter,
@@ -285,25 +299,8 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchTransactions(true);
-  }, [
-    accountIdFilter,
-    accountMaskFilter,
-    institutionFilter,
-    startDateFilter,
-    endDateFilter,
-    categoryNameFilter,
-    typeFilter,
-    isRefundFilter,
-    hasRefundFilter,
-    tagFilter,
-    merchantFilter,
-    merchantGroupFilter,
-    statusFilter,
-    minAmountFilter,
-    maxAmountFilter,
-    querySearch,
-    userFilter,
-  ]);
+    return () => requestQueueRef.current.cancel();
+  }, [fetchTransactions]);
 
   // 监听全局交易添加事件
   useEffect(() => {
@@ -442,8 +439,7 @@ export default function TransactionsPage() {
       g.items.sort((a, b) => {
         const timeA = new Date(a.occurred_at || a.created_at || a.transacted_at).getTime() || 0;
         const timeB = new Date(b.occurred_at || b.created_at || b.transacted_at).getTime() || 0;
-        // 同日内按发生时间正序 (由早到晚，10:15 -> 23:58)
-        return timeA - timeB;
+        return timeB - timeA; // 同日内最新的交易在上方
       });
     });
     groups.sort((a, b) => b.dateKey.localeCompare(a.dateKey));

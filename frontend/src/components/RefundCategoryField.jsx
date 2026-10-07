@@ -9,7 +9,8 @@ export function transactionCategoryLabel(transaction) {
 }
 
 export default function RefundCategoryField({ transaction, categories, value, transactionType, onChange }) {
-  const refund = transaction.transaction_type === 'refund' ? transaction.refund_info : null;
+  if (transactionType === 'transfer') return null;
+  const refund = transactionType === 'refund' && transaction.transaction_type === 'refund' ? transaction.refund_info : null;
   const locked = refund?.category_editable === false;
   const linked = refund?.linked_categories || [];
   return (
@@ -27,7 +28,7 @@ export default function RefundCategoryField({ transaction, categories, value, tr
           <select data-testid="edit-category-select" value={value} onChange={e => onChange(e.target.value)}
             className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-blue-500">
             <option value="">{tx('其他')}</option>
-            {categories.filter(c => transactionType === 'transfer' || transactionType === 'refund' || c.name === '其他' || !c.category_type || c.category_type === transactionType)
+            {categories.filter(c => c.name === '其他' || !c.category_type || c.category_type === (transactionType === 'refund' ? 'expense' : transactionType))
               .map(c => <option key={c.id} value={c.id}>{c.icon} {categoryLabel(c.name)}</option>)}
           </select>
           {refund?.is_linked && (

@@ -64,6 +64,44 @@ def seed_household(engine):
         return family.id, user.id, account.id
 
 
+def test_postgres_materialized_balances_serialize_concurrent_writers(pg_engine):
+    from services.account_balances import verify_latest_balances
+    engine, _ = pg_engine
+    _, _, account_id = seed_household(engine)
+    def write(_):
+        with Session(engine) as session:
+            session.add(Transaction(account_id=account_id, transacted_at=date(2026, 9, 1),
+                amount=Decimal('1.2345'), currency='CNY', narration='Concurrent payment', transaction_type='expense'))
+            session.commit()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(write, range(12)))
+    with Session(engine) as session:
+        account = session.get(Account, account_id)
+        assert account.latest_balance == Decimal('-14.8140')
+        assert account.latest_transaction_count == 12
+        assert not verify_latest_balances(session)
+
+
+def test_postgres_materialized_balance_preserves_outer_savepoint_writes(pg_engine):
+    from services.account_balances import verify_latest_balances
+    engine, _ = pg_engine
+    _, _, account_id = seed_household(engine)
+    with Session(engine) as session:
+        session.add(Transaction(account_id=account_id, transacted_at=date(2026, 9, 1), amount=Decimal(10),
+                                currency='CNY', narration='Outer payment', transaction_type='expense'))
+        session.flush()
+        with pytest.raises(RuntimeError):
+            with session.begin_nested():
+                session.add(Transaction(account_id=account_id, transacted_at=date(2026, 9, 1), amount=Decimal(20),
+                                        currency='CNY', narration='Canceled payment', transaction_type='expense'))
+                session.flush()
+                raise RuntimeError('Rollback savepoint')
+        session.commit()
+        account = session.get(Account, account_id)
+        assert account.latest_balance == -10 and account.latest_transaction_count == 1
+        assert not verify_latest_balances(session)
+
+
 @pytest.mark.parametrize("endpoint,period", [
     ("dashboard", "monthly"),
     ("dashboard", "custom"),

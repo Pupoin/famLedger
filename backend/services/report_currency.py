@@ -17,6 +17,16 @@ def _valid_rates(raw):
     return rates
 
 
+def _stored_quote(saved, quote_day):
+    try:
+        rates = _valid_rates(saved.rates)
+        if saved.effective_date > quote_day or (quote_day - saved.effective_date).days > 7:
+            raise ValueError("无效汇率日期")
+        return rates, saved.effective_date
+    except (ValueError, TypeError, InvalidOperation) as exc:
+        raise HTTPException(502, detail="数据库中的汇率无效，请检查汇率数据") from exc
+
+
 def exchange_rates(session, quote_day):
     """Check that day's database entry before fetching the requested date."""
     if not isinstance(quote_day, date):
@@ -26,18 +36,12 @@ def exchange_rates(session, quote_day):
     key = (quote_day, "EUR")
     saved = session.get(ExchangeRateSnapshot, key)
     if saved:
-        try:
-            rates = _valid_rates(saved.rates)
-            if saved.effective_date > quote_day or (quote_day - saved.effective_date).days > 7:
-                raise ValueError("无效汇率日期")
-            return rates, saved.effective_date
-        except (ValueError, TypeError, InvalidOperation) as exc:
-            raise HTTPException(502, detail="数据库中的汇率无效，请检查汇率数据") from exc
+        return _stored_quote(saved, quote_day)
     from services.transaction_lock import lock_mutation
     lock_mutation(session)
     saved = session.get(ExchangeRateSnapshot, key)
     if saved:
-        return _valid_rates(saved.rates), saved.effective_date
+        return _stored_quote(saved, quote_day)
     try:
         response = requests.get(
             f"https://api.frankfurter.app/{quote_day.isoformat()}", params={"from": "EUR"}, timeout=8
@@ -87,6 +91,8 @@ class ReportCurrency:
         self.cache_independently = cache_independently
         self._quotes = {}
         self.account_ids = set()
+        from services.ledger_read import LedgerRead
+        self.read = LedgerRead(session)
 
     def amount(self, value, source, on_date=None):
         value = Decimal(str(value or 0))
@@ -114,8 +120,7 @@ class ReportCurrency:
 
     def uses_master(self, txn):
         if txn.master_account_id and txn.master_account_id in self.account_ids:
-            from models import Account
-            account = self.session.get(Account, txn.account_id)
+            account = self.read.account(txn.account_id)
             return bool(account and account.parent_account_id == txn.master_account_id and txn.master_settlement_amount is not None)
         return False
 
@@ -126,15 +131,37 @@ class ReportCurrency:
             value = money(txn.master_settlement_amount * value / txn.amount) if txn.amount else Decimal(0)
             return self.amount(value, txn.master_settlement_currency, txn.transacted_at)
         if self.account_ids:
-            from models import Account
-            account = self.session.get(Account, txn.account_id)
+            account = self.read.account(txn.account_id)
             if account and account.parent_account_id in self.account_ids:
-                parent = self.session.get(Account, account.parent_account_id)
+                parent = self.read.account(account.parent_account_id)
                 if parent and parent.currency != account.currency:
                     raise HTTPException(409, "报表中的外币副卡缺少固定主卡结算，请先核对")
         return self.amount(value, txn.currency, txn.transacted_at)
 
+    def prepare(self, transactions):
+        transactions = list(transactions)
+        self.read.prepare(transactions)
+        # Read already saved daily quotes together. Missing dates still use the
+        # existing exact-date fetch/store path; no guessed or current-day rates.
+        days = set()
+        for txn in transactions:
+            master = self.uses_master(txn)
+            value = txn.master_settlement_amount if master else txn.amount
+            source = txn.master_settlement_currency if master else txn.currency
+            if value and source != self.currency:
+                days.add(txn.transacted_at)
+        if any(day > date.today() for day in days):
+            raise HTTPException(422, detail="未来日期尚无汇率")
+        missing = list(days - self._quotes.keys())
+        for offset in range(0, len(missing), 900):
+            for saved in self.session.exec(select(ExchangeRateSnapshot).where(
+                    ExchangeRateSnapshot.base_currency == 'EUR',
+                    ExchangeRateSnapshot.requested_date.in_(missing[offset:offset + 900]))).all():
+                self._quotes[saved.requested_date] = _stored_quote(saved, saved.requested_date)
+
     def transactions(self, transactions):
+        transactions = list(transactions)
+        self.prepare(transactions)
         return [t.model_copy(update={"amount": self.ledger_amount(t), "currency": self.currency}) for t in transactions]
 
     def splits(self, splits, original_transactions):

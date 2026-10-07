@@ -590,7 +590,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
             booking = prepare_booking(session, account, data.original_amount or amount,
                 data.original_currency or data.currency or account.currency, transacted_date,
                 data.settlement_amount, data.settlement_currency, data.master_settlement_amount,
-                data.master_settlement_currency, data.settlement_source)
+                data.master_settlement_currency, data.settlement_source, occurred_at=occurred_at_clean)
             tags_list = [str(t).strip() for t in (data.tags or []) if str(t).strip()]
             is_reimb = "待报销" in tags_list or bool(extra_data.get("is_reimbursable"))
 
@@ -860,6 +860,7 @@ def list_transactions(
     transaction_type: Optional[str] = Query(None, description="按交易类型过滤，支持逗号分隔多选"),
     category_name: Optional[str] = Query(None, description="按分类名称过滤，支持逗号分隔多选"),
     spending_net: bool = Query(False, description="分类报表明细：按原消费分类包含退款，返回展示币种净额"),
+    spending_currency: Optional[CurrencyCode] = None,
     is_refund: Optional[bool] = Query(None, description="仅看退款相关交易"),
     has_refund: Optional[bool] = Query(None, description="仅看已关联退款冲抵的消费"),
     tag: Optional[str] = Query(None, description="按标签过滤，支持逗号分隔多选"),
@@ -881,8 +882,11 @@ def list_transactions(
     """
     极速游标分页交易流水列表（支持全面多维复合筛选：卡号、金融机构、消费类型、分类、退款、标签、金额与日期）。
     """
+    from services.ledger_read import LedgerRead
+    read = LedgerRead(session)
     def resolve_cat(t):
-        c = session.get(Category, t.category_id) if t.category_id else None
+        account = read.account(t.account_id)
+        c = read.family_categories(account.family_id).get(t.category_id) if account and t.category_id else None
         return (c.name, c.icon or "📦") if c else ("其他", "📦")
 
     stmt = select(Transaction)
@@ -1008,13 +1012,7 @@ def list_transactions(
             )
         )
     if has_refund is True:
-        alloc_orig_ids = list(
-            session.exec(select(RefundAllocation.original_transaction_id)).all()
-        )
-        if alloc_orig_ids:
-            stmt = stmt.where(Transaction.id.in_(alloc_orig_ids))
-        else:
-            return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
+        stmt = stmt.where(Transaction.id.in_(select(RefundAllocation.original_transaction_id)))
     if isinstance(min_amount, (Decimal, int, float)):
         stmt = stmt.where(func.abs(Transaction.amount) >= min_amount)
     if isinstance(max_amount, (Decimal, int, float)):
@@ -1074,25 +1072,56 @@ def list_transactions(
             Transaction.transaction_type == 'expense',
         )
 
-    # 排序采用：跨日按日期倒序 (transacted_at DESC)，同日内按时间由早到晚正序 (occurred_at ASC, created_at ASC, id ASC)
+    from services.principals import resolve_family_id
+    family_id = current_user.family_id if current_user else resolve_family_id(session, user_or_ctx)
+    report_ids, category_map = set(), {}
+    if spending_net is True:
+        from services.stats_engine import get_user_report_account_ids
+        if current_user:
+            report_ids = get_user_report_account_ids(session, current_user, current_user.family_id,
+                                                    visible_ids=accessible_acc_ids)
+        else:
+            from services.principals import service_family
+            report_ids = set(session.exec(select(Account.id).where(
+                Account.family_id == service_family(session).id, Account.is_active == True,
+                Account.exclude_from_reports == False)).all())
+        if target_u:
+            report_ids &= set(session.exec(select(Account.id).where(Account.owner_id == target_u.id)).all())
+        # These rows cannot contribute to spending or refund offsets. Filter
+        # them in SQL before ORM loading, while retaining refunds on other
+        # cards that may offset an original on the selected spending account.
+        stmt = stmt.where(Transaction.account_id.in_(report_ids) if report_ids else False,
+                          Transaction.transaction_type.in_(['expense', 'refund']),
+                          Transaction.excluded_from_stats == False)
+        if selected_spending_accounts is not None:
+            stmt = stmt.where(or_(Transaction.transaction_type == 'refund',
+                                  Transaction.account_id.in_(selected_spending_accounts)))
+        category_map = read.family_categories(family_id)
+
+    # Apply the same newest-first order before pagination and in daily groups.
     stmt = stmt.order_by(
         desc(Transaction.transacted_at),
-        asc(Transaction.occurred_at),
-        asc(Transaction.created_at),
-        asc(Transaction.id),
+        desc(func.coalesce(Transaction.occurred_at, Transaction.created_at)),
+        desc(Transaction.created_at),
+        desc(Transaction.id),
     )
-    all_matched = session.exec(stmt).all()
+    memory_filter = (spending_net is True or other_merchant_names is not None or bool(parsed_cat_uuids)
+        or (isinstance(category_name, str) and bool(category_name.strip()))
+        or (isinstance(tag, str) and bool(tag.strip())))
+    all_matched = session.exec(stmt).all() if memory_filter else []
+    if memory_filter:
+        read.prepare(all_matched)
     if other_merchant_names is not None:
         all_matched = [t for t in all_matched if (t.narration or '其他') in other_merchant_names]
     from services.tags import tag_resolver
-    from services.principals import resolve_family_id
-    resolve_tags = tag_resolver(session, resolve_family_id(session, user_or_ctx))
+    resolve_tags = tag_resolver(session, family_id)
 
     refund_categories = {}
     def refund_categories_for(t):
         if t.id not in refund_categories:
             from services.refund_money import refund_category_details
-            refund_categories[t.id] = refund_category_details(session, t, accessible_acc_ids)
+            refund_categories[t.id] = refund_category_details(session, t, accessible_acc_ids,
+                allocations=read.allocations.get(t.id, []), read=read)
         return refund_categories[t.id]
 
     def effective_categories(t):
@@ -1104,21 +1133,15 @@ def list_transactions(
 
     spending_amounts, spending_summary, spending_categories = {}, None, {}
     if spending_net is True:
-        from services.stats_engine import get_user_report_account_ids, spending_category_portions
+        from services.stats_engine import spending_category_portions
         from services.report_currency import ReportCurrency
-        if current_user:
-            report_ids = get_user_report_account_ids(session, current_user, current_user.family_id)
-        else:
-            from services.principals import service_family
-            report_ids = set(session.exec(select(Account.id).where(
-                Account.family_id == service_family(session).id, Account.is_active == True,
-                Account.exclude_from_reports == False)).all())
-        if target_u:
-            report_ids &= set(session.exec(select(Account.id).where(Account.owner_id == target_u.id)).all())
-        converter = ReportCurrency(session, current_user, cache_independently=True)
+        converter = ReportCurrency(session, current_user, currency=spending_currency, cache_independently=True)
         converter.account_ids = report_ids
-        family_id = resolve_family_id(session, user_or_ctx)
-        category_map = {c.id: c for c in session.exec(select(Category).where(Category.family_id == family_id)).all()}
+        converter.read = read
+        converter.prepare(t for t in all_matched if t.account_id in report_ids
+            and not t.excluded_from_stats and t.transaction_type in ('expense', 'refund')
+            and (t.transaction_type == 'refund' or selected_spending_accounts is None
+                 or t.account_id in selected_spending_accounts))
         cat_names = set(c.strip() for c in category_name.split(',')) if isinstance(category_name, str) and category_name else None
         cat_ids = set(c.strip() for c in category_id.split(',')) if isinstance(category_id, str) and category_id else None
         selected = []
@@ -1161,22 +1184,25 @@ def list_transactions(
         refunds = -sum((spending_amounts[t.id] for t in all_matched if t.transaction_type == 'refund'), Decimal(0))
         spending_summary.update(expense=float(money(expense)), refunds=float(money(refunds)),
                                 net=float((expense - refunds).quantize(Decimal('0.01'))))
-    start_idx = 0
-    if cursor and str(cursor).strip():
-        cursor_str = str(cursor).strip()
-        for i, t in enumerate(all_matched):
-            if str(t.id) == cursor_str:
-                start_idx = i + 1
-                break
-    elif offset and isinstance(offset, int) and offset > 0:
-        start_idx = min(offset, len(all_matched))
+    if memory_filter:
+        total_count = len(all_matched)
+        start_idx = 0
+        if cursor and str(cursor).strip():
+            cursor_str = str(cursor).strip()
+            for i, t in enumerate(all_matched):
+                if str(t.id) == cursor_str:
+                    start_idx = i + 1
+                    break
+        elif offset and isinstance(offset, int) and offset > 0:
+            start_idx = min(offset, len(all_matched))
+        sliced = all_matched[start_idx:]
+        has_more = len(sliced) > effective_limit
+        items = sliced[:effective_limit]
+    else:
+        from services.transaction_pagination import transaction_page
+        items, has_more, total_count = transaction_page(session, stmt, effective_limit, cursor, offset)
+        read.prepare(items)
 
-    sliced = all_matched[start_idx:]
-    has_more = len(sliced) > effective_limit
-    items = sliced[:effective_limit]
-
-    accounts_map = {a.id: a for a in session.exec(select(Account)).all()}
-    users_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User)).all()}
     import re
 
     # 预加载 transfer 交易的对端信息（用于列表显示 from/to）
@@ -1198,6 +1224,11 @@ def list_transactions(
     if peer_txn_ids:
         peer_txns = session.exec(select(Transaction).where(Transaction.id.in_(peer_txn_ids))).all()
         peer_txns_map = {pt.id: pt for pt in peer_txns}
+
+    read.load_accounts(row.account_id for row in peer_txns_map.values())
+    accounts_map = read.accounts
+    owner_ids = {acc.owner_id for acc in accounts_map.values() if acc.owner_id and acc.id in accessible_acc_ids}
+    users_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User).where(User.id.in_(owner_ids))).all()} if owner_ids else {}
 
     output = []
     for t in items:
@@ -1293,7 +1324,7 @@ def list_transactions(
         "has_more": has_more,
         "next_cursor": next_cursor,
         "count": len(output),
-        "total_count": len(all_matched),
+        "total_count": total_count,
         "spending_summary": spending_summary,
     }
 
@@ -1462,12 +1493,15 @@ def split_transaction(
     from services.refund_money import guard_refund_category_edit
     guard_refund_category_edit(session, txn)
 
+    if txn.transaction_type not in {"expense", "refund"}:
+        raise HTTPException(400, "只有支出和退款可以拆分分类")
+
     if not payload.splits or len(payload.splits) < 2:
         raise HTTPException(status_code=400, detail="拆分必须包含至少两个子项")
 
     # 校验总金额（绝对值）
     total_splits = sum(s.amount for s in payload.splits)
-    if total_splits.quantize(Decimal("0.01")) != abs(txn.amount).quantize(Decimal("0.01")):
+    if total_splits != abs(txn.amount):
         raise HTTPException(
             status_code=400,
             detail=f"拆分子项金额总和 ({total_splits}) 必须等于交易原始金额 ({abs(txn.amount)})",
@@ -1529,6 +1563,28 @@ def split_transaction(
     }
 
 
+@router.delete("/{transaction_id}/split")
+def clear_transaction_splits(transaction_id: uuid.UUID,
+                             session: Session = Depends(get_session),
+                             user_or_ctx: Any = Depends(get_current_user_or_token)):
+    lock_mutation(session)
+    txn = session.get(Transaction, transaction_id)
+    if not txn:
+        raise HTTPException(404, "交易不存在")
+    _verify_account_write_permission(session, user_or_ctx, txn.account_id, "解除拆分")
+    from services.schedules import guard_transaction
+    from services.refund_money import guard_refund_category_edit
+    guard_transaction(txn)
+    guard_refund_category_edit(session, txn)
+    for row in session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)).all():
+        session.delete(row)
+    txn.is_split = False
+    txn.category_source = "manual"
+    session.add(txn)
+    session.commit()
+    return {"transaction_id": str(txn.id), "is_split": False}
+
+
 @router.get("/{transaction_id}/splits")
 def get_transaction_splits(
     transaction_id: uuid.UUID,
@@ -1550,7 +1606,7 @@ def get_transaction_splits(
             "id": str(s.id),
             "transaction_id": str(s.transaction_id),
             "category_id": str(s.category_id) if s.category_id else None,
-            "amount": str(s.amount.quantize(Decimal("0.01"))),
+            "amount": money_text(s.amount),
             "notes": s.notes,
             "created_at": s.created_at.isoformat(),
         }
@@ -1723,7 +1779,12 @@ def get_transaction_detail(
             other_id = allocation.original_transaction_id if txn.transaction_type == "refund" else allocation.refund_transaction_id
             other = session.get(Transaction, other_id)
             if other and (not current_user or other.account_id in accessible_acc_ids):
-                refund_info["allocations"].append({"other_transaction_id": str(other_id), **allocation_metadata(allocation)})
+                other_acc = session.get(Account, other.account_id)
+                refund_info["allocations"].append({"other_transaction_id": str(other_id),
+                    "narration": other.narration, "account_name": other_acc.name if other_acc else None,
+                    "transacted_at": other.transacted_at.isoformat(),
+                    "occurred_at": serialize_utc_datetime(other.occurred_at or other.created_at),
+                    **allocation_metadata(allocation)})
         if txn.transaction_type == "refund":
             from services.refund_money import refund_category_details
             refund_info.update(refund_category_details(session, txn, accessible_acc_ids, allocs))
@@ -1771,6 +1832,7 @@ def get_transaction_detail(
     from services.transaction_direction import transaction_direction
     from services.display_money import transaction_display_money
     display_money = transaction_display_money(session, txn, current_user, splits)
+    from services.transaction_deletion import deletion_info
     return {
         "id": str(txn.id),
         "external_id": txn.external_id,
@@ -1809,6 +1871,7 @@ def get_transaction_detail(
         "tags": resolve_tags(txn.tags),
         "scheduled_payment": scheduled_payment,
         "paired_transfer": paired_transfer,
+        "deletion_info": deletion_info(session, user_or_ctx, txn, _verify_account_write_permission),
         "refund_info": refund_info,
     }
 
@@ -1869,6 +1932,15 @@ def update_reimbursement_status(
 
 
 class TransactionUpdateRequest(BaseModel):
+    refund_of_transaction_id: Optional[uuid.UUID] = None
+    allocation_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    allocation_currency: Optional[CurrencyCode] = None
+    refund_original_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    from_account_id: Optional[uuid.UUID] = None
+    to_account_id: Optional[uuid.UUID] = None
+    source_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    destination_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    transfer_direction: Optional[Literal['outflow', 'inflow']] = None
     narration: Optional[str] = Field(default=None, max_length=255)
     name: Optional[str] = Field(default=None, max_length=255)
     amount: Optional[Decimal] = Field(default=None, gt=Decimal("0"), max_digits=19, decimal_places=4)
@@ -1933,6 +2005,8 @@ def update_transaction(
         from services.refund_money import guard_refund_category_edit
         guard_refund_category_edit(session, txn)
 
+    from services.transfer_editing import normalize_transfer_payload
+    normalize_transfer_payload(session, txn, payload)
     target_acc = None
     if payload.account_id is not None:
         target_account_id = None
@@ -1957,6 +2031,18 @@ def update_transaction(
         VALID_TXN_TYPES = {"expense", "income", "transfer", "refund"}
         if payload.transaction_type not in VALID_TXN_TYPES:
             raise HTTPException(status_code=400, detail=f"transaction_type 必须是 {sorted(VALID_TXN_TYPES)} 之一")
+    resulting_type = payload.transaction_type or txn.transaction_type
+    if any(getattr(payload, name) is not None for name in
+           ('refund_of_transaction_id', 'allocation_amount', 'allocation_currency', 'refund_original_amount')):
+        if resulting_type != 'refund' or payload.refund_of_transaction_id is None:
+            raise HTTPException(400, "退款匹配与冲抵额度只能用于指定原消费的退款。")
+    if payload.transaction_type and payload.transaction_type != txn.transaction_type:
+        if txn.refund_of_transaction_id or session.exec(select(Transaction.id).where(
+            Transaction.refund_of_transaction_id == txn.id)).first():
+            raise HTTPException(400, "请先解除退款关联，再切换交易类型。")
+        if resulting_type not in {'expense', 'refund'} and session.exec(select(TransactionSplit.id).where(
+            TransactionSplit.transaction_id == txn.id)).first():
+            raise HTTPException(400, "请先解除分类拆分，再切换交易类型。")
 
     from models import RefundAllocation
     financial = any(getattr(payload, name, None) is not None and getattr(payload, name) != getattr(txn, name, None)
@@ -1965,34 +2051,16 @@ def update_transaction(
     if financial and session.exec(select(RefundAllocation.id).where(
             or_(RefundAllocation.refund_transaction_id == txn.id, RefundAllocation.original_transaction_id == txn.id))).first():
         raise HTTPException(400, "已参与退款分配的流水，请先解除关联再修改金额、币种、日期或账户")
-    if txn.transfer_id and any(getattr(payload, name, None) is not None for name in
-                              ("original_amount", "original_currency", "settlement_amount", "master_settlement_amount")):
-        raise HTTPException(400, "请先解除转账配对再修改原币或结算金额")
     original_book = txn.amount
     original_native = txn.original_amount
     original_code = txn.original_currency
+    from services.transfer_editing import validate_transfer_edit, apply_transfer_edit
+    transfer_edit = validate_transfer_edit(session, user_or_ctx, txn, payload, target_acc,
+                                           _verify_account_write_permission)
 
     if txn.transfer_id:
         if payload.transaction_type is not None and payload.transaction_type != "transfer":
             raise HTTPException(status_code=400, detail="该流水已配对为转账，修改收支类型前请先在转账列表解除配对")
-        if payload.account_id is not None and payload.account_id != txn.account_id:
-            raise HTTPException(status_code=400, detail="该流水已配对为转账，不支持直接跨账户移动，请先解除配对")
-        if payload.amount is not None:
-            new_amt = abs(Decimal(str(payload.amount)))
-            if new_amt <= Decimal("0"):
-                raise HTTPException(status_code=400, detail="交易金额必须大于 0")
-            if new_amt != txn.amount:
-                tr = session.get(Transfer, txn.transfer_id)
-                if tr:
-                    other_id = tr.inflow_transaction_id if tr.outflow_transaction_id == txn.id else tr.outflow_transaction_id
-                    if other_id:
-                        other_txn = session.get(Transaction, other_id)
-                        if other_txn:
-                            _verify_account_write_permission(session, user_or_ctx, other_txn.account_id, "修改转账对端金额")
-                            other_txn.amount = new_amt
-                            session.add(other_txn)
-                    tr.amount = new_amt
-                    session.add(tr)
 
     if payload.amount is not None:
         new_amt = abs(Decimal(str(payload.amount)))
@@ -2015,8 +2083,11 @@ def update_transaction(
             )).first()
             if has_alloc:
                 raise HTTPException(status_code=400, detail="该流水已参与退款冲抵关联，修改收支类型前请先解除所有退款绑定")
+        changed_type = payload.transaction_type != txn.transaction_type
         txn.transaction_type = payload.transaction_type
         txn.extra = {**(txn.extra or {}), "transaction_type_source": "manual"}
+        if changed_type and txn.transaction_type != "transfer":
+            txn.extra = {**txn.extra, "direction": "inflow" if txn.transaction_type in {"income", "refund"} else "outflow"}
     if payload.narration is not None or payload.name is not None:
         txn.narration = payload.narration if payload.narration is not None else payload.name
         txn.merchant_source = "manual"
@@ -2091,7 +2162,7 @@ def update_transaction(
                 from services.booking_money import assign_booking
                 fields = prepare_booking(session, account, native, code, txn.transacted_at,
                                          bank_amount, bank_code, payload.master_settlement_amount,
-                                         payload.master_settlement_currency, "manual_confirmation")
+                                         payload.master_settlement_currency, "manual_confirmation", occurred_at=txn.occurred_at)
                 existing_splits = session.exec(select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)).all()
                 if existing_splits and fields["amount"] != original_book:
                     raise HTTPException(400, "换汇后的总额改变，请先解除分类拆分")
@@ -2124,9 +2195,11 @@ def update_transaction(
 
     txn.updated_at = datetime.now(timezone.utc)
     session.add(txn)
+    apply_transfer_edit(session, txn, payload, transfer_edit)
     if txn.transaction_type == "refund":
         from services.refund_money import auto_allocate
-        auto_allocate(session, user_or_ctx, txn)
+        auto_allocate(session, user_or_ctx, txn, payload.refund_of_transaction_id,
+                      payload.allocation_amount, payload.allocation_currency, payload.refund_original_amount)
     session.commit()
     session.refresh(txn)
 
@@ -2136,88 +2209,11 @@ def update_transaction(
 @router.delete("/{transaction_id}")
 def delete_transaction(
     transaction_id: uuid.UUID,
+    scope: Optional[Literal["single", "pair"]] = None,
+    expected_transfer_id: Optional[uuid.UUID] = None,
     session: Session = Depends(get_session),
     user_or_ctx: Any = Depends(get_current_user_or_token),
 ):
-    """
-    删除指定的单笔交易流水。
-    清除关联的拆分、退款关联、转账关联。
-    """
-    lock_mutation(session)
-    txn = session.get(Transaction, transaction_id)
-    if not txn:
-        raise HTTPException(status_code=404, detail="交易未找到")
-
-    _verify_account_write_permission(session, user_or_ctx, txn.account_id, "删除交易")
-    from services.schedules import guard_transaction
-    guard_transaction(txn)
-
-    # Removing a transfer also mutates its peer; require both accounts.
-    if txn.transfer_id:
-        transfer = session.get(Transfer, txn.transfer_id)
-        if transfer:
-            for peer_id in (transfer.outflow_transaction_id, transfer.inflow_transaction_id):
-                peer = session.get(Transaction, peer_id)
-                if peer and peer.id != txn.id:
-                    _verify_account_write_permission(session, user_or_ctx, peer.account_id, "删除转账关联")
-
-    from models import RejectedTransfer
-    for rejected in session.exec(select(RejectedTransfer).where(
-        (RejectedTransfer.outflow_transaction_id == txn.id) |
-        (RejectedTransfer.inflow_transaction_id == txn.id)
-    )).all():
-        session.delete(rejected)
-
-    # 1. 清理 TransactionSplit 拆分子项
-    splits = session.exec(
-        select(TransactionSplit).where(TransactionSplit.transaction_id == txn.id)
-    ).all()
-    for s in splits:
-        session.delete(s)
-
-    # 2. 清理 RefundAllocation 关联
-    refund_allocs = session.exec(
-        select(RefundAllocation).where(
-            or_(
-                RefundAllocation.refund_transaction_id == txn.id,
-                RefundAllocation.original_transaction_id == txn.id,
-            )
-        )
-    ).all()
-    for ra in refund_allocs:
-        session.delete(ra)
-
-    # 3. 清理 Transfer 关联
-    transfers = session.exec(
-        select(Transfer).where(
-            or_(
-                Transfer.outflow_transaction_id == txn.id,
-                Transfer.inflow_transaction_id == txn.id,
-            )
-        )
-    ).all()
-    for tr in transfers:
-        other_id = tr.inflow_transaction_id if txn.id == tr.outflow_transaction_id else tr.outflow_transaction_id
-        if other_id:
-            other_txn = session.get(Transaction, other_id)
-            if other_txn:
-                if other_txn.id == tr.outflow_transaction_id:
-                    other_txn.transaction_type = "expense"
-                else:
-                    other_txn.transaction_type = "income"
-                other_txn.transfer_id = None
-                session.add(other_txn)
-        session.delete(tr)
-
-    # 3.5 解除外部交易指向该交易的 refund_of_transaction_id 自引用外键
-    for ext_rf in session.exec(
-        select(Transaction).where(Transaction.refund_of_transaction_id == txn.id)
-    ).all():
-        ext_rf.refund_of_transaction_id = None
-        session.add(ext_rf)
-
-    # 4. 删除交易本身
-    session.delete(txn)
-    session.commit()
-
-    return {"status": "ok", "message": "交易已成功删除", "deleted_id": str(transaction_id)}
+    from services.transaction_deletion import delete_transactions
+    return delete_transactions(session, user_or_ctx, transaction_id, scope,
+                               expected_transfer_id, _verify_account_write_permission)

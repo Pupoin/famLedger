@@ -114,6 +114,7 @@ export default function AccountTypeSelectDropdown({
   testId = 'account-type-select',
   className = '',
   useShortLabel = false,
+  disabled = false,
 }) {
   const locale = useLocale();
   const [isOpen, setIsOpen] = useState(false);
@@ -203,6 +204,7 @@ export default function AccountTypeSelectDropdown({
   }, [isOpen, locale]);
 
   const handleSelect = (val) => {
+    if (disabled) return;
     if (onChange) {
       onChange({ target: { name, value: val } });
     }
@@ -248,6 +250,7 @@ export default function AccountTypeSelectDropdown({
       {/* 隐藏原生 select 保持兼容 */}
       <select
         name={name}
+        disabled={disabled}
         value={selectedOption.value}
         onChange={onChange}
         className="sr-only"
@@ -273,6 +276,7 @@ export default function AccountTypeSelectDropdown({
       {/* 触发器按钮 */}
       <button
         ref={triggerRef}
+        disabled={disabled}
         type="button"
         data-testid={testId}
         aria-haspopup="listbox"

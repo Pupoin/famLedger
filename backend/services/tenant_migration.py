@@ -269,6 +269,19 @@ def migrate_user_to_family(
     ).all()
     account_ids = [acc.id for acc in user_accounts]
 
+    # Carry each card's unpaid share across the tenant boundary before changing
+    # family IDs. Once moved, the old group's tenant filter cannot see that debt.
+    moved_ids = set(account_ids)
+    related_cards = session.exec(select(Account).where(
+        Account.parent_account_id.is_not(None),
+        or_(Account.id.in_(moved_ids), Account.parent_account_id.in_(moved_ids)),
+    )).all() if moved_ids else []
+    for child in related_cards:
+        if (child.id in moved_ids) != (child.parent_account_id in moved_ids):
+            child.parent_account_id = None
+            session.add(child)
+    session.flush()
+
     # Pending source records follow their account but never auto-use old-family links.
     from models import PendingFxTransaction
     for pending in session.exec(select(PendingFxTransaction).where(PendingFxTransaction.account_id.in_(account_ids))).all():

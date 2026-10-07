@@ -21,7 +21,8 @@ def add_months(anchor, months):
     return date(year, month, min(anchor.day, calendar.monthrange(year, month)[1]))
 
 
-def occurrence_date(plan, number):
+def scheduled_date(plan, number):
+    """The regular recurrence, without a final-payment override."""
     stages = getattr(plan, 'config', {}).get('recurrence_stages', [])
     stage = next((s for s in reversed(stages) if s['from_period'] <= number), None)
     anchor = date.fromisoformat(stage['start_date']) if stage else plan.start_date
@@ -31,6 +32,24 @@ def occurrence_date(plan, number):
     if frequency == 'weekly':
         return anchor + timedelta(weeks=count)
     return add_months(anchor, count * {'monthly': 1, 'quarterly': 3, 'yearly': 12}[frequency])
+
+
+def occurrence_date(plan, number):
+    due = scheduled_date(plan, number)
+    if getattr(plan, 'kind', None) == 'loan' and number == plan.occurrence_limit:
+        loan = getattr(plan, 'loan', None)
+        final_date = loan.final_payment_date if loan is not None else plan.config.get('loan', {}).get('final_payment_date')
+        if final_date is not None:
+            return date.fromisoformat(final_date) if isinstance(final_date, str) else final_date
+        day = loan.final_payment_day if loan is not None else plan.config.get('loan', {}).get('final_payment_day')
+        if day is not None:
+            return due.replace(day=min(day, calendar.monthrange(due.year, due.month)[1]))
+    return due
+
+
+def scheduled_period_days(plan, number):
+    previous = scheduled_date(plan, number - 1) if number > 1 else add_months(plan.start_date, -1)
+    return (scheduled_date(plan, number) - previous).days
 
 
 class RateStage(BaseModel):
@@ -81,6 +100,8 @@ class LoanConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
     term_months: int = Field(ge=1, le=1200)
     interest_start_date: date
+    final_payment_day: int | None = Field(default=None, ge=1, le=31, strict=True)
+    final_payment_date: date | None = None
     rates: list[RateStage] = Field(min_length=1, max_length=100)
     phases: list[RepaymentStage] = Field(min_length=1, max_length=100)
     day_count: Literal['monthly', 'actual_365', 'actual_360'] = 'monthly'
@@ -90,6 +111,8 @@ class LoanConfig(BaseModel):
 
     @model_validator(mode='after')
     def ordered(self):
+        if self.final_payment_day is not None and self.final_payment_date is not None:
+            raise ValueError('最后一期只能选择日号或完整日期其中一种')
         self.rates.sort(key=lambda r: r.effective_date)
         self.phases.sort(key=lambda p: p.from_period)
         self.interest_free_periods.sort(key=lambda p: p.start_date)
@@ -197,7 +220,7 @@ def installment(config, number, due, previous_due, principal, deferred, currency
             monthly = rate / Decimal(1200)
             payment = rounded(principal / remaining if not monthly else
                               principal * monthly / (1 - (1 + monthly) ** -remaining), currency)
-        if payment < interest:
+        if payment < interest and number != config.term_months:
             raise ValueError('每期还款金额不足以支付当期利息')
         paid_principal = min(principal, max(ZERO, payment - interest))
     # Balloon and rounding residuals are explicit in the final installment.

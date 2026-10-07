@@ -169,6 +169,14 @@ class Account(SQLModel, table=True):
     classification: str = Field(default="asset", max_length=20)  # asset | liability
     currency: str = Field(default="CNY", max_length=10)
     balance: Decimal = Field(default=Decimal("0.00"), sa_column=Column(sqlalchemy.Numeric(19, 4)))
+    latest_balance: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4), nullable=True))
+    latest_own_balance: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4), nullable=True))
+    latest_settlement_balance: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4), nullable=True))
+    latest_settlement_currency: Optional[str] = Field(default=None, max_length=10)
+    latest_transaction_count: int = Field(default=0)
+    ledger_initialized: bool = Field(default=False)
+    balance_version: int = Field(default=0)
+    balance_updated_at: Optional[datetime] = Field(default=None)
     is_active: bool = Field(default=True, index=True)
     exclude_from_reports: bool = Field(default=False)
     institution_name: Optional[str] = Field(default=None, max_length=100, index=True)
@@ -193,6 +201,44 @@ class AccountShare(SQLModel, table=True):
     permission: str = Field(default="read_only", max_length=20)  # full_control | read_write | read_only
     include_in_finances: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CardSettlementState(SQLModel, table=True):
+    """Derived repayment allocations, rebuilt atomically with ledger writes."""
+    __tablename__ = "card_settlement_states"
+
+    master_account_id: uuid.UUID = Field(primary_key=True, foreign_key="accounts.id", ondelete="CASCADE")
+    currency: str = Field(max_length=10)
+    allocations: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON_TYPE))
+    balances: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON_TYPE))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class CardMembership(SQLModel, table=True):
+    """A dated settlement relationship, retained after a card is deleted.
+
+    IDs intentionally have no account FK: closed financial periods outlive the
+    account UI record and must not disappear through an account-delete cascade.
+    """
+    __tablename__ = "card_memberships"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    account_id: uuid.UUID = Field(index=True)
+    master_account_id: uuid.UUID = Field(index=True)
+    currency: str = Field(max_length=10)
+    settlement_currency: str = Field(max_length=10)
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+
+
+class CardSettlementArchive(SQLModel, table=True):
+    """Minimal financial evidence for deleted cards, without mail or user PII."""
+    __tablename__ = "card_settlement_archives"
+    account_id: uuid.UUID = Field(primary_key=True)
+    currency: str = Field(max_length=10)
+    account_type: str = Field(max_length=50)
+    transactions: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON_TYPE))
+    refunds: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON_TYPE))
+    transfers: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON_TYPE))
 
 
 # ==========================================

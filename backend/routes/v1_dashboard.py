@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 
 from database import get_session
 from auth import get_current_user_or_token
-from models import Account, Category, Family, PersonalDebt, Transaction, TransactionSplit, User
+from models import Account, Category, Family, PersonalDebt, Transaction, User
 
 router = APIRouter(tags=["v1-dashboard"])
 
@@ -216,9 +216,7 @@ def get_dashboard_summary(
     split_txn_ids = [t.id for t in (expense_txns + refund_txns) if t.is_split]
     splits_map = {}
     if split_txn_ids:
-        all_splits = session.exec(
-            select(TransactionSplit).where(TransactionSplit.transaction_id.in_(split_txn_ids))
-        ).all()
+        all_splits = [sp for key in split_txn_ids for sp in report_money.read.splits.get(key, [])]
         for sp in report_money.splits(all_splits, original_txns):
             splits_map.setdefault(sp.transaction_id, []).append(sp)
 
@@ -227,8 +225,7 @@ def get_dashboard_summary(
     )
 
     # 4.2 Outflow by Account from real expense transactions (净额化扣除账户退款)
-    all_accs = session.exec(select(Account)).all()
-    acc_map = {a.id: a for a in all_accs}
+    acc_map = {a.id: a for a in active_accounts}
 
     acc_buckets = {}
     ACC_PALETTE = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4"]
@@ -402,7 +399,10 @@ def get_dashboard_summary(
         trend_stmt = trend_stmt.where(False)
 
     trend_buckets = {}
-    for activity in session.exec(trend_stmt).all():
+    trend_rows = [row for row in session.exec(trend_stmt).all()
+                  if is_genuine_income(row, all_acc_map) or is_genuine_expense(row, all_acc_map) or is_genuine_refund(row)]
+    report_money.prepare(trend_rows)
+    for activity in trend_rows:
         if is_genuine_income(activity, all_acc_map):
             kind, amount = "income", report_money.ledger_amount(activity)
         elif is_genuine_expense(activity, all_acc_map):
@@ -430,19 +430,24 @@ def get_dashboard_summary(
         })
 
     # Balance Sheet from DB accounts with real-time transaction balance verification
-    from services.stats_engine import get_report_account_balances
+    from services.stats_engine import get_report_account_balances, get_grouped_account_balances
     from services.balance_sheet import visible_balance_accounts
     from services.account_types import financial_classification
     acc_list = visible_balance_accounts(session, user_or_ctx if isinstance(user_or_ctx, str)
                                         and user_or_ctx.startswith('service:') else user_db,
                                         target_user_obj.id if target_user_obj else None)
-    realtime_map = get_report_account_balances(session, acc_list, report_money)
-    user_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User)).all()}
+    from services.account_balances import current_balances
+    native_balances = current_balances(session, acc_list)
+    realtime_map = get_report_account_balances(session, acc_list, report_money, native_balances)
+    grouped_map = get_grouped_account_balances(session, acc_list, report_money, native_balances)
+    owner_ids = {a.owner_id for a in acc_list if a.owner_id}
+    user_map = {u.id: (u.display_name or u.username) for u in session.exec(
+        select(User).where(User.id.in_(owner_ids))).all()} if owner_ids else {}
 
     import re
 
     def build_account_obj(a, class_total):
-        bal = realtime_map.get(a.id, float(a.balance or 0))
+        bal = grouped_map[a.id]
         weight = round(bal / class_total * 100, 1) if class_total > 0 else 0.0
         mask_m = re.search(r"(\d{4})", a.name or "")
         mask = mask_m.group(1) if mask_m else "0000"
@@ -459,10 +464,11 @@ def get_dashboard_summary(
             "weight": weight,
         }
 
-    asset_accs = [a for a in acc_list if financial_classification(a) == "asset"]
-    liab_accs = [a for a in acc_list if financial_classification(a) == "liability"]
+    visible_ids = {a.id for a in acc_list}
+    asset_accs = [a for a in acc_list if a.parent_account_id not in visible_ids and financial_classification(a) == "asset"]
+    liab_accs = [a for a in acc_list if a.parent_account_id not in visible_ids and financial_classification(a) == "liability"]
 
-    # 报表只累计各参与账户自身活动；卡片详情的合并账单不参与重复累加。
+    # 总额计入整组一次；分组将可见副卡的分摊归回其所属机构和用户。
     total_assets = round(sum(realtime_map.get(a.id, float(a.balance or 0)) for a in asset_accs), 2)
     total_liabilities = round(sum(realtime_map.get(a.id, 0) for a in liab_accs), 2)
     net_worth = round(total_assets - total_liabilities, 2)
@@ -518,7 +524,7 @@ def get_dashboard_summary(
         res = []
         for idx, (gname, g_accs) in enumerate(groups_dict.items()):
             # 分类/银行分组按活动所属账户归集。
-            g_total = round(sum(realtime_map.get(acc.id, 0.0) for acc in g_accs), 2)
+            g_total = round(sum(grouped_map[acc.id] for acc in g_accs), 2)
             g_weight = round(g_total / class_total * 100, 1) if class_total > 0 else 0.0
             if group_by_field == "type":
                 color = TYPE_COLORS.get(gname, FALLBACK_COLORS[idx % len(FALLBACK_COLORS)])
@@ -545,24 +551,24 @@ def get_dashboard_summary(
             "assets": {
                 "name": "资产",
                 "total": total_assets,
-                "groups": group_accounts(asset_accs, "type", total_assets),
+                "groups": group_accounts([a for a in acc_list if financial_classification(a) == "asset"], "type", total_assets),
             },
             "liabilities": {
                 "name": "负债",
                 "total": total_liabilities,
-                "groups": group_accounts(liab_accs, "type", total_liabilities),
+                "groups": group_accounts([a for a in acc_list if financial_classification(a) == "liability"], "type", total_liabilities),
             },
         },
         "by_institution": {
             "assets": {
                 "name": "资产",
                 "total": total_assets,
-                "groups": group_accounts(asset_accs, "institution", total_assets),
+                "groups": group_accounts([a for a in acc_list if financial_classification(a) == "asset"], "institution", total_assets),
             },
             "liabilities": {
                 "name": "负债",
                 "total": total_liabilities,
-                "groups": group_accounts(liab_accs, "institution", total_liabilities),
+                "groups": group_accounts([a for a in acc_list if financial_classification(a) == "liability"], "institution", total_liabilities),
             },
         },
     }

@@ -5,6 +5,7 @@ from decimal import Decimal
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import update
 from sqlmodel import select
 
@@ -84,7 +85,7 @@ def test_share_first_then_link_provides_read_only_access_and_consistent_balances
     assert share.permission == "read_only"
 
 
-def test_primary_balance_sums_own_and_multiple_supplementary_net_activity(auth_client_a, auth_client_b, db, cards):
+def test_primary_balance_and_child_shares_follow_repayment_sequence(auth_client_a, auth_client_b, db, cards):
     alice, _, _, parent, child, _ = cards
     assert set_share(auth_client_b, child, alice).status_code == 200
     assert link(auth_client_b, parent, child).status_code == 200
@@ -103,20 +104,22 @@ def test_primary_balance_sums_own_and_multiple_supplementary_net_activity(auth_c
                     transacted_at=date.today(), narration="Second supplementary purchase"),
     ])
     db.commit()
-    # Primary: 200 - 100 = 100; first supplementary: 123 - 23 = 100; second: 67.
+    # The 100 repayment occurs before the refund/new child purchase. It splits
+    # 61.9195 to the primary and 38.0805 to the first child's then-unpaid 123.
+    # That child's subsequent refund removes another 23; the later 67 is unpaid.
     for period in ("MTD", "ALL", "MTD"):
         listed = auth_client_a.get("/api/v1/accounts").json()["accounts"]
         balances = {a["id"]: Decimal(a["balance"]) for a in listed}
         assert balances[str(parent.id)] == Decimal("267")
-        assert balances[str(child.id)] == Decimal("100")
+        assert balances[str(child.id)] == Decimal("61.9195")
         assert balances[str(second_child.id)] == Decimal("67")
         detail = auth_client_a.get(f"/api/v1/accounts/{parent.id}", params={"period": period}).json()
         assert Decimal(detail["account"]["balance"]) == Decimal("267")
         assert Decimal(str(detail["metrics"]["balance"])) == Decimal("267")
         assert auth_client_a.get("/api/v1/dashboard/summary").json()["balance_sheet"]["total_liabilities"] == 267
-    # A recipient of the primary cannot infer a second private supplementary card's balance.
+    # A primary recipient sees its combined balance, but no private child's ledger.
     recipient_detail = auth_client_b.get(f"/api/v1/accounts/{parent.id}").json()["account"]
-    assert Decimal(recipient_detail["balance"]) == Decimal("200")
+    assert Decimal(recipient_detail["balance"]) == Decimal("267")
     assert auth_client_b.get(f"/api/v1/accounts/{second_child.id}").status_code == 403
 
 
@@ -165,6 +168,13 @@ def test_cancel_primary_owner_share_unlinks_without_deleting_activity(auth_clien
     alice, _, _, parent, child, txn = cards
     assert set_share(auth_client_b, child, alice).status_code == 200
     assert link(auth_client_b, parent, child).status_code == 200
+    blocked = set_share(auth_client_b, child, alice, shared=False)
+    assert blocked.status_code == 409
+    db.expire_all()
+    assert child.parent_account_id == parent.id
+    assert db.exec(select(AccountShare).where(AccountShare.account_id==child.id,AccountShare.user_id==alice.id)).first() is not None
+    db.add(Transaction(account_id=parent.id,amount=Decimal(123),transaction_type='income',transacted_at=date.today(),narration='Clear additional card'))
+    db.commit()
     response = set_share(auth_client_b, child, alice, shared=False)
     assert response.status_code == 200 and response.json()["unlinked_from_parent"] is True
     db.expire_all()
@@ -232,20 +242,23 @@ def test_primary_ownership_transfer_rechecks_child_sharing(auth_client_a, auth_c
     assert link(auth_client_b, parent, child).status_code == 200
     response = auth_client_a.post(f"/api/v1/accounts/{parent.id}/transfer-ownership",
                                   json={"new_owner_id": str(carol.id)})
-    assert response.status_code == 200
+    assert response.status_code == (200 if shared_with_new_owner else 409)
     db.expire_all()
-    assert db.get(Account, child.id).parent_account_id == (parent.id if shared_with_new_owner else None)
+    assert db.get(Account, child.id).parent_account_id == parent.id
+    assert parent.owner_id == (carol.id if shared_with_new_owner else alice.id)
 
 
-def test_repair_detaches_legacy_unshared_link_without_granting_or_deleting(db, cards):
+def test_repair_refuses_to_unlink_unpaid_unshared_card(db, cards):
     _, _, _, parent, child, txn = cards
     # Simulate a link written by an older build, bypassing current ORM guards.
     db.execute(update(Account).where(Account.id == child.id).values(parent_account_id=parent.id))
     db.commit()
     db.expire_all()
     assert detach_unshared_cards(db) == [child.id]
-    db.commit()
-    assert db.get(Account, child.id).parent_account_id is None
+    with pytest.raises(HTTPException, match='副卡待还未清零'):
+        db.commit()
+    db.rollback()
+    assert db.get(Account, child.id).parent_account_id == parent.id
     assert db.get(Transaction, txn.id).amount == 123
     assert db.exec(select(AccountShare).where(AccountShare.account_id == child.id)).all() == []
 
@@ -260,7 +273,7 @@ def test_same_owner_can_link_without_redundant_self_share(auth_client_a, db, car
     assert db.exec(select(AccountShare).where(AccountShare.account_id == uuid.UUID(response.json()["id"]))).all() == []
 
 
-def test_primary_shared_viewer_cannot_read_unshared_child(auth_client_a, auth_client_b, db, cards):
+def test_primary_shared_viewer_sees_group_balance_without_unshared_child_details(auth_client_a, auth_client_b, db, cards):
     alice, _, carol, parent, child, txn = cards
     assert set_share(auth_client_b, child, alice).status_code == 200
     assert link(auth_client_b, parent, child).status_code == 200
@@ -272,7 +285,14 @@ def test_primary_shared_viewer_cannot_read_unshared_child(auth_client_a, auth_cl
     assert parent.id in visible and child.id not in visible
     result = get_dashboard_summary(Request({"type": "http"}), period="monthly", selected_month=None,
         start_date=None, end_date=None, account_id=None, user_filter=None, session=db, user_or_ctx="carol")
-    assert result["balance_sheet"]["total_liabilities"] == 0
+    # Sharing the primary authorizes its combined balance, not child records.
+    assert result["balance_sheet"]["total_liabilities"] == 123
+    from routes.v1_accounts import get_account_detail
+    detail = get_account_detail(parent.id, period="ALL", session=db, user_or_ctx="carol")
+    assert Decimal(detail["account"]["balance"]) == 123
+    assert detail["account"]["transaction_count"] == 0
+    assert str(child.id) not in str(detail)
+    assert str(txn.id) not in str(detail)
 
 
 def test_family_move_keeps_same_owner_links_across_intermediate_flushes(auth_client_a, db, cards):

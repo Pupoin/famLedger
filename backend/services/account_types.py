@@ -34,22 +34,35 @@ def change_account_type(session, account, value):
     their types; any remaining difference is an excluded balance adjustment.
     """
     from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
     from sqlmodel import select
     from models import Transaction
     from routes.v1_accounts import _calc_raw_account_balance, _ensure_opening_balance_transaction
 
     new_type = normalize_account_type(value)
+    if account.parent_account_id and new_type != 'credit_card':
+        # Settle the old credit-card share before reinterpreting its ledger
+        # under the new classification, including callers doing bulk edits.
+        account.parent_account_id = None
+        session.add(account)
+        session.flush()
     old_class = account.classification
     new_class = account_classification(new_type)
     if old_class == new_class:
         account.account_type = new_type
         account.classification = new_class
         return
-    _ensure_opening_balance_transaction(session, account)
+    from services.card_history import history_exists
+    historical = history_exists(session, account.id)
+    from routes.v1_accounts import get_account_realtime_balance
+    if not historical:
+        _ensure_opening_balance_transaction(session, account)
     with session.no_autoflush:
-        before = _calc_raw_account_balance(session, account.id, old_class, account.balance)
+        before = get_account_realtime_balance(session, account.id, old_class, account.balance) if historical else _calc_raw_account_balance(session, account.id, old_class, account.balance)
         openings = session.exec(select(Transaction).where(Transaction.account_id == account.id)).all()
         for row in openings:
+            if historical:
+                continue
             if not row.excluded_from_stats or (row.extra or {}).get('source') != 'account_opening':
                 continue
             if row.transaction_type not in ('income', 'expense'):
@@ -62,12 +75,12 @@ def change_account_type(session, account, value):
         account.classification = new_class
         session.add(account)
     session.flush()
-    after = _calc_raw_account_balance(session, account.id, new_class, account.balance)
+    after = get_account_realtime_balance(session, account.id, new_class, account.balance) if historical else _calc_raw_account_balance(session, account.id, new_class, account.balance)
     diff = before - after
     if diff:
         now = datetime.now(timezone.utc)
         session.add(Transaction(
-            account_id=account.id, transacted_at=now.date(), occurred_at=now.replace(tzinfo=None),
+            account_id=account.id, transacted_at=now.astimezone(ZoneInfo('Asia/Shanghai')).date(), occurred_at=now.replace(tzinfo=None),
             amount=abs(diff), currency=account.currency, transaction_type='adjustment',
             narration='账户类别变更余额调整', category_source='manual', status='cleared',
             reconciled=True, excluded_from_stats=True,

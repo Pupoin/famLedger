@@ -64,7 +64,7 @@ def fixed_conversion(session, amount, source, target, day, bank_amount=None, ban
 
 def prepare_booking(session, account, amount, original_currency, day, settlement_amount=None,
                     settlement_currency=None, master_settlement_amount=None,
-                    master_settlement_currency=None, source_name="bank"):
+                    master_settlement_currency=None, source_name="bank", occurred_at=None):
     original = money(amount, positive=True)
     native = currency(original_currency or account.currency)
     booked, rate, rate_day, provider = fixed_conversion(
@@ -72,9 +72,15 @@ def prepare_booking(session, account, amount, original_currency, day, settlement
     fields = dict(amount=booked, currency=account.currency, original_amount=original,
                   original_currency=native, exchange_rate=rate, exchange_rate_date=rate_day,
                   exchange_rate_source=provider)
-    if account.parent_account_id:
-        parent = session.get(Account, account.parent_account_id)
-        if not parent or not parent.is_active or parent.family_id != account.family_id:
+    from services.card_history import parent_at
+    membership = parent_at(session, account, Transaction(account_id=account.id, transacted_at=day,
+                           occurred_at=occurred_at, amount=booked, narration=''))
+    if membership:
+        parent = session.get(Account, membership.master_account_id)
+        if parent is None and membership.ended_at is not None:
+            parent = Account(id=membership.master_account_id, name='', account_type='credit_card',
+                             family_id=account.family_id, currency=membership.settlement_currency)
+        if not parent or (membership.ended_at is None and (not parent.is_active or parent.family_id != account.family_id)):
             raise HTTPException(409, "副卡的主卡关系已失效")
         value, master_rate, master_day, master_source = fixed_conversion(
             session, booked, account.currency, parent.currency, day,
@@ -99,13 +105,20 @@ def native_money(txn):
 
 
 def master_fields(txn, session, account, force=False):
-    if not account.parent_account_id:
+    from services.card_history import parent_at
+    membership = parent_at(session, account, txn)
+    if membership is None:
         for name in ("master_account_id", "master_settlement_amount", "master_settlement_currency",
                      "master_exchange_rate", "master_exchange_rate_date", "master_exchange_rate_source"):
             setattr(txn, name, None)
         return
-    parent = session.get(Account, account.parent_account_id)
-    if not parent or not parent.is_active or parent.family_id != account.family_id:
+    parent = session.get(Account, membership.master_account_id)
+    if parent is None and membership.ended_at is not None:
+        parent = Account(id=membership.master_account_id, name='', account_type='credit_card',
+                         family_id=account.family_id, currency=membership.settlement_currency)
+    if parent is None:
+        parent = next((row for row in session.new if isinstance(row, Account) and row.id == membership.master_account_id), None)
+    if not parent or (membership.ended_at is None and (not parent.is_active or parent.family_id != account.family_id)):
         raise HTTPException(409, "副卡主卡关系无效")
     if not force and txn.master_account_id == parent.id and txn.master_settlement_amount is not None:
         return
@@ -135,6 +148,8 @@ def complete_ledger_money(session, flush_context, instances):
     deliberate financial edits are prepared; ordinary reads/notes stay fixed.
     """
     with session.no_autoflush:
+        from services.card_history import maintain_memberships, history_exists
+        maintain_memberships(session)
         changed_accounts = [row for row in session.dirty if isinstance(row, Account)]
         for account in changed_accounts:
             state = inspect(account)
@@ -142,17 +157,17 @@ def complete_ledger_money(session, flush_context, instances):
                 has_rows = session.execute(select(Transaction.id).where(Transaction.account_id == account.id)).first()
                 has_pending = session.execute(select(PendingFxTransaction.id).where(PendingFxTransaction.account_id == account.id)).first()
                 has_children = session.execute(select(Account.id).where(Account.parent_account_id == account.id)).first()
-                if has_rows or has_pending or account.parent_account_id or has_children:
+                if has_rows or has_pending or account.parent_account_id or has_children or history_exists(session, account.id):
                     raise HTTPException(400, "有流水、待入账记录或主副卡关系的账户不能直接修改币种，请新建正确币种账户")
             if state.attrs.parent_account_id.history.has_changes():
                 for txn in session.execute(select(Transaction).where(Transaction.account_id == account.id)).scalars().all():
-                    master_fields(txn, session, account, force=True)
+                    master_fields(txn, session, account)
         for txn in list(session.new) + list(session.dirty):
             if not isinstance(txn, Transaction) or txn in session.deleted:
                 continue
             state = inspect(txn)
             financial_change = any(state.attrs[name].history.has_changes() for name in
-                                   ("amount", "currency", "account_id", "original_amount", "original_currency", "transacted_at"))
+                                   ("amount", "currency", "account_id", "original_amount", "original_currency", "transacted_at", "occurred_at"))
             if txn not in session.new and not financial_change:
                 continue
             account = session.get(Account, txn.account_id)

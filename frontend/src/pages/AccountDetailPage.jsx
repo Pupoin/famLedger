@@ -99,12 +99,16 @@ export default function AccountDetailPage() {
 
   useEffect(() => {
     if (id) {
+      if (data?.account?.id !== id) {
+        setData(null);
+        setTransactions([]);
+      }
       loadAccountData();
     }
     return () => { loadVersion.current += 1; };
   }, [id, period]);
 
-  const account = data?.account;
+  const account = data?.account?.id === id ? data.account : null;
   const nativeSymbol = {USD:'$', EUR:'€', GBP:'£', CAD:'C$', AUD:'A$', INR:'₹', JPY:'¥', CNY:'¥', CHF:'CHF', SGD:'S$', HKD:'HK$'}[account?.currency] || account?.currency || '¥';
   const metrics = data?.metrics;
   const chart = data?.chart;
@@ -145,7 +149,7 @@ export default function AccountDetailPage() {
       g.items.sort((a, b) => {
         const timeA = new Date(a.occurred_at || a.created_at || a.transacted_at).getTime() || 0;
         const timeB = new Date(b.occurred_at || b.created_at || b.transacted_at).getTime() || 0;
-        return timeA - timeB; // 升序，由早到晚
+        return timeB - timeA; // 同日内最新的交易在上方
       });
     });
 
@@ -302,7 +306,7 @@ export default function AccountDetailPage() {
   };
 
 
-  if (loading && !data) {
+  if ((loading && !account) || (data?.account && !account)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
         <div className="w-7 h-7 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin dark:border-zinc-100" />
@@ -329,7 +333,17 @@ export default function AccountDetailPage() {
 
   return (
     <div className="space-y-4 pb-20 max-w-7xl mx-auto w-full">
-      {account?.own_balance != null && Number(account.subcard_settlement_balance) !== 0 && <p className="text-xs text-zinc-500">{tx("主卡自身余额")} {privacyMode ? '••••••' : `${account.own_balance} ${account.currency}`} {tx("· 副卡固定结算合计")} {privacyMode ? '••••••' : `${account.subcard_settlement_balance} ${account.currency}`}</p>}
+      {!account.parent_account_id && account?.own_balance != null && Number(account.subcard_settlement_balance) !== 0 && <p className="text-xs text-zinc-500">{tx("主卡自身待还")} {privacyMode ? '••••••' : `${account.own_balance} ${account.currency}`} {tx("· 副卡待还合计")} {privacyMode ? '••••••' : `${account.subcard_settlement_balance} ${account.currency}`}</p>}
+      {account.parent_account_id && <p className="text-xs text-zinc-500">{tx("副卡待还已扣除分摊还款，不重复计入总负债；历史消费仍保留。")}</p>}
+      {data?.repayment_allocations?.length > 0 && <details className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 text-xs" data-testid="card-repayment-allocations">
+        <summary className="cursor-pointer font-medium text-zinc-600 dark:text-zinc-300">{tx("本卡还款与冲抵分配")}</summary>
+        <div className="mt-2 space-y-2 text-zinc-500">
+          {data.repayment_allocations.slice(-8).reverse().map((row, index) => <div key={`${row.source_transaction_id}-${index}`} className="flex items-center justify-between gap-3">
+            <span>{row.date} · {tx(row.kind === 'refund' ? '退款冲抵' : row.kind === 'credit' ? '溢缴款抵扣' : row.kind === 'adjustment' ? '余额调整冲抵' : row.kind === 'internal_transfer' ? '组内欠款转移' : '还款分配')}</span>
+            <span className="font-mono whitespace-nowrap">{privacyMode ? '••••••' : `${row.amount} ${row.currency}`}</span>
+          </div>)}
+        </div>
+      </details>}
       {/* ── 1. Top Breadcrumb (Exact 13.png: 主页 > 账户) ── */}
       <div className="hidden lg:flex items-center justify-between text-xs text-zinc-500">
         <div className="flex items-center gap-2">
@@ -483,7 +497,7 @@ export default function AccountDetailPage() {
                 <div className="flex items-center gap-2">
                   <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
                     {isLiability
-                      ? (displayBalance < 0 ? tx("溢缴款 (还款盈余)") : tx("债务余额"))
+                      ? (account.parent_account_id ? tx("副卡待还金额") : displayBalance < 0 ? tx("溢缴款 (还款盈余)") : account.is_settlement_primary ? tx("主副卡合计待还") : tx("债务余额"))
                       : tx("当前余额")}
                     {isLiability && displayBalance < 0 && (
                       <span className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">{tx("无需还款 · 充当可用额度")}</span>

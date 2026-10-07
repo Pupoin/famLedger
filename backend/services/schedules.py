@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from models import Account, Family, Loan, ScheduledPlan, ScheduledOccurrence, ScheduledBankMatch, Transaction, Transfer, User
 from services.booking_money import prepare_booking, money, PendingExchangeRate
-from services.schedule_math import LoanConfig, occurrence_date, installment, rounded, interest_for, add_months
+from services.schedule_math import LoanConfig, add_months, occurrence_date, scheduled_date, scheduled_period_days, installment, rounded, interest_for
 from services.transaction_lock import lock_mutation
 
 PAID = {'posted', 'reconciled'}
@@ -93,6 +93,25 @@ def records_for(session, plan):
 def projection(session, plan):
     records = records_for(session, plan)
     config = LoanConfig.model_validate(plan.config['loan']) if plan.kind == 'loan' else None
+    if config and (config.final_payment_day is not None or config.final_payment_date is not None):
+        final_row = records.get(plan.occurrence_limit)
+        final_due = final_row.due_date if final_row and final_row.status in PAID | {'skipped', 'undone'} else occurrence_date(plan, plan.occurrence_limit)
+        last_month = scheduled_date(plan, plan.occurrence_limit)
+        if (final_due.year, final_due.month) > (last_month.year, last_month.month):
+            raise HTTPException(422, f'最后一期还款月份不能晚于 {last_month:%Y-%m}')
+        if final_due <= config.interest_start_date:
+            raise HTTPException(422, '最后一期还款日期必须晚于计息开始日期')
+        previous_row = records.get(plan.occurrence_limit - 1)
+        previous = previous_row.due_date if previous_row and previous_row.status in PAID | {'skipped', 'undone'} else (
+            occurrence_date(plan, plan.occurrence_limit - 1) if plan.occurrence_limit > 1 else config.interest_start_date)
+        if final_due <= previous:
+            raise HTTPException(422, '最后一期还款日期必须晚于上一期还款日')
+        prior_payments = [date.fromisoformat(r.snapshot.get('payment_date', r.due_date.isoformat()))
+                          for n, r in records.items() if n < plan.occurrence_limit and r.status in PAID
+                          and booking_plan(plan, r).destination_id == plan.destination_id
+                          and booking_plan(plan, r).currency == plan.currency]
+        if prior_payments and final_due <= max(prior_payments):
+            raise HTTPException(422, '最后一期还款日期必须晚于已发生的还款日期')
     if config and any(p.end_date >= occurrence_date(plan, plan.occurrence_limit) for p in config.interest_only_periods):
         raise HTTPException(422, '仅还利息结束日期必须早于最后一期还款日')
     principal = max(Decimal(0), balance(session, session.get(Account, plan.destination_id))) if config else Decimal(0)
@@ -132,10 +151,9 @@ def projection(session, plan):
                     loan_started = True
                     projected_previous = previous
                 previous = projected_previous
-                nominal_previous = occurrence_date(plan, number - 1) if number > 1 else add_months(plan.start_date, -1)
                 try:
                     detail = installment(config, number, due, previous, principal, deferred,
-                                         plan.currency, plan.config.get('payment_override'), (due - nominal_previous).days)
+                                         plan.currency, plan.config.get('payment_override'), scheduled_period_days(plan, number))
                 except ValueError as error:
                     raise HTTPException(422, str(error)) from error
                 if not row or row.status != 'skipped':
@@ -274,8 +292,11 @@ def post(session, actor, plan, number, payment_date=None, linked=None, bank_amou
         start = max(start, config.interest_start_date)
         next_due = date.fromisoformat(next_item['due_date'])
         preceding = add_months(next_due, -1)
+        period_days = scheduled_period_days(plan, next_item['number']) if (
+            (config.final_payment_day is not None or config.final_payment_date is not None) and next_item['number'] == config.term_months
+        ) else (next_due - preceding).days
         charged_interest = rounded(interest_for(config, max(Decimal(0), balance(session, session.get(Account, plan.destination_id))),
-                                                start, when, (next_due - preceding).days), plan.currency)
+                                                start, when, period_days), plan.currency)
         treatment = next_item.get('interest_treatment')
         paid_interest = charged_interest if treatment is None else Decimal(0)
         detail = {'principal': str(prepayment), 'interest': str(paid_interest), 'fee': '0',
@@ -293,13 +314,14 @@ def post(session, actor, plan, number, payment_date=None, linked=None, bank_amou
             raise HTTPException(422, '支付日期不能早于上次还款或计息开始日期')
     if plan.kind == 'loan' and prepayment is None:
         config = LoanConfig.model_validate(plan.config['loan'])
-        if config.day_count != 'monthly' and actual_date != row.due_date:
+        irregular_final = (config.final_payment_day is not None or config.final_payment_date is not None) and number == config.term_months
+        if actual_date != row.due_date and (config.day_count != 'monthly' or irregular_final):
             previous = max((accrual_date(r, LoanConfig.model_validate(booking_plan(root_plan, r).config['loan'])) for r in loan_paid), default=config.interest_start_date)
             previous = max(previous, config.interest_start_date)
             detail = installment(config, number, actual_date, previous,
                 max(Decimal(0), balance(session, target)),
                 max(Decimal(0), balance(session, session.get(Account, plan.accrual_account_id))) if plan.accrual_account_id else Decimal(0),
-                plan.currency, plan.config.get('payment_override'), phase_date=row.due_date)
+                plan.currency, plan.config.get('payment_override'), scheduled_period_days(plan, number), phase_date=row.due_date)
     principal, interest, fee = [Decimal(detail[k]) for k in ('principal', 'interest', 'fee')]
     total = Decimal(detail['total'])
     if total == 0 and (linked is not None or bank_amount is not None):

@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { createPageViewStore } from './pageViewStore';
 
 describe('chart page history', () => {
+  it('returns to the budget month, tab, category filter and clicked category position', () => {
+    const store = createPageViewStore();
+    const key = '/budgets:original';
+    store.set(key, 'selectedMonth', '2026-08');
+    store.set(key, 'activeTab', 'actual');
+    store.set(key, 'categoryFilter', 'over');
+    store.setScroll(key, { y: 780, section: 'budget-category-Dining', top: 170 });
+    store.get('/transactions:drilldown', 'selectedMonth', '2026-10');
+    expect(store.get(key, 'selectedMonth', '2026-10')).toBe('2026-08');
+    expect(store.get(key, 'activeTab', 'budget')).toBe('actual');
+    expect(store.get(key, 'categoryFilter', 'all')).toBe('over');
+    expect(store.getScroll(key)).toEqual({ y: 780, section: 'budget-category-Dining', top: 170 });
+  });
   it('returns to the original custom range and chart controls after a drilldown', () => {
     const store = createPageViewStore();
     const overview = '/:overview-1';
