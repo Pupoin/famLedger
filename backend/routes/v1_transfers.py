@@ -26,7 +26,7 @@ from models import (
     User,
 )
 from auth import get_current_user_or_token
-from routes.v1_transactions import serialize_utc_datetime, _verify_account_write_permission, clean_to_utc, get_local_date
+from routes.v1_transactions import serialize_utc_datetime, _verify_account_write_permission, _verify_account_transfer_in_permission, clean_to_utc, get_local_date
 from services.stats_engine import (
     get_family_active_account_ids,
     get_user_visible_account_ids,
@@ -88,6 +88,8 @@ def create_transfer(
         raise HTTPException(status_code=404, detail="转出账户不存在")
     if not to_acc:
         raise HTTPException(status_code=404, detail="转入账户不存在")
+    if not from_acc.is_active or not to_acc.is_active:
+        raise HTTPException(status_code=409, detail="转账账户已停用")
     if from_acc.currency != to_acc.currency or payload.currency != from_acc.currency:
         raise HTTPException(status_code=400, detail="跨币种转账需要明确兑换金额")
     if from_acc.id == to_acc.id:
@@ -104,11 +106,9 @@ def create_transfer(
         writable_ids = get_user_writable_account_ids(session, current_user, from_acc.family_id)
         if from_acc.id not in writable_ids:
             raise HTTPException(status_code=403, detail=f"您没有权限从账户「{from_acc.name}」转出资金")
-        if to_acc.id not in writable_ids:
-            raise HTTPException(status_code=403, detail=f"您没有权限向账户「{to_acc.name}」转入资金")
 
     _verify_account_write_permission(session, user_or_ctx, from_acc.id, "转出资金")
-    _verify_account_write_permission(session, user_or_ctx, to_acc.id, "转入资金")
+    _verify_account_transfer_in_permission(session, user_or_ctx, to_acc.id, "转入资金")
 
     amt = abs(payload.amount)
     if amt <= 0:

@@ -95,13 +95,14 @@ def get_plan(session, username, plan_id, write=False):
 
 
 def validate_accounts(session, actor, body):
-    from routes.v1_transactions import _verify_account_write_permission
+    from routes.v1_transactions import _verify_account_write_permission, _verify_account_transfer_in_permission
     from routes.v1_accounts import _verify_account_management_permission
     for key in [body.account_id, body.destination_id]:
         account = session.get(Account, key)
         if not account or account.family_id != actor.family_id or not account.is_active:
             raise HTTPException(403, '计划账户必须为当前家庭中有效且可写的账户')
-        _verify_account_write_permission(session, actor.username, key, '创建计划')
+        checker = _verify_account_transfer_in_permission if body.kind == 'transfer' and key == body.destination_id else _verify_account_write_permission
+        checker(session, actor.username, key, '创建计划')
     target, source = session.get(Account, body.destination_id), session.get(Account, body.account_id)
     if body.kind == 'loan':
         _verify_account_management_permission(actor, target, '配置贷款', session=session)
@@ -178,10 +179,17 @@ def serialize(session, actor, plan, detailed=False):
     except HTTPException:
         can_manage = False
     source, destination = session.get(Account, plan.account_id), session.get(Account, plan.destination_id)
+    from routes.v1_transactions import _verify_account_write_permission
+    can_undo = can_manage
+    if can_undo:
+        try:
+            _verify_account_write_permission(session, actor.username, destination.id, '撤销计划流水')
+        except HTTPException:
+            can_undo = False
     result = plan.model_dump(mode='json') | {
         'config': {key: value for key, value in plan.config.items() if key != 'history_versions'},
         'account_name': source.name, 'destination_name': destination.name,
-        'can_manage': can_manage, 'next': upcoming,
+        'can_manage': can_manage, 'can_undo': can_undo, 'next': upcoming,
         'loan_balance': str(balance(session, destination)) if plan.kind == 'loan' else None,
         'pause_reason': plan.config.get('pause_reason'),
     }

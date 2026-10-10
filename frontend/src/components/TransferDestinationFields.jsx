@@ -2,13 +2,15 @@ import React from 'react';
 import { tx, useLocale } from '../localization';
 import AccountSelectDropdown from './AccountSelectDropdown';
 import { ArrowRight } from 'lucide-react';
+import { transferSourceAccounts, transferDestinationAccounts } from '../utils/transferAccounts';
 
 export default function TransferDestinationFields({ transaction, accounts, sourceAccountId, direction,
   onDirectionChange, onSourceChange, destinationId, onDestinationChange, peerAmount, onAmountChange }) {
   useLocale();
   const paired = transaction.paired_transfer;
   const outgoing = paired ? paired.is_outflow : direction === 'outflow';
-  const writable = accounts.filter(account => account.is_active !== false && account.can_edit !== false);
+  const writable = transferSourceAccounts(accounts);
+  const destinations = outgoing ? transferDestinationAccounts(accounts, sourceAccountId) : writable;
   const ownFallback = { id: transaction.account_id, name: transaction.account_name, currency: transaction.currency };
   const peerFallback = paired?.counterpart ? { id: paired.counterpart.account_id,
     name: paired.counterpart.account_name, currency: paired.counterpart.currency, can_edit: false } : null;
@@ -42,7 +44,7 @@ export default function TransferDestinationFields({ transaction, accounts, sourc
       <div className="min-w-0 p-2 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 space-y-1.5">
         <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{tx('转入账户')}</p>
         <AccountSelectDropdown name="to_account_id" testId="edit-transfer-to-account" value={destinationId}
-          accounts={writable.filter(account => account.id !== sourceAccountId)} selectedAccountFallback={toFallback}
+          accounts={destinations.filter(account => account.id !== sourceAccountId)} selectedAccountFallback={toFallback}
           disabled={outgoing && peerReadOnly} onChange={event => onDestinationChange(event.target.value)}
           wrapLabels placeholder="选择转入账户" emptyLabel={!paired && outgoing ? '外部账户' : null} />
       </div>

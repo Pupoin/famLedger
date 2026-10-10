@@ -206,14 +206,12 @@ def test_paired_amount_time_and_original_money_update_together(auth_client_a, db
     assert balance(db, accounts[0]) == -250 and balance(db, accounts[1]) == 250
 
 
-@pytest.mark.parametrize('failure', ['readonly', 'cross_family', 'same_account', 'inactive'])
+@pytest.mark.parametrize('failure', ['private', 'cross_family', 'same_account', 'inactive'])
 def test_invalid_destination_leaves_expense_and_balances_unchanged(auth_client_a, db, accounts, failure):
     destination = accounts[1]
-    if failure == 'readonly':
+    if failure == 'private':
         bob = db.exec(select(User).where(User.username == 'bob')).one()
-        alice = db.exec(select(User).where(User.username == 'alice')).one()
         destination.owner_id = bob.id
-        db.add(AccountShare(account_id=destination.id, user_id=alice.id, permission='read_only'))
     elif failure == 'cross_family':
         family = Family(name='Separate family'); db.add(family); db.flush(); destination.family_id = family.id
     elif failure == 'same_account':
@@ -228,6 +226,173 @@ def test_invalid_destination_leaves_expense_and_balances_unchanged(auth_client_a
     db.expire_all()
     assert db.get(Transaction, row_id).transaction_type == 'expense'
     assert len(db.exec(select(Transaction)).all()) == 1
+
+
+def readonly_destination(db, account):
+    alice = db.exec(select(User).where(User.username == 'alice')).one()
+    bob = db.exec(select(User).where(User.username == 'bob')).one()
+    account.owner_id = bob.id
+    share = AccountShare(account_id=account.id, user_id=alice.id, permission='read_only')
+    db.add_all([account, share]); db.commit()
+    return share
+
+
+def transfer_request(client, accounts, endpoint, reverse=False):
+    source, destination = (accounts[1], accounts[0]) if reverse else accounts[:2]
+    if endpoint == '/api/v1/transactions':
+        payload = {'account': str(source.id), 'external_id': f'manual:{uuid4()}',
+                   'transaction_type': 'transfer', 'amount': '25', 'currency': 'CNY',
+                   'narration': 'Shared transfer', 'occurred_at': '2026-09-09T10:00:00Z',
+                   'extra': {'to_account_id': str(destination.id)}}
+    else:
+        payload = {'from_account_id': str(source.id), 'to_account_id': str(destination.id),
+                   'amount': '25', 'currency': 'CNY', 'occurred_at': '2026-09-09T10:00:00Z'}
+    return client.post(endpoint, json=payload)
+
+
+@pytest.mark.parametrize('endpoint', ['/api/v1/transfers', '/api/v1/transfers/create', '/api/v1/transactions'])
+@pytest.mark.parametrize('role', ['member', 'admin'])
+def test_readonly_shared_account_can_receive_but_never_send(auth_client_a, db, accounts, endpoint, role):
+    readonly_destination(db, accounts[1])
+    alice = db.exec(select(User).where(User.username == 'alice')).one()
+    alice.role = role; db.add(alice); db.commit()
+    assert transfer_request(auth_client_a, accounts, endpoint, reverse=True).status_code == 403
+    assert db.exec(select(Transaction)).all() == []
+    response = transfer_request(auth_client_a, accounts, endpoint)
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert balance(db, accounts[0]) == -25 and balance(db, accounts[1]) == 25
+    pair = db.exec(select(Transfer)).one()
+    assert db.get(Transaction, pair.outflow_transaction_id).account_id == accounts[0].id
+    assert db.get(Transaction, pair.inflow_transaction_id).account_id == accounts[1].id
+    assert len(db.exec(select(Transaction)).all()) == 2
+    detail = auth_client_a.get(f'/api/v1/accounts/{accounts[1].id}').json()['account']
+    assert detail['can_receive_transfer'] is True and detail['can_edit'] is False and detail['can_manage'] is False
+    listed = auth_client_a.get('/api/v1/accounts').json()
+    rows = listed if isinstance(listed, list) else listed['accounts']
+    shared = next(account for account in rows if account['id'] == str(accounts[1].id))
+    assert shared['can_receive_transfer'] is True and shared['can_edit'] is False
+
+
+@pytest.mark.parametrize('endpoint', ['/api/v1/transfers/create', '/api/v1/transactions'])
+@pytest.mark.parametrize('failure', ['revoked', 'cross_family', 'inactive'])
+def test_incoming_transfer_still_requires_active_same_family_explicit_share(auth_client_a, db, accounts, endpoint, failure):
+    share = readonly_destination(db, accounts[1])
+    if failure == 'revoked':
+        db.delete(share)
+    elif failure == 'cross_family':
+        family = Family(name='Foreign transfer tenant'); db.add(family); db.flush()
+        accounts[1].family_id = family.id; db.add(accounts[1])
+    else:
+        accounts[1].is_active = False; db.add(accounts[1])
+    db.commit()
+    response = transfer_request(auth_client_a, accounts, endpoint)
+    assert response.status_code in {400, 403, 409}, response.text
+    assert db.exec(select(Transaction)).all() == []
+    assert db.exec(select(Transfer)).all() == []
+
+
+@pytest.mark.parametrize('kind', ['expense', 'income', 'refund', 'transfer'])
+def test_receive_permission_does_not_allow_direct_posting_on_readonly_account(auth_client_a, db, accounts, kind):
+    readonly_destination(db, accounts[1])
+    response = auth_client_a.post('/api/v1/transactions', json={
+        'account': str(accounts[1].id), 'external_id': f'manual:{uuid4()}',
+        'transaction_type': kind, 'amount': '25', 'currency': 'CNY',
+        'narration': 'Not a paired incoming transfer', 'extra': {'direction': 'inflow'},
+        'occurred_at': '2026-09-09T10:00:00Z'})
+    assert response.status_code == 403
+    assert db.exec(select(Transaction)).all() == []
+
+
+def test_converting_owned_expense_can_credit_readonly_destination_but_existing_peer_is_protected(auth_client_a, db, accounts):
+    readonly_destination(db, accounts[1])
+    original = activity(db, accounts[0])
+    response = auth_client_a.patch(f'/api/v1/transactions/{original.id}', json={
+        'transaction_type': 'transfer', 'to_account_id': str(accounts[1].id)})
+    assert response.status_code == 200, response.text
+    peer_id = UUID(response.json()['paired_transfer']['counterpart']['id'])
+    pair_id = response.json()['paired_transfer']['transfer_id']
+    assert balance(db, accounts[0]) == -100 and balance(db, accounts[1]) == 100
+    for payload in ({'amount': '200'}, {'to_account_id': str(accounts[2].id)}):
+        assert auth_client_a.patch(f'/api/v1/transactions/{original.id}', json=payload).status_code == 403
+    assert auth_client_a.patch(f'/api/v1/transactions/{peer_id}', json={'amount': '200'}).status_code == 403
+    assert auth_client_a.delete(f'/api/v1/transactions/{peer_id}').status_code == 403
+    assert auth_client_a.delete(f'/api/v1/transactions/{original.id}', params={
+        'scope': 'pair', 'expected_transfer_id': pair_id}).status_code == 403
+    assert balance(db, accounts[0]) == -100 and balance(db, accounts[1]) == 100
+    assert len(db.exec(select(Transaction)).all()) == 2
+
+
+def test_changing_writable_transfer_destination_can_credit_readonly_account(auth_client_a, db, accounts):
+    out, incoming, pair = paired(db, accounts)
+    peer_id = incoming.id
+    readonly_destination(db, accounts[2])
+    response = auth_client_a.patch(f'/api/v1/transactions/{out.id}', json={'to_account_id': str(accounts[2].id)})
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert db.get(Transaction, peer_id).account_id == accounts[2].id
+    assert balance(db, accounts[0]) == -100 and balance(db, accounts[1]) == 0 and balance(db, accounts[2]) == 100
+    assert len(db.exec(select(Transaction)).all()) == 2
+
+
+@pytest.mark.parametrize('classification,new_balance,allowed', [
+    ('asset', '-25', True), ('asset', '25', False),
+    ('liability', '25', True), ('liability', '-25', False),
+])
+def test_balance_reconciliation_respects_readonly_transfer_direction(auth_client_a, db, accounts, classification, new_balance, allowed):
+    readonly_destination(db, accounts[1])
+    accounts[0].classification = classification
+    accounts[0].account_type = 'credit_card' if classification == 'liability' else 'checking'
+    db.add(accounts[0]); db.commit()
+    response = auth_client_a.post(f'/api/v1/accounts/{accounts[0].id}/reconcile-balance', json={
+        'new_balance': new_balance, 'reconciliation_type': 'transfer',
+        'counterparty_account_id': str(accounts[1].id), 'date': DAY.isoformat()})
+    assert response.status_code == (200 if allowed else 403), response.text
+    assert balance(db, accounts[1]) == (25 if allowed else 0)
+    assert balance(db, accounts[0]) == (Decimal(new_balance) if allowed else 0)
+
+
+def shared_transfer_plan(accounts, mode='confirm'):
+    return {'name': 'Readonly incoming schedule', 'kind': 'transfer',
+            'account_id': str(accounts[0].id), 'destination_id': str(accounts[1].id),
+            'amount': '25', 'currency': 'CNY', 'start_date': DAY.isoformat(),
+            'frequency': 'monthly', 'occurrence_limit': 1, 'timezone_name': 'Asia/Shanghai',
+            'execution_mode': mode}
+
+
+def test_scheduled_incoming_transfer_can_post_but_cannot_undo_readonly_credit(auth_client_a, db, accounts):
+    readonly_destination(db, accounts[1])
+    body = shared_transfer_plan(accounts)
+    assert auth_client_a.post('/api/v1/plans/preview', json=body).status_code == 200
+    response = auth_client_a.post('/api/v1/plans', json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()['can_manage'] is True and response.json()['can_undo'] is False
+    plan_id = response.json()['id']
+    endpoint = f'/api/v1/plans/{plan_id}/occurrences/1'
+    for _ in range(2):
+        response = auth_client_a.post(endpoint, json={'action': 'post'})
+        assert response.status_code == 200, response.text
+    assert balance(db, accounts[0]) == -25 and balance(db, accounts[1]) == 25
+    assert len(db.exec(select(Transaction)).all()) == 2
+    assert auth_client_a.post(endpoint, json={'action': 'undo'}).status_code == 403
+    assert balance(db, accounts[0]) == -25 and balance(db, accounts[1]) == 25
+    assert len(db.exec(select(Transaction)).all()) == 2
+
+
+@pytest.mark.parametrize('revoked', [False, True])
+def test_automatic_transfer_accepts_readonly_destination_and_pauses_after_revocation(auth_client_a, db, accounts, revoked):
+    from models import ScheduledPlan
+    from services.schedules import run_due
+    share = readonly_destination(db, accounts[1])
+    response = auth_client_a.post('/api/v1/plans', json=shared_transfer_plan(accounts, 'auto'))
+    assert response.status_code == 200, response.text
+    plan_id = UUID(response.json()['id'])
+    if revoked:
+        db.delete(share); db.commit()
+    run_due(db.get_bind()); db.expire_all()
+    assert balance(db, accounts[0]) == (0 if revoked else -25)
+    assert balance(db, accounts[1]) == (0 if revoked else 25)
+    assert db.get(ScheduledPlan, plan_id).status == ('paused' if revoked else 'active')
 
 
 def test_cross_currency_destination_requires_verified_amount_and_preserves_ratio(auth_client_a, db, accounts):

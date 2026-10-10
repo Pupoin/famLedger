@@ -11167,6 +11167,10 @@
     "zh": "跨币种转账请核实两侧实际金额。",
     "en": "Confirm the actual amounts on both sides of a cross-currency transfer."
   },
+  "只读共享账户仅允许转入，不能转出或修改已有流水。": {
+    "zh": "只读共享账户仅允许转入，不能转出或修改已有流水。",
+    "en": "Read-only shared accounts can receive transfers. You cannot transfer out or modify existing transactions."
+  },
   "正在加载账户…": {
     "zh": "正在加载账户…",
     "en": "Loading accounts…"

@@ -19,7 +19,7 @@ from models import (
 )
 from auth import get_current_user_or_token, get_current_user
 from services.card_sharing import primary_owner_can_read
-from services.account_permissions import account_capabilities, can_manage_sharing
+from services.account_permissions import account_capabilities, can_manage_sharing, can_receive_transfer
 from services.account_types import normalize_account_type, account_classification, change_account_type, financial_classification
 from services.card_settlement import group_for_account
 from services.card_history import link_can_change
@@ -511,6 +511,7 @@ def list_accounts(
             "can_manage": can_manage,
             "can_manage_shares": can_manage_sharing(current_user, a, my_share),
             "can_edit": can_edit,
+            "can_receive_transfer": can_receive_transfer(current_user, a, my_share),
             "permission": permission,
             "shared_with_count": shared_with_count,
             "include_in_finances": my_share.include_in_finances if my_share else True,
@@ -1149,6 +1150,7 @@ def get_account_detail(
             "can_manage": can_manage,
             "can_manage_shares": can_manage_sharing(current_user, account, my_share),
             "can_edit": can_edit,
+            "can_receive_transfer": can_receive_transfer(current_user, account, my_share),
             "parent_account_id": str(account.parent_account_id) if account.parent_account_id else None,
             "parent_account": _parent_account_summary(session, account),
             "card_link_can_change": link_can_change(session, account),
@@ -1437,7 +1439,7 @@ def reconcile_balance(
             raise HTTPException(status_code=403, detail="您没有权限为此账户调整余额")
 
     if payload.reconciliation_type == "transfer" and payload.counterparty_account_id:
-        from routes.v1_transactions import _verify_account_write_permission
+        from routes.v1_transactions import _verify_account_write_permission, _verify_account_transfer_in_permission
         counterparty = session.get(Account, payload.counterparty_account_id)
         if not counterparty or counterparty.family_id != account.family_id:
             raise HTTPException(status_code=400, detail="转账对端账户不存在或属于其他家庭")
@@ -1445,7 +1447,6 @@ def reconcile_balance(
             raise HTTPException(status_code=400, detail="转账对端不能是同一账户")
         if counterparty.currency != account.currency:
             raise HTTPException(status_code=400, detail="跨币种转账需要明确兑换金额，当前不支持")
-        _verify_account_write_permission(session, user_or_ctx, counterparty.id, "转账对账")
 
     classification = financial_classification(account)
     current_balance = get_account_realtime_balance(session, account.id, classification, account.balance, current_user=current_user)
@@ -1459,6 +1460,10 @@ def reconcile_balance(
     tx_date = payload.date if payload.date else datetime.now(tz_local).date()
     from services.card_settlement import balance_adjustment
     diff = balance_adjustment(session, account, new_balance, old_balance, tx_date)
+    if payload.reconciliation_type == "transfer" and payload.counterparty_account_id:
+        is_inflow = diff < 0 if classification == "liability" else diff > 0
+        checker = _verify_account_write_permission if is_inflow else _verify_account_transfer_in_permission
+        checker(session, user_or_ctx, counterparty.id, "转账对账")
     tx_occurred_at = None
     if payload.occurred_at:
         try:

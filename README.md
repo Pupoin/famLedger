@@ -17,7 +17,7 @@ famLedger manages personal and household finances through account activity, mult
 - **Transfers and refunds:** paired internal transfers, credit-card repayments, full and partial refunds, refunds allocated across multiple expenses, transaction splits, and tags.
 - **Reports and budgets:** net worth, income and spending reports, cashflow Sankey diagrams, spending calendars, merchant charts, and category budgets. The privacy toggle hides monetary values in charts.
 - **Payment plans:** editable scheduled transfers and loan repayments, automatic or confirmed execution, rate changes, repayment phases, dated interest-free and interest-only periods, and prepayments.
-- **Household collaboration:** invitations, account ownership, read-only, read-write, and full-control sharing. Primary and supplementary credit cards can belong to different household members, with sharing required for the primary card owner to view the supplementary card.
+- **Household collaboration:** invitations, account ownership, read-only, read-write, and full-control sharing. Read-only shared accounts can receive transfers from writable accounts, but recipients cannot transfer out, change account settings, or modify existing transactions. Primary and supplementary credit cards can belong to different household members, with sharing required for the primary card owner to view the supplementary card.
 - **Rules and automation:** nested conditions, categorization, merchant normalization, tags, previews, and full JSON import/export. Lower priority numbers run first; the first category match wins. Unmatched transactions use Other, and manual categories are preserved. Optional Microsoft Graph email-bill ingestion runs as a separate service.
 - **Authentication and preferences:** local login, configurable OIDC sign-in, revocable API keys stored as hashes, language and display-currency preferences, and light, dark, or automatic themes.
 
@@ -153,7 +153,7 @@ famLedger 通过账户活动、多币种流水、共享账户和定期支付计�
 - **转账与退款**：支持成对的内部转账、信用卡还款、全额或部分退款、多笔消费的退款分配、交易拆分和标签。
 - **报表与预算**：包含净资产、收支报表、现金流桑基图、消费日历、商户图表和分类预算。隐私开关会隐藏图表中的金额。
 - **支付计划**：可编辑定期转账和贷款还款计划，支持自动执行或确认后执行、分阶段利率与还款方式、按时间段设置免息和仅还利息，以及提前还款。
-- **家庭协作**：支持邀请、账户所有权，以及只读、读写、完全控制三档共享权限。信用卡主副卡可分属不同家庭成员；副卡需共享给主卡所有者，保证其能够查看副卡流水。
+- **家庭协作**：支持邀请、账户所有权，以及只读、读写、完全控制三档共享权限。只读共享账户允许接收可写账户的转入，但被共享人不能从该账户转出、编辑账户设置或修改已有流水。信用卡主副卡可分属不同家庭成员；副卡需共享给主卡所有者，保证其能够查看副卡流水。
 - **规则与自动化**：支持嵌套条件、分类、商户名称规范化、标签、预演及完整 JSON 导入导出。优先级数字越小越先执行，分类按首条命中生效，未命中归入「其他」，保留手动分类。可选的 Microsoft Graph 邮件账单抓取由独立服务运行。
 - **认证与偏好**：支持本地登录、可配置的 OIDC 登录、哈希存储且可撤销的 API Key、语言与展示币种设置，以及浅色、深色、自动主题。
 

@@ -362,6 +362,28 @@ def _verify_account_write_permission(
         raise HTTPException(status_code=403, detail=f"您没有此账户的写入权限，无法{action_desc}")
 
 
+def _verify_account_transfer_in_permission(session, user_or_ctx, account_id, action_desc="转入资金"):
+    """Allow only a new incoming transfer to an explicitly accessible account."""
+    account = session.get(Account, account_id)
+    if not account:
+        raise HTTPException(404, "账户不存在")
+    if not account.is_active:
+        raise HTTPException(409, "账户已停用")
+    if isinstance(user_or_ctx, str) and user_or_ctx.startswith("service:"):
+        from services.principals import verify_service_account
+        verify_service_account(session, user_or_ctx, account)
+        return
+    current_user = session.exec(select(User).where(User.username == user_or_ctx)).first() if isinstance(user_or_ctx, str) else None
+    if not current_user:
+        raise HTTPException(401, "用户未认证")
+    share = session.exec(select(AccountShare).where(
+        AccountShare.account_id == account.id, AccountShare.user_id == current_user.id,
+    )).first()
+    from services.account_permissions import can_receive_transfer
+    if not can_receive_transfer(current_user, account, share):
+        raise HTTPException(403, f"该账户未向您共享或属于其他家庭，无权{action_desc}")
+
+
 def _verify_account_read_permission(
     session: Session,
     user_or_ctx: Any,
@@ -581,7 +603,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
         destination = session.get(Account, destination_id)
         if not destination or not destination.is_active or destination.id == account.id:
             raise HTTPException(400, "转入账户无效")
-        _verify_account_write_permission(session, user_or_ctx, destination.id, "转入账户")
+        _verify_account_transfer_in_permission(session, user_or_ctx, destination.id, "转入账户")
         if destination.family_id != account.family_id or destination.currency != account.currency:
             raise HTTPException(400, "转账账户必须同家庭同记账币种")
 
@@ -642,7 +664,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
                         raise HTTPException(status_code=400, detail="转入与转出不能为同一账户")
                     if to_account.family_id != (account.family_id or family_id):
                         raise HTTPException(status_code=400, detail="转入账户必须属于同一家庭")
-                    _verify_account_write_permission(session, user_or_ctx, to_account.id, "转入资金")
+                    _verify_account_transfer_in_permission(session, user_or_ctx, to_account.id, "转入资金")
                     if to_account.currency != account.currency:
                         raise HTTPException(status_code=400, detail="跨币种转账需要明确兑换金额")
                 except HTTPException:
@@ -2056,7 +2078,7 @@ def update_transaction(
     original_code = txn.original_currency
     from services.transfer_editing import validate_transfer_edit, apply_transfer_edit
     transfer_edit = validate_transfer_edit(session, user_or_ctx, txn, payload, target_acc,
-                                           _verify_account_write_permission)
+                                           _verify_account_write_permission, _verify_account_transfer_in_permission)
 
     if txn.transfer_id:
         if payload.transaction_type is not None and payload.transaction_type != "transfer":

@@ -32,7 +32,7 @@ def normalize_transfer_payload(session, txn, payload):
         payload.amount = own_amount
 
 
-def validate_transfer_edit(session, actor, txn, payload, target_account, authorize):
+def validate_transfer_edit(session, actor, txn, payload, target_account, authorize, authorize_receive):
     resulting_type = payload.transaction_type or txn.transaction_type
     explicit_accounts = bool({'from_account_id', 'to_account_id'} & payload.model_fields_set)
     if resulting_type != 'transfer':
@@ -89,7 +89,11 @@ def validate_transfer_edit(session, actor, txn, payload, target_account, authori
         )).first() or session.exec(select(TransactionSplit.id).where(TransactionSplit.transaction_id == other.id)).first():
             raise HTTPException(400, "请先解除转账对端的退款关联或分类拆分。")
     if peer_account and (not pair or changing_target or changing_peer):
-        authorize(session, actor, peer_account.id, "修改转账对端账户")
+        # Existing readonly postings remain immutable: the old peer above must
+        # still be writable. Only the destination of a newly credited leg may
+        # use the narrower receive permission; a source always requires write.
+        checker = authorize_receive if outgoing else authorize
+        checker(session, actor, peer_account.id, "转入资金" if outgoing else "转出资金")
     if peer_account and not pair and session.exec(select(TransactionSplit.id).where(TransactionSplit.transaction_id == txn.id)).first():
         raise HTTPException(400, "请先解除分类拆分，再设置转账对端。")
     return {'pair': pair, 'other': other, 'peer_account': peer_account, 'outgoing': outgoing,

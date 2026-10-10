@@ -96,6 +96,7 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
     } catch(error) {showToast(error.message,'error');} finally {setBusy(false);}
   };
   const writable = accounts.filter(a=>a.can_edit===true&&a.is_active!==false);
+  const receivers = accounts.filter(a=>a.can_receive_transfer===true&&a.is_active!==false);
   const sourceOptions = form.kind==='loan'?writable.filter(a=>getAccountClassification(a)==='asset'):writable;
   return createPortal(<div ref={modalRef} className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center sm:p-5" role="dialog" aria-modal="true" aria-label={tx(form.kind==='loan'?'配置还款计划':'定期转账')}>
     <div className="flex flex-col w-full max-w-2xl h-full sm:h-auto sm:max-h-[90dvh] bg-white dark:bg-zinc-900 sm:rounded-2xl shadow-xl">
@@ -109,7 +110,7 @@ function PlanEditor({plan, account, accounts, onClose, onSaved}) {
           <Field label="扣款账户"><AccountSelectDropdown accounts={sourceOptions} value={form.account_id} testId="plan-source" onChange={e=>{
             change('account_id',e.target.value);if(form.kind==='transfer')change('currency',accounts.find(a=>a.id===e.target.value)?.currency||form.currency);
           }}/></Field>
-          <Field label={form.kind==='loan'?'贷款账户':'转入账户'}><AccountSelectDropdown accounts={writable.filter(a=>a.id!==form.account_id&&(form.kind!=='loan'||['loan','mortgage'].includes(a.account_type)))} value={form.destination_id} testId="plan-destination" onChange={e=>{
+          <Field label={form.kind==='loan'?'贷款账户':'转入账户'}><AccountSelectDropdown accounts={(form.kind==='loan'?writable:receivers).filter(a=>a.id!==form.account_id&&(form.kind!=='loan'||['loan','mortgage'].includes(a.account_type)))} value={form.destination_id} testId="plan-destination" onChange={e=>{
             change('destination_id',e.target.value);if(form.kind==='loan')change('currency',accounts.find(a=>a.id===e.target.value)?.currency||form.currency);
           }}/></Field>
           {form.kind==='transfer'&&<Field label="每期转账金额"><input className={fieldClass} type="number" min="0.0001" step="0.0001" required value={form.amount} onChange={e=>change('amount',e.target.value)}/></Field>}
@@ -287,7 +288,7 @@ function AccountScheduledPlans({account=null,onChanged,onSelectTransaction}) {
   };
   const loanAccount=['loan','mortgage'].includes(account?.account_type);
   const canCreate=loanAccount?account.can_manage===true||account.is_owner===true:
-    (!account||account.can_edit===true)&&accounts.filter(a=>a.can_edit&&a.is_active!==false).length>=2;
+    (!account||account.can_edit===true)&&accounts.some(a=>a.can_edit&&a.is_active!==false&&accounts.some(b=>b.id!==a.id&&b.can_receive_transfer===true&&b.is_active!==false));
   return <section data-testid="scheduled-plans" className="space-y-4 text-zinc-900 dark:text-zinc-100">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="font-bold text-sm">{tx(loanAccount?'还款计划':'计划')}</h2>
@@ -389,7 +390,7 @@ function AccountScheduledPlans({account=null,onChanged,onSelectTransaction}) {
         </div>)}
         {(detail.prepayments||[]).map(row=><div key={row.id} className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-xs space-y-2">
           <div>{row.due_date} · {tx('提前还款')} · {money(row.snapshot.total,row.currency)}</div>
-          {detail.can_manage&&['posted','reconciled'].includes(row.status)&&<button disabled={busy} className={buttonClass} onClick={()=>run(`/${detail.id}/occurrences/${row.number}`,{action:'undo'})}>{tx('撤销本期')}</button>}
+          {detail.can_manage&&detail.can_undo!==false&&['posted','reconciled'].includes(row.status)&&<button disabled={busy} className={buttonClass} onClick={()=>run(`/${detail.id}/occurrences/${row.number}`,{action:'undo'})}>{tx('撤销本期')}</button>}
         </div>)}
       </div>
     </div>}

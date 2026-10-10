@@ -8,7 +8,7 @@ beforeEach(() => i18n.changeLanguage('zh'));
 const accounts = [{ id: 'source', name: 'Source', currency: 'CNY', can_edit: true },
   { id: 'target', name: 'Target', currency: 'CNY', can_edit: true },
   { id: 'usd', name: 'Dollar', currency: 'USD', can_edit: true },
-  { id: 'readonly', name: 'Readonly', currency: 'CNY', can_edit: false }];
+  { id: 'readonly', name: 'Readonly', currency: 'CNY', can_edit: false, can_receive_transfer: true }];
 const render = (changes = {}) => renderToStaticMarkup(<TransferDestinationFields
   transaction={{ account_id: 'source', account_name: 'Source', currency: 'CNY' }} accounts={accounts}
   sourceAccountId="source" direction="outflow" onSourceChange={() => {}} onDirectionChange={() => {}}
@@ -16,12 +16,19 @@ const render = (changes = {}) => renderToStaticMarkup(<TransferDestinationFields
 const selector = (html, name) => html.match(new RegExp(`<select[^>]*name="${name}"[\\s\\S]*?</select>`))[0];
 
 describe('transfer editor', () => {
-  it('allows selecting both accounts, excluding the opposite account and readonly accounts', () => {
+  it('allows readonly shared destinations but excludes them from outgoing accounts', () => {
     const html = render();
     const from = selector(html, 'from_account_id'), to = selector(html, 'to_account_id');
     expect(from).toContain('value="source"'); expect(from).not.toContain('value="target"');
     expect(to).toContain('value="target"'); expect(to).not.toContain('value="source"');
-    expect(html).not.toContain('value="readonly"');
+    expect(from).not.toContain('value="readonly"');
+    expect(to).toContain('value="readonly"');
+  });
+  it('does not move the current incoming posting to a readonly account', () => {
+    const html = render({ direction: 'inflow', sourceAccountId: 'target', destinationId: 'source' });
+    for (const name of ['from_account_id', 'to_account_id']) {
+      expect(selector(html, name)).not.toContain('value="readonly"');
+    }
   });
   it('requires the actual counterpart amount for different currencies on either side', () => {
     expect(render({ destinationId: 'usd' })).toMatch(/required=""[^>]*data-testid="edit-peer-transfer-amount"/);

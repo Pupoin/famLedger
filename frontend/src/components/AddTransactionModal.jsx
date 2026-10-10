@@ -11,6 +11,7 @@ import { toLocalISODate, toLocalISOTime, localToUTCISO } from '../utils/dates';
 import { createTransactionExternalId } from '../utils/transactionIds';
 import { formatAccountDisplayName } from '../utils/accountIcons';
 import AccountSelectDropdown from './AccountSelectDropdown';
+import { transferSourceAccounts, transferDestinationAccounts } from '../utils/transferAccounts';
 
 // 四种交易类型 tab 配置
 const TABS = [
@@ -642,7 +643,8 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
               name="account_id"
               value={form.account_id}
               onChange={handleChange}
-              accounts={accounts}
+              accounts={activeTab === 'transfer' ? transferSourceAccounts(accounts) : accounts}
+              selectedAccountFallback={currentSelectedAccount}
               placeholder={tx("选择账户")}
               isReadOnly={isCurrentAccountReadOnly}
               showSharedTip={true}
@@ -665,10 +667,13 @@ export default function AddTransactionModal({ open, onClose, onSuccess, defaultA
                 name="to_account_id"
                 value={form.to_account_id}
                 onChange={handleChange}
-                accounts={accounts.filter((acc) => acc.id !== form.account_id)}
+                accounts={transferDestinationAccounts(accounts, form.account_id)}
                 placeholder={tx("选择目标账户")}
                 testId="add-modal-to-account-select"
               />
+              {accounts.find(account => account.id === form.to_account_id)?.can_edit === false && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{tx('只读共享账户仅允许转入，不能转出或修改已有流水。')}</p>
+              )}
             </div>
           )}
 

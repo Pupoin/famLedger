@@ -55,14 +55,16 @@ def actor_for(session, username):
 
 
 def authorized(session, actor, plan, write=False):
-    from routes.v1_transactions import _verify_account_read_permission, _verify_account_write_permission
+    from routes.v1_transactions import _verify_account_read_permission, _verify_account_write_permission, _verify_account_transfer_in_permission
     if plan.family_id != actor.family_id:
         raise HTTPException(404, '计划不存在')
-    checker = _verify_account_write_permission if write else _verify_account_read_permission
     for account_id in [plan.account_id, plan.destination_id]:
         account = session.get(Account, account_id)
         if not account or account.family_id != plan.family_id:
             raise HTTPException(403, '计划账户关系已失效')
+        checker = _verify_account_read_permission
+        if write:
+            checker = _verify_account_transfer_in_permission if plan.kind == 'transfer' and account_id == plan.destination_id else _verify_account_write_permission
         checker(session, actor.username, account_id, '管理计划' if write else '查看计划')
         if write and not account.is_active:
             raise HTTPException(409, '计划账户已停用')
@@ -252,6 +254,9 @@ def ensure_accrual_account(session, plan):
 def post(session, actor, plan, number, payment_date=None, linked=None, bank_amount=None, prepayment=None):
     root_plan = plan
     authorized(session, actor, plan, write=True)
+    if linked:
+        from routes.v1_transactions import _verify_account_write_permission
+        _verify_account_write_permission(session, actor.username, linked.account_id, '关联已有计划流水')
     if plan.status != 'active':
         raise HTTPException(409, '计划已暂停或取消')
     row = occurrence(session, plan, number)
@@ -421,6 +426,11 @@ def undo(session, actor, plan, number):
     row = occurrence(session, plan, number)
     original_plan = booking_plan(plan, row)
     authorized(session, actor, original_plan, write=True)
+    # Undo removes an existing credit: receiving permission alone cannot
+    # authorize debiting a readonly destination, including historical terms.
+    from routes.v1_transactions import _verify_account_write_permission
+    for account_id in [original_plan.account_id, original_plan.destination_id]:
+        _verify_account_write_permission(session, actor.username, account_id, '撤销计划流水')
     if any(r.id != row.id and r.status in PAID and r.posted_at and row.posted_at and r.posted_at > row.posted_at
            for r in records_for(session, plan).values()):
         raise HTTPException(409, '请先撤销后续已支付期次')
