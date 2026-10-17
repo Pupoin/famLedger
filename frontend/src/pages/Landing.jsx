@@ -324,19 +324,20 @@ export default function Landing() {
           >{tx("本期")}</button>
 
           {/* User Selector Dropdown */}
-          <div className="relative">
+          <div className="relative ml-auto min-w-0 max-w-full">
             <button
               type="button"
               data-testid="dashboard-user-filter"
+              aria-expanded={userDropdownOpen}
               onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer whitespace-nowrap"
+              className="flex min-w-0 max-w-full items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 shadow-2xs hover:bg-zinc-50 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer"
             >
-              <span>{userFilter === '全部' ? tx("全部用户") : userFilter}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+              <span className="min-w-0 text-left [overflow-wrap:anywhere]">{userFilter === '全部' ? tx("全部用户") : userFilter}</span>
+              <ChevronDown className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
             </button>
 
             {userDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-30 w-40 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg py-1">
+              <div className="absolute right-0 top-full mt-1.5 z-30 w-40 max-w-[calc(100vw-2rem)] max-h-[min(24rem,60dvh)] overflow-y-auto overscroll-contain rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg py-1">
                 <div className="px-3 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">{tx("家庭成员筛选")}</div>
                 <button
                   type="button"
@@ -371,7 +372,7 @@ export default function Landing() {
                         setUserFilter(m.username);
                         setUserDropdownOpen(false);
                       }}
-                      className={`w-full text-left px-3 py-1.5 text-xs cursor-pointer ${
+                      className={`w-full text-left px-3 py-1.5 text-xs cursor-pointer [overflow-wrap:anywhere] ${
                         isSelected
                           ? 'bg-zinc-100 dark:bg-zinc-700 text-zinc-900 dark:text-white font-medium'
                           : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
