@@ -16,3 +16,5 @@ class TransactionRecord:
     payer_account_last4: str | None = None
     payee_name: str | None = None
     payee_account_last4: str | None = None
+    bank_name: str = "招商银行"
+    counterparty_bank_name: str | None = None

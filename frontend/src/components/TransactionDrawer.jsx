@@ -90,6 +90,7 @@ export default function TransactionDrawer({
   const displayedCategoryName = transactionCategoryLabel(txn);
   const transferOutflow = txn?.funds_direction === 'outflow'
     || (txn?.funds_direction == null && txn?.paired_transfer?.is_outflow === true);
+  const transferCounterpart = txn?.paired_transfer?.counterpart || txn?.transfer_counterparty;
 
   const handleStartEditing = () => {
     if (!txn) return;
@@ -1131,18 +1132,20 @@ export default function TransactionDrawer({
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                         <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1.5 truncate">
                           <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                          <span className="truncate">{txn.paired_transfer?.counterpart?.account_name || tx("外部银行账户")}</span>
+                          <span className="truncate">{transferCounterpart?.account_name || tx("外部银行账户")}</span>
                         </span>
-                        {txn.paired_transfer?.counterpart?.owner_name && !txn.paired_transfer.counterpart.is_owner && (
+                        {transferCounterpart?.owner_name && !transferCounterpart.is_owner && (
                           <span
                             data-testid="drawer-counterpart-owner-badge"
-                            title={tx("由 {p0} 共享", {p0: (txn.paired_transfer.counterpart.owner_name)})}
+                            title={tx("由 {p0} 共享", {p0: transferCounterpart.owner_name})}
                             className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[11px] font-medium shrink-0 bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800"
                           >
                             <Users className="w-2.5 h-2.5" />
-                            <span>{tx("{p0} 共享", {p0: (txn.paired_transfer.counterpart.owner_name)})}</span>
+                            <span>{tx("{p0} 共享", {p0: transferCounterpart.owner_name})}</span>
                           </span>
                         )}
+                        {txn.transfer_counterparty && !txn.paired_transfer &&
+                          <span data-testid="drawer-unpaired-label" className="text-zinc-400 dark:text-zinc-500">{tx('未配对')}</span>}
                       </div>
                     </div>
                   )}
@@ -1151,7 +1154,7 @@ export default function TransactionDrawer({
                       <span className="text-zinc-400 block text-[11px] mb-0.5">{tx("记账属性")}</span>
                       <span className="font-medium text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
                         <span>⇄</span>
-                        <span>{tx("内部转账互转 (不计家庭收支)")}</span>
+                        <span>{tx(txn.paired_transfer ? '内部转账互转 (不计家庭收支)' : '转账 (不计家庭收支)')}</span>
                       </span>
                     </div>
                   ) : (

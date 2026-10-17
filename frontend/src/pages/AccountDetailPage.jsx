@@ -18,6 +18,7 @@ import {
   ImportTransactionsModal,
 } from '../components/AccountModals';
 import TransactionDrawer from '../components/TransactionDrawer';
+import TransactionAccountFlow from '../components/TransactionAccountFlow';
 import useTransactionDrawer from '../hooks/useTransactionDrawer';
 import TransactionAmount from '../components/TransactionAmount';
 import BookingMoneyInfo from '../components/BookingMoneyInfo';
@@ -891,58 +892,7 @@ export default function AccountDetailPage() {
                                   </div>
                                   <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 min-w-0 flex items-center gap-1.5 flex-wrap">
                                     {isTransfer ? (
-                                      <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center flex-wrap gap-x-1 gap-y-0.5 leading-tight">
-                                        {txn.transfer_peer_account ? (() => {
-                                          const peerIsMe = txn.transfer_peer_is_owner !== undefined
-                                            ? txn.transfer_peer_is_owner
-                                            : (!txn.transfer_peer_owner_name ||
-                                               txn.transfer_peer_owner_name === '我的' ||
-                                               txn.transfer_peer_owner_name === '本人' ||
-                                               txn.transfer_peer_owner_name === user?.username ||
-                                               txn.transfer_peer_owner_name === user?.displayName);
-                                          const peerOwner = !peerIsMe ? txn.transfer_peer_owner_name : null;
-                                          const renderPeerNode = () => {
-                                            if (!txn.transfer_peer_account || txn.transfer_peer_account === '外部账户') return <span>{tx("外部账户")}</span>;
-                                            if (peerOwner) {
-                                              return (
-                                                <span className="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-medium">
-                                                  <span className="font-semibold">{peerOwner}</span>
-                                                  <span className="font-normal text-zinc-400 dark:text-zinc-500">· {txn.transfer_peer_account}</span>
-                                                </span>
-                                              );
-                                            }
-                                            return <span>{txn.transfer_peer_account}</span>;
-                                          };
-
-                                          return txn.transfer_is_outflow ? (
-                                            <>
-                                              <span className="text-zinc-500 dark:text-zinc-400">{account?.name || tx("当前账户")}</span>
-                                              <span className="text-blue-500 font-bold">➔</span>
-                                              {renderPeerNode()}
-                                            </>
-                                          ) : (
-                                            <>
-                                              {renderPeerNode()}
-                                              <span className="text-blue-500 font-bold">➔</span>
-                                              <span className="text-zinc-500 dark:text-zinc-400">{account?.name || tx("当前账户")}</span>
-                                            </>
-                                          );
-                                        })() : (
-                                          (txn.narration || '').includes("转入") || (txn.narration || '').includes("收到") ? (
-                                            <>
-                                              <span className="text-zinc-400">{tx("外部账户")}</span>
-                                              <span className="text-blue-500 font-bold">➔</span>
-                                              <span>{account?.name || tx("当前账户")}</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <span>{account?.name || tx("当前账户")}</span>
-                                              <span className="text-blue-500 font-bold">➔</span>
-                                              <span className="text-zinc-400">{tx("外部账户")}</span>
-                                            </>
-                                          )
-                                        )}
-                                      </span>
+                                      <TransactionAccountFlow transaction={txn} fallbackAccount={account} />
                                     ) : (
                                       <>
                                         {txn.account_id && txn.account_id !== account?.id ? (

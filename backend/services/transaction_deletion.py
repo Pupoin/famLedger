@@ -111,7 +111,7 @@ def delete_transactions(session, actor, txn_id, scope, expected_transfer_id, aut
             # or promotes a transfer into reportable income/expense.
             direction = 'outflow' if other.id == pair.outflow_transaction_id else 'inflow'
             other.transfer_id = None
-            other.extra = {**(other.extra or {}), 'direction': direction}
+            other.extra = {**(other.extra or {}), 'direction': direction, 'transfer_peer_deleted': True}
             session.add(other)
         session.delete(pair)
     for refund in session.exec(select(Transaction).where(

@@ -1,6 +1,7 @@
 """Post original-currency transactions to famLedger with stable external IDs."""
 import hashlib
 import json
+import logging
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -9,8 +10,10 @@ import requests
 
 from backend.ingest.parser import parse_credit_daily_message, parse_credit_recent_message, parse_debit_message
 from backend.ingest.parser import message_body_and_parse_text
+from backend.ingest.account_matching import account_candidates, matching_account, message_bank
 
 CHINA_TZ = timezone(timedelta(hours=8))
+logger = logging.getLogger(__name__)
 
 
 def occurred_at(record):
@@ -53,7 +56,7 @@ def post_failure_reason(status):
         401: "API Key 无效、已过期或已撤销；请配置当前 famLedger 用户的有效 Key",
         403: "凭证或账户写入权限不足；请检查 Key 所属用户及账户共享权限",
         404: "POST 接口或关联账户不存在；请检查 FAMLEDGER_API_URL 和账户配置",
-        409: "账户标识或交易存在冲突；请检查 external_identifier 是否重复",
+        409: "账户标识或转账匹配存在冲突；请检查 external_identifier 是否重复，并核对同账户、同金额的转账及通知时间",
         422: "交易字段校验失败；请检查账户标识、金额、币种和日期",
         429: "famLedger 请求频率受限，将在下一轮重试",
     }
@@ -76,12 +79,61 @@ class FamLedgerClient:
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": api_token, "Accept": "application/json"})
+        self._accounts = None
+
+    def _transfer_accounts(self, record):
+        if (not record.counterparty_bank_name or financial_kind(record) != 'transfer'
+                or record.behaviour not in ('转入', '转至', '转出', '汇款', '还款')):
+            return None
+        tail = record.payer_account_last4 if record.cost > 0 else record.payee_account_last4
+        if not tail:
+            return None
+        if self._accounts is None:
+            try:
+                response = self.session.get(self.base_url + '/api/v1/accounts', timeout=(10, 30), allow_redirects=False)
+            except (requests.Timeout, requests.ConnectionError) as error:
+                raise DeliveryBlocked('famLedger account lookup unavailable; 账户查询失败，缓存邮件保留待重试') from error
+            if not 200 <= response.status_code < 300:
+                raise DeliveryBlocked(f'famLedger account lookup failed (HTTP {response.status_code}): {post_failure_reason(response.status_code)}')
+            result = response.json()
+            self._accounts = result if isinstance(result, list) else result.get('accounts', result.get('items')) if isinstance(result, dict) else None
+            if not isinstance(self._accounts, list):
+                raise DeliveryBlocked('Unexpected famLedger account response; 账户查询结果无效，缓存邮件保留待重试')
+        primary = matching_account(self._accounts, record.bank_name, record.account, account_type=record.account_type)
+        primary_candidates = account_candidates(self._accounts, record.bank_name, record.account, include_unavailable=True)
+        if not primary and not primary_candidates and record.original_currency.upper() == 'CNY':
+            primary = {'identifier': f"{record.bank_name}{'信用卡' if record.account_type == 'credit_card' else '借记卡'}:{record.account}",
+                       'currency': 'CNY', 'can_edit': True, 'can_receive_transfer': True}
+        candidates = account_candidates(self._accounts, record.counterparty_bank_name, tail, include_unavailable=True)
+        peer = candidates[0] if len(candidates) == 1 else None
+        if not candidates:
+            if (primary and primary.get('is_active') is not False and not primary.get('relationship_only')
+                    and primary.get('currency') == record.original_currency.upper()
+                    and (primary.get('can_receive_transfer') is True if record.cost > 0 else primary.get('can_edit') is True)):
+                # Resolve/create inside the ledger transaction, never with a
+                # separate POST that could leave an account after a failed import.
+                return primary, {'identifier': f'{record.counterparty_bank_name}:{tail}'}
+        if peer and (peer.get('is_active') is False or peer.get('relationship_only')):
+            logger.warning('Bank transfer counterpart is unavailable; preserving the single bank-reported leg without creating a duplicate account')
+            return None
+        source, destination = (peer, primary) if record.cost > 0 else (primary, peer)
+        if (not source or not destination or (source.get('id') and source.get('id') == destination.get('id'))
+                or source.get('can_edit') is not True
+                or not (destination.get('can_receive_transfer') is True or destination.get('can_edit') is True)
+                or source.get('currency') != destination.get('currency')
+                or record.original_currency.upper() != source.get('currency')):
+            if source and source.get('can_edit') is not True:
+                logger.warning('Bank transfer source is read-only; outgoing posting is prohibited; preserving the single bank-reported leg without creating a duplicate account')
+            else:
+                logger.warning('Bank transfer counterpart is ambiguous or incompatible; preserving the single bank-reported leg without creating a duplicate account')
+            return None
+        return primary, peer
 
     def push_transaction(self, record, *, mail_body=""):
         kind = financial_kind(record)
         reclaim = record.behaviour == "溢缴款领回" or record.business.strip() == "溢缴款领回"
         repayment = kind == "transfer" and (record.behaviour == "还款" or "信用卡还款" in record.business)
-        bank = "招商银行信用卡" if record.account_type == "credit_card" else "招商银行借记卡"
+        bank = record.bank_name + ("信用卡" if record.account_type == "credit_card" else "借记卡")
         payload = {
             "account": f"{bank}:{record.account.strip()}", "narration": record.business,
             "amount": str(abs(record.cost)), "currency": record.original_currency.upper(),
@@ -90,9 +142,20 @@ class FamLedgerClient:
             "tags": ["溢缴款领回"] if reclaim else ["信用卡还款"] if repayment else [], "notes": mail_body[:2000],
             "extra": {**({"direction": "inflow" if record.cost >= 0 else "outflow"} if kind == "transfer" else {}),
                       "import_source": "mailbridge", "bank_action": record.behaviour,
+                      "bank_name": record.bank_name, "account_last4": record.account,
+                      "counterparty_bank_name": record.counterparty_bank_name,
                       "counterparty": {key: getattr(record, key) for key in
                                        ("payer_name", "payer_account_last4", "payee_name", "payee_account_last4")}},
         }
+        matched = self._transfer_accounts(record)
+        if matched:
+            primary, peer = matched
+            payload['account'] = primary.get('id') or primary['identifier']
+            side = 'from' if record.cost > 0 else 'to'
+            if 'identifier' in peer:
+                payload['extra'][f'{side}_account_identifier'] = peer['identifier']
+            else:
+                payload['extra'][f'{side}_account_id'] = peer['id']
         try:
             response = self.session.post(self.base_url + "/api/v1/transactions", json=payload, timeout=(10, 30), allow_redirects=False)
         except requests.Timeout as error:
@@ -106,6 +169,13 @@ class FamLedgerClient:
         result = response.json()
         if not isinstance(result, dict) or result.get("status") not in ("created", "duplicate", "pending_fx", "canceled"):
             raise RuntimeError("Unexpected famLedger transaction response; cached email retained for retry")
+        if matched and result['status'] != 'canceled':
+            confirmed = result.get('transfer_context_accepted') and (result['status'] == 'pending_fx' or result.get('transfer_id'))
+            if not confirmed:
+                raise DeliveryBlocked('famLedger did not confirm the complete transfer; 请更新目标 famLedger 后端或人工核对现有转账配对；缓存邮件保留待重试')
+        if matched and any('identifier' in account for account in matched):
+            # A later notice in the same batch must see the account just created.
+            self._accounts = None
         return result
 
 
@@ -126,7 +196,7 @@ def sync_emails_and_parse_to_famledger(client, messages_by_kind, *, since=None, 
             elif kind == "debit":
                 received = datetime.fromisoformat(msg["receivedDateTime"].replace("Z", "+00:00"))
                 received = received.astimezone(CHINA_TZ).replace(tzinfo=None)
-                record = parse_debit_message(text, received)
+                record = parse_debit_message(text, received, bank_name=message_bank(msg))
                 if record is None:
                     raise ValueError("Bank debit notice could not be parsed; cached email retained for retry")
                 parsed = [record]

@@ -1,4 +1,12 @@
 {
+  "未配对": {
+    "zh": "未配对",
+    "en": "Unpaired"
+  },
+  "转账 (不计家庭收支)": {
+    "zh": "转账 (不计家庭收支)",
+    "en": "Transfer (excluded from income and expenses)"
+  },
   "副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除": {
     "zh": "副卡待还未清零，请先还清再更换主卡、解绑、修改类型、取消关联共享或删除",
     "en": "Pay off this additional card before changing its primary card, unlinking, changing its type, revoking the required share or deleting it."

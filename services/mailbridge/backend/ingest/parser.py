@@ -231,7 +231,7 @@ def parse_transfer_parties(content: str) -> dict[str, str]:
     return parties
 
 
-def parse_debit_message(body: str, received_time: datetime) -> TransactionRecord | None:
+def parse_debit_message(body: str, received_time: datetime, *, bank_name: str | None = None) -> TransactionRecord | None:
     content = html_to_text(body)
     parties = parse_transfer_parties(content)
     # Card tails before the currency are identifiers, never transaction amounts.
@@ -324,6 +324,8 @@ def parse_debit_message(body: str, received_time: datetime) -> TransactionRecord
         behaviour=behaviour,
         business=match.group("merchant").strip(),
         original_currency="CNY",
+        bank_name=bank_name or "招商银行",
+        counterparty_bank_name=bank_name if "本行" in content[:match.start("amount")] and "他行" not in content[:match.start("amount")] else None,
         **parties,
     )
     return record

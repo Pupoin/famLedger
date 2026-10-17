@@ -182,7 +182,7 @@ class TransactionIn(BaseModel):
         return cls.model_validate(obj)
 
 
-def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, user_or_ctx: Any = None) -> Account:
+def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, user_or_ctx: Any = None, default_currency: str = 'CNY') -> Account:
     """UUID, then exact external ID, then unconfigured account names; reject ambiguity."""
     raw_str = identifier.strip()
 
@@ -252,6 +252,20 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, us
     if exact:
         return exact
 
+    # A counterparty notice identifies bank + tail without establishing the
+    # card type. Reuse qualified identifiers too, including accounts created
+    # since Mailbridge last fetched its account list; never clone a readonly card.
+    if bank and not card_type and re.fullmatch(r'\d{4}', target_digits):
+        qualified = []
+        for acc in accounts:
+            prefix, separator, number = (acc.external_identifier or '').strip().rpartition(':')
+            if (separator and bank_label(prefix) == bank and re.fullmatch(r'\d{4,}', number)
+                    and number[-4:] == target_digits):
+                qualified.append(acc)
+        matched = single_match(qualified)
+        if matched:
+            return matched
+
     candidates = [acc for acc in accounts if eligible(acc)]
     # A suffix-only identifier is less specific and must also match bank and type.
     if re.fullmatch(r"\d{4}", target_digits):
@@ -302,7 +316,7 @@ def _resolve_account(session: Session, family_id: uuid.UUID, identifier: str, us
         name=acc_name,
         account_type=acc_type,
         classification="liability" if is_credit else "asset",
-        currency="CNY",
+        currency=default_currency,
         institution_name=bank_name,
         external_identifier=raw_str,
     )
@@ -487,8 +501,13 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
     account_key = data.account or "default"
     account = _resolve_account(session, family_id, str(account_key), user_or_ctx=user_or_ctx)
 
-    # 1.1 校验当前用户对该账户的写权限 (read_only / unshared 拦截)
-    _verify_account_write_permission(session, user_or_ctx, account.id, "记账")
+    # Explicit incoming transfers may credit a readonly shared destination;
+    # their source still requires write permission before either side exists.
+    from services.transfer_ingest import transfer_context, attach_transfer_peer, claim_generated_leg, complete_duplicate_import, transfer_confirmation
+    transfer_ctx = transfer_context(session, user_or_ctx, account, data,
+                                    _verify_account_write_permission, _verify_account_transfer_in_permission,
+                                    lambda identifier: _resolve_account(session, account.family_id, identifier,
+                                                                        user_or_ctx, default_currency=account.currency))
     family_id = account.family_id
 
     # 2. 确定交易精确时间与记账自然日（occurred_at 已由切面保证为标准 UTC 时间）
@@ -515,6 +534,11 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
             )
         ).first()
         if existing:
+            try:
+                with session.begin_nested():
+                    complete_duplicate_import(session, user_or_ctx, existing, data, transfer_ctx, _verify_account_write_permission)
+            except PendingExchangeRate as error:
+                raise HTTPException(503, "转账对端结算汇率暂不可用，未补记，请稍后重试") from error
             if pending_record is not None:
                 pending_record.status = "posted"
                 pending_record.posted_transaction_id = existing.id
@@ -524,6 +548,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
                 "id": str(existing.id),
                 "account_id": str(existing.account_id),
                 "external_id": existing.external_id,
+                **transfer_confirmation(session, existing, transfer_ctx),
                 "status": "duplicate",
                 "message": "Transaction already ingested",
             }
@@ -539,12 +564,14 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
             PendingFxTransaction.account_id == account.id, PendingFxTransaction.external_id == data.external_id)).first()
         if saved:
             from routes.v1_pending_fx import serialize_pending
-            return serialize_pending(saved, duplicate=True)
+            return {**serialize_pending(saved, duplicate=True), "transfer_context_accepted": bool(transfer_ctx)}
 
     # 5. 组装交易对象与扩展元数据
     extra_data = dict(data.extra or {})
     extra_data.pop('classification', None)
     extra_data.pop('transaction_type_source', None)
+    if transfer_ctx:
+        extra_data['direction'] = 'outflow' if transfer_ctx['outgoing'] else 'inflow'
     if data.external_id and data.external_id.startswith('manual:'):
         extra_data['transaction_type_source'] = 'manual'
     if extra_data.get("is_initial") or extra_data.get("source") == "account_opening":
@@ -594,18 +621,6 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
         original_account = session.get(Account, original.account_id)
         if original_account.family_id != account.family_id:
             raise HTTPException(403, "退款不能跨家庭关联")
-    to_identifier = (data.extra or {}).get("to_account_id")
-    if to_identifier:
-        try:
-            destination_id = uuid.UUID(str(to_identifier))
-        except (ValueError, TypeError):
-            raise HTTPException(422, "转入账户ID无效")
-        destination = session.get(Account, destination_id)
-        if not destination or not destination.is_active or destination.id == account.id:
-            raise HTTPException(400, "转入账户无效")
-        _verify_account_transfer_in_permission(session, user_or_ctx, destination.id, "转入账户")
-        if destination.family_id != account.family_id or destination.currency != account.currency:
-            raise HTTPException(400, "转账账户必须同家庭同记账币种")
 
     try:
         with session.begin_nested():
@@ -649,68 +664,26 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
 
             amount = txn.amount
 
-            # 6.5. 若为转账且指定了目标账户（to_account_id），先严格校验权限再原子提交
-            to_acc_id_str = extra_data.get("to_account_id") if isinstance(extra_data, dict) else None
-            to_account = None
-            if to_acc_id_str and txn_type != "transfer":
-                raise HTTPException(400, "指定转入账户的流水必须保持转账类型")
-            if (txn_type == "transfer" or to_acc_id_str) and to_acc_id_str:
-                try:
-                    to_acc_uuid = uuid.UUID(str(to_acc_id_str))
-                    to_account = session.get(Account, to_acc_uuid)
-                    if not to_account or not to_account.is_active:
-                        raise HTTPException(status_code=400, detail="指定的转入目标账户不存在或已停用")
-                    if to_account.id == account.id:
-                        raise HTTPException(status_code=400, detail="转入与转出不能为同一账户")
-                    if to_account.family_id != (account.family_id or family_id):
-                        raise HTTPException(status_code=400, detail="转入账户必须属于同一家庭")
-                    _verify_account_transfer_in_permission(session, user_or_ctx, to_account.id, "转入资金")
-                    if to_account.currency != account.currency:
-                        raise HTTPException(status_code=400, detail="跨币种转账需要明确兑换金额")
-                except HTTPException:
-                    raise
-                except (ValueError, TypeError):
-                    raise HTTPException(status_code=400, detail="无效的目标账户 ID")
+            if transfer_ctx and txn_type != "transfer":
+                raise HTTPException(400, "指定对端账户的流水必须保持转账类型")
+            claimed = claim_generated_leg(session, txn, transfer_ctx)
+            if claimed:
+                if pending_record is not None:
+                    pending_record.status = 'posted'
+                    pending_record.posted_transaction_id = claimed.id
+                    pending_record.last_error = None
+                    session.add(pending_record)
+                return {"id": str(claimed.id), "account_id": str(claimed.account_id),
+                        "external_id": claimed.external_id, "status": "duplicate",
+                        **transfer_confirmation(session, claimed, transfer_ctx),
+                        "message": "Bank notice reconciled with the existing transfer leg"}
 
             if pending_record is not None:
                 txn.id = pending_record.id
             session.add(txn)
 
-            if to_account:
-                in_name = data.narration if data.narration and data.narration not in ("转账", "内部转账") else f"收到{account.name}转入"
-                in_txn = Transaction(
-                    account_id=to_account.id,
-                    amount=amount,
-                    currency=account.currency,
-                    narration=in_name,
-                    transaction_type="transfer",
-                    category_id=txn.category_id,
-                    category_source=txn.category_source,
-                    transacted_at=transacted_date,
-                    occurred_at=occurred_at_clean,
-                    notes=data.notes,
-                    status="posted",
-                    extra={"from_account_id": str(account.id), "transaction_type_source": "manual"},
-                )
-                session.add(in_txn)
-                session.flush()
-
-                transfer_record = Transfer(
-                    family_id=account.family_id or family_id,
-                    outflow_transaction_id=txn.id,
-                    inflow_transaction_id=in_txn.id,
-                    amount=amount,
-                    status="confirmed",
-                )
-                session.add(transfer_record)
-                session.flush()
-
-                txn.transfer_id = transfer_record.id
-                txn.transaction_type = "transfer"
-                in_txn.transfer_id = transfer_record.id
-                session.add(txn)
-                session.add(in_txn)
-                logger.info("自动创建转账对端流水并原子配对: from=%s to=%s amount=%s transfer_id=%s", account.id, to_account.id, amount, transfer_record.id)
+            if transfer_ctx:
+                attach_transfer_peer(session, txn, transfer_ctx, user_or_ctx, _verify_account_write_permission)
 
             # 预检显式退款目标有效性及权限（防止事务提交后报错产生孤儿退款流水）
             if txn_type == "refund" and data.refund_of_transaction_id:
@@ -848,6 +821,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
                 "id": str(txn.id),
                 "account_id": str(txn.account_id),
                 "external_id": txn.external_id,
+                **transfer_confirmation(session, txn, transfer_ctx),
                 "amount": money_text(txn.amount),
                 **money_metadata(txn),
                 "currency": txn.currency,
@@ -869,7 +843,7 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
         row.last_error = str(error)[:500]
         session.add(row)
         session.flush()
-        return serialize_pending(row)
+        return {**serialize_pending(row), "transfer_context_accepted": bool(transfer_ctx)}
 
 
 @router.get("")
@@ -1249,6 +1223,9 @@ def list_transactions(
 
     read.load_accounts(row.account_id for row in peer_txns_map.values())
     accounts_map = read.accounts
+    from services.transfer_presentation import unpaired_counterparts, counterpart_identity
+    identified_peers = unpaired_counterparts(session, current_user or user_or_ctx, items, accounts_map)
+    accounts_map.update((peer.id, peer) for peer in identified_peers.values())
     owner_ids = {acc.owner_id for acc in accounts_map.values() if acc.owner_id and acc.id in accessible_acc_ids}
     users_map = {u.id: (u.display_name or u.username) for u in session.exec(select(User).where(User.id.in_(owner_ids))).all()} if owner_ids else {}
 
@@ -1282,6 +1259,7 @@ def list_transactions(
         transfer_peer_account = None
         transfer_peer_owner_name = None
         transfer_peer_is_owner = None
+        transfer_counterparty = None
         if t.transaction_type == "transfer" and t.transfer_id and t.transfer_id in transfers_map:
             tr = transfers_map[t.transfer_id]
             transfer_is_outflow = (t.id == tr.outflow_transaction_id)
@@ -1296,6 +1274,14 @@ def list_transactions(
                     transfer_peer_is_owner = bool(current_user and peer_acc.owner_id == current_user.id) if is_peer_visible else False
                 else:
                     transfer_peer_account = "外部账户"
+        elif t.id in identified_peers:
+            from services.transaction_direction import transaction_direction
+            peer_acc = identified_peers[t.id]
+            transfer_counterparty = counterpart_identity(peer_acc, current_user, users_map.get(peer_acc.owner_id))
+            transfer_is_outflow = transaction_direction(t, account=acc) == 'outflow'
+            transfer_peer_account = transfer_counterparty['account_name']
+            transfer_peer_owner_name = transfer_counterparty['owner_name']
+            transfer_peer_is_owner = transfer_counterparty['is_owner']
 
         output.append({
             "id": str(t.id),
@@ -1337,6 +1323,7 @@ def list_transactions(
             "transfer_peer_account": transfer_peer_account,
             "transfer_peer_owner_name": transfer_peer_owner_name,
             "transfer_peer_is_owner": transfer_peer_is_owner,
+            "transfer_counterparty": transfer_counterparty,
         })
 
     next_cursor = output[-1]["id"] if has_more and output else None
@@ -1711,6 +1698,14 @@ def get_transaction_detail(
                     }
                 }
 
+    from services.transfer_presentation import unpaired_counterparts, counterpart_identity
+    identified_peer = unpaired_counterparts(session, current_user or user_or_ctx, [txn], {account.id: account}).get(txn.id)
+    transfer_counterparty = None
+    if identified_peer:
+        peer_owner = session.get(User, identified_peer.owner_id) if identified_peer.owner_id else None
+        transfer_counterparty = counterpart_identity(identified_peer, current_user,
+            (peer_owner.display_name or peer_owner.username) if peer_owner else None)
+
     # 退款关联详情
     refund_info = None
     if txn.transaction_type == "refund":
@@ -1893,6 +1888,7 @@ def get_transaction_detail(
         "tags": resolve_tags(txn.tags),
         "scheduled_payment": scheduled_payment,
         "paired_transfer": paired_transfer,
+        "transfer_counterparty": transfer_counterparty,
         "deletion_info": deletion_info(session, user_or_ctx, txn, _verify_account_write_permission),
         "refund_info": refund_info,
     }

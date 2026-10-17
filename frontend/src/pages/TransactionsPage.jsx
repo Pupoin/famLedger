@@ -11,6 +11,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useCurrency } from '../CurrencyContext';
 import { useToast } from '../ToastContext';
 import TransactionDrawer from '../components/TransactionDrawer';
+import TransactionAccountFlow from '../components/TransactionAccountFlow';
 import { transactionCategoryLabel } from '../components/RefundCategoryField';
 import useTransactionDrawer from '../hooks/useTransactionDrawer';
 import TransactionFilterModal from '../components/TransactionFilterModal';
@@ -1091,32 +1092,6 @@ export default function TransactionsPage() {
                     const ownerName = !isMe ? (txn.account_owner_name || (txn.account_owner !== '我的' && txn.account_owner !== '本人' ? txn.account_owner : null)) : null;
                     const accTitle = txn.account_name || txn.institution_name || tx("银行账户");
 
-                    const isPeerMe = txn.transfer_peer_is_owner !== undefined
-                      ? txn.transfer_peer_is_owner
-                      : (!txn.transfer_peer_owner_name ||
-                         txn.transfer_peer_owner_name === '我的' ||
-                         txn.transfer_peer_owner_name === '本人' ||
-                         txn.transfer_peer_owner_name === user?.username ||
-                         txn.transfer_peer_owner_name === user?.displayName);
-                    const peerOwnerName = !isPeerMe ? txn.transfer_peer_owner_name : null;
-
-                    // 辅助函数：渲染账户节点。本人账户绝不写“我的”，他人账户写上名字
-                    const renderAccountNode = (accName, isAccountMe, accOwnerName, isSecondary = false) => {
-                      if (!accName || accName === '外部账户') {
-                        return <span className="text-zinc-400">{tx("外部账户")}</span>;
-                      }
-                      if (isAccountMe) {
-                        return <span className={isSecondary ? "text-zinc-500 dark:text-zinc-400" : ""}>{accName}</span>;
-                      }
-                      const ownerLabel = accOwnerName || tx("共享成员");
-                      return (
-                        <span className={`inline-flex items-center gap-1 ${isSecondary ? 'text-zinc-600 dark:text-zinc-300' : 'text-purple-600 dark:text-purple-400'}`}>
-                          <span className="font-semibold text-purple-600 dark:text-purple-400">{ownerLabel}</span>
-                          <span className="font-normal text-zinc-400 dark:text-zinc-500">· {accName}</span>
-                        </span>
-                      );
-                    };
-
                     const formattedExactTime = txn.occurred_at ? formatDateTime(txn.occurred_at).split(' ')[1] : null;
 
                     const renderAmount = () => {
@@ -1218,37 +1193,7 @@ export default function TransactionsPage() {
                               )}
                               <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 min-w-0 flex items-center gap-1.5">
                                 {isTransfer ? (
-                                  <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center flex-wrap gap-x-1 gap-y-0.5 leading-tight">
-                                    {txn.transfer_peer_account ? (
-                                      txn.transfer_is_outflow ? (
-                                        <>
-                                          {renderAccountNode(accTitle, isMe, ownerName, true)}
-                                          <span className="text-blue-500 font-bold shrink-0">➔</span>
-                                          {renderAccountNode(txn.transfer_peer_account, isPeerMe, peerOwnerName, false)}
-                                        </>
-                                      ) : (
-                                        <>
-                                          {renderAccountNode(txn.transfer_peer_account, isPeerMe, peerOwnerName, true)}
-                                          <span className="text-blue-500 font-bold shrink-0">➔</span>
-                                          {renderAccountNode(accTitle, isMe, ownerName, false)}
-                                        </>
-                                      )
-                                    ) : (
-                                      (txn.narration || '').includes("转入") || (txn.narration || '').includes("收到") ? (
-                                        <>
-                                          <span className="text-zinc-400 shrink-0">{tx("外部账户")}</span>
-                                          <span className="text-blue-500 font-bold shrink-0">➔</span>
-                                          {renderAccountNode(accTitle, isMe, ownerName, false)}
-                                        </>
-                                      ) : (
-                                        <>
-                                          {renderAccountNode(accTitle, isMe, ownerName, true)}
-                                          <span className="text-blue-500 font-bold shrink-0">➔</span>
-                                          <span className="text-zinc-400 shrink-0">{tx("外部账户")}</span>
-                                        </>
-                                      )
-                                    )}
-                                  </span>
+                                  <TransactionAccountFlow transaction={txn} />
                                 ) : (
                                   <>
                                     <span className="truncate font-normal max-w-[120px] sm:max-w-none flex items-center gap-1" title={accTitle}>
