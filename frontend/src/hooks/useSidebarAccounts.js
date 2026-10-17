@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { createSidebarAccountsStore } from '../utils/sidebarAccountsStore';
+import { normalizeAccountTypeKey } from '../utils/accountTypes';
 
 export default function useSidebarAccounts(user, currency) {
   const userKey = user?.id || user?.username || '';
@@ -15,6 +16,21 @@ export default function useSidebarAccounts(user, currency) {
     }
     const data = await response.json();
     return Array.isArray(data) ? data : data.accounts || data.items || [];
+  }, async (accounts, signal) => {
+    if (!accounts.some(account => normalizeAccountTypeKey(account) === 'investment')) return accounts;
+    let returns = {};
+    let failed = false;
+    try {
+      const response = await fetchWithAuth('/api/v1/accounts/investment-returns', { signal });
+      if (!response.ok) throw new Error('Investment returns unavailable');
+      returns = (await response.json()).returns || {};
+    } catch (error) {
+      if (error.name === 'AbortError') throw error;
+      failed = true;
+    }
+    return accounts.map(account => normalizeAccountTypeKey(account) === 'investment'
+      ? { ...account, investment_ytd: returns[account.id] || { rate: null, reason: failed ? 'load_failed' : 'not_initialized' } }
+      : account);
   }), [userKey, currency]);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 

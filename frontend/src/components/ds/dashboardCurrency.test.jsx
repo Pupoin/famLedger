@@ -7,6 +7,7 @@ import SureOutflowsDonut from './SureOutflowsDonut';
 import SureMoneyInOut from './SureMoneyInOut';
 import SureSpendingCalendar from './SureSpendingCalendar';
 import SureMerchantSpending from './SureMerchantSpending';
+import i18n from '../../i18n';
 
 const preference = vi.hoisted(() => ({ symbol: '$', privacyMode: false }));
 afterEach(() => { preference.privacyMode = false; });
@@ -21,6 +22,43 @@ const widgets = [
 ];
 
 describe('overview chart money uses display currency', () => {
+  it('stacks investment gains/losses into money-in/out while exposing the separate cash breakdown', () => {
+    const previousLanguage=i18n.language;
+    const data={includes_investment:true,income:130,expenses:48,balance:82,cash_income:30,cash_expenses:8,investment_gain:100,investment_loss:40,
+      last_6_months:[{ym:'2026-09',month:'9月',income:130,expense:48,cash_income:30,cash_expense:8,investment_gain:100,investment_loss:40}]};
+    for (const locale of ['zh','en']) {
+      i18n.changeLanguage(locale);preference.symbol='$';preference.privacyMode=false;
+      const render=()=>renderToStaticMarkup(<MemoryRouter><SureMoneyInOut data={data}/></MemoryRouter>);
+      const visible=render();expect(visible).toContain('$130.00');expect(visible).toContain('$48.00');expect(visible).toContain('$82.00');
+      expect(visible).toContain('money-in-out-gain-segment');expect(visible).toContain('money-in-out-loss-segment');
+      expect(visible).toContain('$100.00');expect(visible).toContain('$40.00');
+      if (locale==='en') expect(visible).not.toMatch(/[\p{Script=Han}]/u);
+      preference.privacyMode=true;
+      const hidden=render();expect(hidden).toContain('••••••');
+      for (const amount of ['130.00','48.00','82.00','100.00','40.00']) expect(hidden).not.toContain(amount);
+    }
+    i18n.changeLanguage(previousLanguage);
+  });
+  it('renders investment gains and losses as separate translated branches and masks their amounts', () => {
+    const previousLanguage=i18n.language;
+    i18n.changeLanguage('en');
+    const data={income_sources:[{kind:'investment',name:'投资盈利',investment_activity:'gain',amount:123.45}],
+      expense_destinations:[{kind:'investment',name:'投资亏损',investment_activity:'loss',amount:67.89}],
+      pool:{name:'收支及投资净额',amount:55.56},includes_investment:true};
+    const render=()=>renderToStaticMarkup(<MemoryRouter><SureCashflowSankey data={data}/></MemoryRouter>);
+    preference.symbol='$';
+    const html=render();expect(html).toContain('Investment gains');expect(html).toContain('Investment losses');
+    expect(html).toContain('$123.45');expect(html).toContain('$67.89');expect(html).not.toMatch(/[\p{Script=Han}]/u);
+    preference.privacyMode=true;
+    const hidden=render();expect(hidden).toContain('••••••');
+    for (const amount of ['123.45','67.89','55.56']) expect(hidden).not.toContain(amount);
+    i18n.changeLanguage(previousLanguage);
+  });
+  it('renders a gain-only period with a visible central node', () => {
+    const html=renderToStaticMarkup(<MemoryRouter><SureCashflowSankey data={{
+      income_sources:[{kind:'investment',name:'投资盈利',amount:100}],expense_destinations:[],includes_investment:true}}/></MemoryRouter>);
+    expect(html).toContain('cashflow-sankey');expect(html).not.toContain('height="0"');
+  });
   it.each(widgets)('%s follows current user preference and its changes', (_, Widget, data) => {
     const render = (props={}) => renderToStaticMarkup(<MemoryRouter><Widget data={data} {...props} /></MemoryRouter>);
     preference.symbol = '$';

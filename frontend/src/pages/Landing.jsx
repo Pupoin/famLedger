@@ -1,7 +1,8 @@
+import InvestmentSummary from '../components/InvestmentSummary';
 import { chartMoney } from '../utils/chartMoney';
 import { dateLabel, tx, useLocale, currentLocale } from "../localization.js";
 import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ChevronLeft, ChevronDown, ChevronRight, Maximize2, SlidersHorizontal, Eye, EyeOff, BookOpen } from 'lucide-react';
 import { useCurrency } from '../CurrencyContext';
 import { useAuth } from '../auth/AuthContext';
@@ -17,6 +18,7 @@ import { usePageViewState, usePageScrollRestoration } from '../PageViewContext';
 
 export default function Landing() {
   useLocale();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { privacyMode, togglePrivacyMode, currency, symbol } = useCurrency();
   const [retryCount, setRetryCount] = useState(0);
@@ -542,10 +544,14 @@ export default function Landing() {
           {/* Body */}
           {!collapsedSections.investment && (
             <div className="p-4 pt-2">
-              <span className="text-xs text-zinc-400 font-medium block">{tx("投资")}</span>
-              <span className="text-3xl sm:text-4xl font-bold font-mono tracking-tight text-zinc-900 dark:text-zinc-100 mt-1 block">
-                {formatAmount(data?.investment?.total)}
-              </span>
+              <InvestmentSummary data={data?.investment} privacy={privacyMode} overview onDrilldown={activity => {
+                const investment = data?.investment;
+                if (!investment?.account_ids?.length) return;
+                const params = new URLSearchParams({ investment_activity:activity, account_id:investment.account_ids.join(','),
+                  start_date:investment.period_start, end_date:investment.period_end });
+                if (userFilter !== '全部') params.set('user', userFilter);
+                navigate(`/transactions?${params}`);
+              }} />
             </div>
           )}
         </div>
@@ -835,6 +841,17 @@ export default function Landing() {
                 {formatAmount(data?.balance_sheet?.net_worth)}
               </span>
               <p className="text-xs text-zinc-400 mt-1">{tx("数据依据真实资产与负债账户实时计算")}</p>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="net-worth-period">
+                {[
+                  ['期初净资产', data?.balance_sheet?.period?.opening],
+                  ['期末净资产', data?.balance_sheet?.period?.closing],
+                  ['本期净资产变动', data?.balance_sheet?.period?.change],
+                ].map(([label, value]) => <div key={label} className="min-w-0 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/40">
+                  <p className="text-xs text-zinc-500">{tx(label)}</p>
+                  <p className={`mt-1 break-words font-mono font-semibold ${label === '本期净资产变动' && value < 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-100'}`}>{value == null ? tx('待补充') : formatAmount(value)}</p>
+                </div>)}
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-500">{data?.balance_sheet?.period?.start} — {data?.balance_sheet?.period?.end} · {tx('净资产变动包含账户收支、投资盈亏、汇率和余额调整，与现金结余分别统计。')}</p>
             </div>
           )}
         </div>

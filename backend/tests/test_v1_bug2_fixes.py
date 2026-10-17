@@ -380,7 +380,15 @@ def test_issue_4_transfer_write_permission_on_to_account(client: TestClient):
     }
     res = client.post("/api/v1/transfers", json=payload)
     assert res.status_code == 403
-    assert "您没有权限向账户" in res.json()["detail"]
+    assert res.json().get("detail")
+    # Permission semantics must not depend on the wording or UI language.
+    # A rejected transfer must leave neither side nor any pairing mutated.
+    from routes.v1_accounts import get_account_realtime_balance
+    with Session(engine) as session:
+        assert session.exec(select(Transaction).where(Transaction.account_id.in_([from_id, to_id]))).all() == []
+        assert session.exec(select(Transfer)).all() == []
+        assert get_account_realtime_balance(session, from_id) == Decimal('500')
+        assert get_account_realtime_balance(session, to_id) == Decimal('10000')
 
 
 def test_issue_6_transfers_no_name_error_imports(client: TestClient):

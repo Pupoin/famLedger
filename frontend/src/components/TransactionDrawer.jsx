@@ -18,6 +18,8 @@ import TransferDestinationFields from './TransferDestinationFields';
 import RefundEditFields from './RefundEditFields';
 import RefundCategoryField, { transactionCategoryLabel } from './RefundCategoryField';
 import { buildRefundAllocation } from '../utils/refundAllocation';
+import InvestmentValuationEditor from './InvestmentValuationEditor';
+import { canonicalAccountType } from '../utils/accountTypes';
 
 export default function TransactionDrawer({
   transactionId,
@@ -60,6 +62,7 @@ export default function TransactionDrawer({
   const [editOriginalCurrency, setEditOriginalCurrency] = useState('');
   const [editMasterAmount, setEditMasterAmount] = useState('');
   const [editType, setEditType] = useState('expense');
+  const [editInvestmentDirection, setEditInvestmentDirection] = useState('gain');
   const [editTransferDirection, setEditTransferDirection] = useState('outflow');
   const [editPeerAccountId, setEditPeerAccountId] = useState('');
   const [editPeerAmount, setEditPeerAmount] = useState('');
@@ -88,6 +91,10 @@ export default function TransactionDrawer({
   const [deleting, setDeleting] = useState(false);
   const refundCategoryLocked = txn?.transaction_type === 'refund' && txn.refund_info?.category_editable === false;
   const displayedCategoryName = transactionCategoryLabel(txn);
+  const isInvestmentValuation = txn?.transaction_type === 'adjustment' && txn?.extra?.source === 'investment_valuation';
+  const isInvestmentReturn = txn?.transaction_type === 'adjustment' && ['investment_valuation', 'investment_return'].includes(txn?.extra?.source);
+  const investmentAccountSelected = canonicalAccountType(allAccounts.find(account => account.id === editAccountId)
+    || (editAccountId === txn?.account_id ? txn?.account_type : null)) === 'investment';
   const transferOutflow = txn?.funds_direction === 'outflow'
     || (txn?.funds_direction == null && txn?.paired_transfer?.is_outflow === true);
   const transferCounterpart = txn?.paired_transfer?.counterpart || txn?.transfer_counterparty;
@@ -99,7 +106,8 @@ export default function TransactionDrawer({
     setEditOriginalAmount(txn.original_amount || '');
     setEditOriginalCurrency(txn.original_currency || '');
     setEditMasterAmount(txn.master_settlement_amount || '');
-    setEditType(txn.transaction_type || 'expense');
+    setEditType(isInvestmentReturn ? 'investment' : txn.transaction_type || 'expense');
+    setEditInvestmentDirection(txn.extra?.direction === 'decrease' || txn.funds_direction === 'outflow' ? 'loss' : 'gain');
     setEditTransferDirection(txn.funds_direction || (['income', 'refund'].includes(txn.transaction_type) ? 'inflow' : 'outflow'));
     setEditPeerAccountId(txn.paired_transfer?.counterpart?.account_id || '');
     setEditPeerAmount(txn.paired_transfer?.counterpart?.amount || '');
@@ -219,6 +227,7 @@ export default function TransactionDrawer({
           master_settlement_currency: (allAccounts.find(a => a.id === editAccountId)?.parent_account)?.currency || txn.master_settlement_currency
         } : {}),
         ...(editType !== txn.transaction_type ? { transaction_type: editType } : {}),
+        ...(editType === 'investment' ? { investment_direction: editInvestmentDirection } : {}),
         ...(editType === 'refund' && editRefundOriginalId ? {
           refund_of_transaction_id: editRefundOriginalId,
           allocation_amount: allocation.allocated_amount, allocation_currency: allocation.original_currency,
@@ -238,11 +247,11 @@ export default function TransactionDrawer({
           ? { settlement_amount: editAmount, settlement_currency: allAccounts.find(account => account.id === editAccountId)?.currency } : {}),
         ...(timeChanged ? { date: editDate, time: editTime, occurred_at: localToUTCISO(editDate, editTime) } : {}),
         account_id: editAccountId || txn.account_id,
-        ...(categoryTouched && !refundCategoryLocked ? { category_id: editCategoryId || null } : {}),
+        ...(categoryTouched && !refundCategoryLocked && editType !== 'investment' ? { category_id: editCategoryId || null } : {}),
         tags: editTags,
         notes: editNotes.trim(),
         is_reimbursable: reimbursable,
-        excluded_from_stats: editExcludedFromStats,
+        excluded_from_stats: editType === 'investment' || editExcludedFromStats,
         reimbursement_type: reimbursable ? editReimbType : null,
         counterparty: reimbursable
           ? (editCounterparty.trim() || (editReimbType === 'corporate' ? '公司' : '张三'))
@@ -637,7 +646,15 @@ export default function TransactionDrawer({
           ) : (
             <>
               {/* 0. 编辑模式表单 (允许修改：交易时间、分类、账户、记账类型、金额、名称、备注) */}
-              {isEditing && (
+              {isEditing && isInvestmentValuation && <InvestmentValuationEditor key={txn.id} transaction={txn}
+                onCancel={() => setIsEditing(false)} onSaved={updated => {
+                  if (activeTransactionId.current === updated.id) { setTxn(updated); setIsEditing(false); }
+                  showToast(tx('投资市值已保存，盈亏及后续余额已重新计算'), 'success');
+                  window.dispatchEvent(new CustomEvent('transaction-updated'));
+                  window.dispatchEvent(new CustomEvent('accounts-updated'));
+                  onTransactionUpdated?.();
+                }} />}
+              {isEditing && !isInvestmentValuation && (
                 <form onSubmit={handleSaveEdit} className="p-4 rounded-xl border-2 border-blue-500/80 bg-blue-50/20 dark:bg-blue-950/20 space-y-4 shadow-sm animate-in fade-in duration-150">
                   <div className="flex items-center justify-between pb-2 border-b border-blue-200/60 dark:border-blue-900/60">
                     <div className="flex items-center gap-2">
@@ -650,12 +667,13 @@ export default function TransactionDrawer({
                   {/* 1. 记账类型选择 */}
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{tx("记账类型 (收支属性)")}</label>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className={`grid gap-1.5 ${investmentAccountSelected ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-4'}`}>
                       {[
                         { id: 'expense', label: '支出', icon: '🛒' },
                         { id: 'income', label: '收入', icon: '💰' },
                         { id: 'transfer', label: '转账', icon: '⇄' },
                         { id: 'refund', label: '退款', icon: '↺' },
+                        ...(investmentAccountSelected ? [{ id: 'investment', label: '投资盈亏', icon: '↗' }] : []),
                       ].map((t) => (
                         <button
                           key={t.id}
@@ -666,17 +684,19 @@ export default function TransactionDrawer({
                             || Boolean(txn.is_split && !['expense', 'refund'].includes(t.id)))}
                           onClick={() => {
                             setEditType(t.id);
+                            if (t.id === 'investment') setEditExcludedFromStats(true);
+                            else if (editType === 'investment') setEditExcludedFromStats(false);
                             if (!['expense', 'income'].includes(t.id) && editIsReimbursable) {
                               setEditIsReimbursable(false);
                               setEditExcludedFromStats(false);
                             }
-                            if (t.id !== editType && t.id !== 'transfer') {
+                            if (t.id !== editType && !['transfer', 'investment'].includes(t.id)) {
                               const selected = allCategories.find(category => category.id === editCategoryId);
                               if (selected?.category_type !== (t.id === 'refund' ? 'expense' : t.id)) setEditCategoryId('');
                               setCategoryTouched(true);
                             }
                           }}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                          className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${t.id === 'investment' ? 'col-span-2' : ''} ${
                             editType === t.id
                               ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-xs'
                               : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50'
@@ -690,6 +710,15 @@ export default function TransactionDrawer({
                     {(txn.paired_transfer || txn.deletion_info?.has_refund_links || txn.deletion_info?.linked_refund_count || txn.is_split) &&
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">{tx('请先解除拆分或关联，再切换交易类型。')}</p>}
                   </div>
+
+                  {editType === 'investment' && <div className="space-y-2" data-testid="investment-return-fields">
+                    <label className="text-xs font-semibold text-zinc-500" htmlFor="investment-return-direction">{tx('盈亏方向')}</label>
+                    <select id="investment-return-direction" value={editInvestmentDirection} onChange={event => setEditInvestmentDirection(event.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-white">
+                      <option value="gain">{tx('投资盈利')}</option><option value="loss">{tx('投资亏损')}</option>
+                    </select>
+                    <p className="text-xs text-zinc-500">{tx('投资盈亏单独统计，不归入收支分类，也不计入消费预算。')}</p>
+                  </div>}
 
                   {/* 2. 交易名称与金额 */}
                   <div className="grid grid-cols-2 gap-3">
@@ -765,7 +794,7 @@ export default function TransactionDrawer({
                   </div>
 
                   {/* 4. 账户与分类选择 */}
-                  {editType !== 'transfer' && <div className="grid grid-cols-2 gap-3">
+                  {editType !== 'transfer' && <div className={`grid gap-3 ${editType === 'investment' ? 'grid-cols-1' : 'grid-cols-2'}`}>
                     <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{tx('所属账户')}</label>
                       <select
@@ -776,7 +805,7 @@ export default function TransactionDrawer({
                       >
                         {allAccounts.length > 0 ? (
                           allAccounts.map((a) => (
-                            <option key={a.id} value={a.id} disabled={a.can_edit === false}>
+                            <option key={a.id} value={a.id} disabled={a.can_edit === false || (editType === 'investment' && canonicalAccountType(a) !== 'investment')}>
                               {formatAccountWithEmoji(a)}
                             </option>
                           ))
@@ -786,8 +815,9 @@ export default function TransactionDrawer({
                       </select>
                     </div>
 
-                    <RefundCategoryField transaction={txn} categories={allCategories} value={editCategoryId}
+                    {editType !== 'investment' && <RefundCategoryField transaction={txn} categories={allCategories} value={editCategoryId}
                       transactionType={editType} onChange={value => { setEditCategoryId(value); setCategoryTouched(true); }} />
+                    }
                   </div>}
 
                   {editType === 'transfer' && <TransferDestinationFields transaction={txn} accounts={allAccounts}
@@ -992,7 +1022,7 @@ export default function TransactionDrawer({
                   </div>}
 
                   {/* 5. 备注 */}
-                  {editType !== 'transfer' && <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                  {!['transfer', 'investment'].includes(editType) && <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
                     <input type="checkbox" data-testid="edit-excluded-from-stats" checked={editExcludedFromStats}
                       onChange={event => setEditExcludedFromStats(event.target.checked)} className="rounded accent-blue-600" />
                     {tx('不计入收支统计')}
@@ -1060,7 +1090,7 @@ export default function TransactionDrawer({
                         : txn.transaction_type === 'income'
                         ? tx("日常收入")
                         : txn.transaction_type === 'adjustment'
-                        ? tx("余额对账")
+                        ? tx(isInvestmentReturn ? '投资盈亏' : '余额对账')
                         : tx("日常支出")}
                     </span>
                   </div>
@@ -1070,7 +1100,7 @@ export default function TransactionDrawer({
                   <div className="font-semibold text-zinc-900 dark:text-zinc-100 truncate pr-2">
                     {txn.narration || (txn.transaction_type === 'transfer' ? tx("内部转账") : tx("未命名交易"))}
                   </div>
-                  {txn.transaction_type !== 'transfer' && (
+                  {txn.transaction_type !== 'transfer' && !isInvestmentReturn && (
                     <div className="flex items-center gap-1.5 shrink-0 text-zinc-500 dark:text-zinc-400">
                       <span>{txn.category_icon || '📦'}</span>
                       <span>{displayedCategoryName || tx("未分类")}</span>
@@ -1079,11 +1109,16 @@ export default function TransactionDrawer({
                 </div>
               </div>
 
-              {!refundCategoryLocked && txn.extra?.classification && <p className="text-xs text-zinc-500" data-testid="classification-rule">
+              {!isInvestmentReturn && !refundCategoryLocked && txn.extra?.classification && <p className="text-xs text-zinc-500" data-testid="classification-rule">
                 {txn.extra.classification.reason === 'no_match' ? tx('未命中分类规则，归入其他') : `${tx('分类规则')}: #${txn.extra.classification.priority} ${txn.extra.classification.rule_name}`}
               </p>}
 
               {/* 1.2 交易核心明细卡片 (精确日期与时分秒、账户、分类、入账时间) */}
+              {isInvestmentValuation && <div className="space-y-1 rounded-xl border border-purple-200 dark:border-purple-900 p-3 text-xs" data-testid="investment-valuation-info">
+                <strong>{tx('投资总市值')}：{privacyMode ? '••••••' : `${formatCurrency(txn.extra.target_balance, currencySymbol(txn.currency))} ${txn.currency}`}</strong>
+                {txn.extra.valuation_baseline && <p className="text-zinc-500">{tx('首次市值作为基准，不作为投资收益。')}</p>}
+                <p className="text-zinc-500">{tx('盈亏差额根据所选时间之前的流水计算，修改目标市值或历史交易后会自动更新。')}</p>
+              </div>}
               {txn.extra?.scheduled_occurrence_id && <div data-testid="drawer-plan-link" className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 space-y-1 text-xs">
                 <strong>{tx('计划关联流水')}</strong>
                 <p>{tx({principal:'本金',receipt:'本金',transfer:'内部转账',interest:'利息',fee:'手续费',deferred_interest:'延期利息',deferred_interest_paid:'延期利息',capitalized_interest:'计入本金的利息'}[txn.extra.component] || '计划')}</p>
@@ -1156,6 +1191,11 @@ export default function TransactionDrawer({
                         <span>⇄</span>
                         <span>{tx(txn.paired_transfer ? '内部转账互转 (不计家庭收支)' : '转账 (不计家庭收支)')}</span>
                       </span>
+                    </div>
+                  ) : txn.transaction_type === 'adjustment' ? (
+                    <div>
+                      <span className="text-zinc-400 block text-[11px] mb-0.5">{tx('记账属性')}</span>
+                      <span className="font-medium text-purple-600 dark:text-purple-400">{tx(isInvestmentReturn ? '投资盈亏' : '余额对账')}</span>
                     </div>
                   ) : (
                     <>

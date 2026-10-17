@@ -26,6 +26,9 @@ export default function SureMoneyInOut({
   const balance = data?.balance ?? 0;
   const income = data?.income ?? 0;
   const expenses = data?.expenses ?? 0;
+  const includesInvestment = Boolean(data?.includes_investment);
+  const incomeLabel = includesInvestment ? '资金流入' : '收入';
+  const expenseLabel = includesInvestment ? '资金流出' : '支出';
 
   const activeBars = trendRange === '12m'
     ? data?.last_12_months || data?.last_6_months || []
@@ -39,7 +42,8 @@ export default function SureMoneyInOut({
 
   const handleIncomeClick = () => {
     const params = new URLSearchParams();
-    params.set('transaction_type', 'income');
+    params.set('funds_flow', 'inflow');
+    if (data?.account_id) params.set('account_id',data.account_id);
     if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
     if (startDate) params.set('start_date', startDate);
     if (endDate) params.set('end_date', endDate);
@@ -48,7 +52,8 @@ export default function SureMoneyInOut({
 
   const handleExpenseClick = () => {
     const params = new URLSearchParams();
-    params.set('transaction_type', 'expense');
+    params.set('funds_flow', 'outflow');
+    if (data?.account_id) params.set('account_id',data.account_id);
     if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
     if (startDate) params.set('start_date', startDate);
     if (endDate) params.set('end_date', endDate);
@@ -57,6 +62,8 @@ export default function SureMoneyInOut({
 
   const handleBalanceClick = () => {
     const params = new URLSearchParams();
+    params.set('funds_flow','all');
+    if (data?.account_id) params.set('account_id',data.account_id);
     if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
     if (startDate) params.set('start_date', startDate);
     if (endDate) params.set('end_date', endDate);
@@ -65,6 +72,8 @@ export default function SureMoneyInOut({
 
   const handleMonthBarClick = (m) => {
     const params = new URLSearchParams();
+    params.set('funds_flow','all');
+    if (data?.account_id) params.set('account_id',data.account_id);
     if (userFilter && userFilter !== '全部' && userFilter !== 'all') params.set('user', userFilter);
     if (m.start_date) params.set('start_date', m.start_date);
     if (m.end_date) params.set('end_date', m.end_date);
@@ -78,11 +87,11 @@ export default function SureMoneyInOut({
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 dark:bg-emerald-500" />
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx("收入")}</span>
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx(incomeLabel)}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx("支出")}</span>
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{tx(expenseLabel)}</span>
           </div>
         </div>
 
@@ -113,12 +122,18 @@ export default function SureMoneyInOut({
           >{compactRange ? '12M' : tx("近 12 个月")}</button>
         </div>
       </div>
+      {includesInvestment && <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500" data-testid="money-in-out-investment-legend">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-300 dark:bg-emerald-300"/>{tx('投资盈利')}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-500"/>{tx('投资亏损')}</span>
+      </div>}
 
       {/* ── 2. Bar Chart Area (Clickable to jump into that month) ── */}
       <div data-testid="money-in-out-bars" className="h-44 sm:h-48 pt-3 flex items-end justify-between gap-0.5 sm:gap-2 border-b border-zinc-100 dark:border-zinc-800 pb-2 overflow-x-auto">
         {activeBars.map((m, idx) => {
           const incHeight = Math.max(0, (m.income / maxVal) * 120);
           const expHeight = Math.max(0, (m.expense / maxVal) * 120);
+          const gainShare = Number(m.investment_gain || 0) / Math.max(Number(m.income || 0),1e-9) * 100;
+          const lossShare = Number(m.investment_loss || 0) / Math.max(Math.max(0,Number(m.cash_expense ?? m.expense ?? 0))+Number(m.investment_loss || 0),1e-9) * 100;
           const isLatest = idx === activeBars.length - 1;
 
           return (
@@ -129,7 +144,7 @@ export default function SureMoneyInOut({
               data-end-date={m.end_date}
               onClick={() => handleMonthBarClick(m)}
               className="flex-1 min-w-[20px] sm:min-w-[28px] flex flex-col items-center gap-1.5 sm:gap-2 group cursor-pointer"
-              title={tx("点击查看 {p0} 流水 (收入: {p1}{p2}, 支出: {p3}{p4})", {p0: (m.year_month || m.month), p1: '', p2: formatAmount(m.income), p3: '', p4: formatAmount(m.expense)})}
+              title={includesInvestment ? tx('点击查看 {p0} 资金明细：流入 {p1}，流出 {p2}；投资盈利 {p3}，投资亏损 {p4}',{p0:dateLabel(m.year_month || m.month),p1:formatAmount(m.income),p2:formatAmount(m.expense),p3:formatAmount(m.investment_gain),p4:formatAmount(m.investment_loss)}) : tx("点击查看 {p0} 流水 (收入: {p1}{p2}, 支出: {p3}{p4})", {p0: (m.year_month || m.month), p1: '', p2: formatAmount(m.income), p3: '', p4: formatAmount(m.expense)})}
             >
               {/* Bars container */}
               <div className="h-32 w-full flex items-end justify-center gap-0.5 sm:gap-1 relative group-hover:scale-y-[1.03] transition-transform origin-bottom">
@@ -137,18 +152,18 @@ export default function SureMoneyInOut({
                 {m.income > 0 && (
                   <div
                     style={{ height: `${incHeight}px` }}
-                    className="w-1.5 sm:w-2.5 bg-emerald-600 dark:bg-emerald-500 rounded-t-sm transition-all group-hover:brightness-110 shadow-2xs"
-                  />
+                    className="w-1.5 sm:w-2.5 bg-emerald-600 dark:bg-emerald-500 rounded-t-sm overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 shadow-2xs"
+                  >{m.investment_gain > 0 && <div data-testid="money-in-out-gain-segment" className="w-full shrink-0 bg-emerald-300" style={{height:`${Math.min(100,gainShare)}%`}}/>}</div>
                 )}
                 {/* Expense bar */}
                 <div
                   style={{ height: `${Math.max(4, expHeight)}px` }}
-                  className={`w-2 sm:w-3.5 rounded-t-sm transition-all group-hover:brightness-110 ${
+                  className={`w-2 sm:w-3.5 rounded-t-sm overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 ${
                     m.expense > 0
                       ? 'bg-zinc-400 dark:bg-zinc-500 shadow-2xs'
                       : 'bg-zinc-100 dark:bg-zinc-800/60'
                   }`}
-                />
+                >{m.investment_loss > 0 && <div data-testid="money-in-out-loss-segment" className="w-full shrink-0 bg-rose-500" style={{height:`${Math.min(100,lossShare)}%`}}/>}</div>
               </div>
 
               {/* Month label */}
@@ -170,7 +185,7 @@ export default function SureMoneyInOut({
       <div className="pt-2 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-zinc-100 dark:border-zinc-800/70 pb-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{tx("当期收支结余")}</h3>
+            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{tx(includesInvestment ? '当期净变动' : '当期收支结余')}</h3>
             {periodLabel && (
               <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
                 {dateLabel(periodLabel)}
@@ -179,6 +194,7 @@ export default function SureMoneyInOut({
           </div>
 
           <div
+            data-testid="money-in-out-balance"
             onClick={handleBalanceClick}
             className="flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
             title={tx("点击查看当期（{p0}）所有收支流水", {p0: (periodLabel)})}
@@ -202,6 +218,7 @@ export default function SureMoneyInOut({
         <div className="space-y-2">
           {/* Income Row */}
           <button
+            data-testid="money-in-out-income"
             type="button"
             onClick={handleIncomeClick}
             className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs transition-colors group cursor-pointer"
@@ -209,7 +226,7 @@ export default function SureMoneyInOut({
           >
             <div className="flex items-center gap-2.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 dark:bg-emerald-500 shrink-0" />
-              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx("收入")}</span>
+              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx(incomeLabel)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100">
@@ -221,6 +238,7 @@ export default function SureMoneyInOut({
 
           {/* Expenses Row */}
           <button
+            data-testid="money-in-out-expenses"
             type="button"
             onClick={handleExpenseClick}
             className="w-full flex items-center justify-between p-3.5 rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs transition-colors group cursor-pointer"
@@ -228,7 +246,7 @@ export default function SureMoneyInOut({
           >
             <div className="flex items-center gap-2.5">
               <span className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-500 shrink-0" />
-              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx("支出")}</span>
+              <span className="text-xs sm:text-sm font-semibold text-zinc-800 dark:text-zinc-200">{tx(expenseLabel)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-xs sm:text-sm font-bold text-zinc-900 dark:text-zinc-100">
@@ -238,6 +256,11 @@ export default function SureMoneyInOut({
             </div>
           </button>
         </div>
+        {includesInvestment && <div data-testid="money-in-out-breakdown" className="space-y-1 text-[11px] leading-relaxed text-zinc-500">
+          <p>{tx('资金流入 = 收入 {p0} + 投资盈利 {p1}',{p0:formatAmount(data.cash_income),p1:formatAmount(data.investment_gain)})}</p>
+          <p>{tx('资金流出 = 净支出 {p0} + 投资亏损 {p1}',{p0:formatAmount(data.cash_expenses),p1:formatAmount(data.investment_loss)})}</p>
+          <p>{tx('包含已记录的投资盈亏及非现金估值变动；投资盈亏不归入消费分类或预算。')}</p>
+        </div>}
       </div>
     </div>
   );

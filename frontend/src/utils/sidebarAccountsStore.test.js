@@ -8,6 +8,18 @@ const deferred = () => {
 };
 
 describe('shared sidebar account loading', () => {
+  it('publishes balances before background returns finish and ignores canceled enrichment', async () => {
+    const enrichment = deferred();
+    const store = createSidebarAccountsStore(async () => [{id:'investment',balance:'1000'}], () => enrichment.promise);
+    const request = store.refresh();
+    await vi.waitFor(() => expect(store.getSnapshot().loading).toBe(false));
+    expect(store.getSnapshot().accounts).toEqual([{id:'investment',balance:'1000'}]);
+    store.setAccounts([]);
+    enrichment.resolve([{id:'investment',balance:'1000',investment_ytd:{rate:10}}]);
+    await request;
+    expect(store.getSnapshot().accounts).toEqual([]);
+  });
+
   it('deduplicates simultaneous desktop/mobile loads and keeps loaded rows while refreshing', async () => {
     const next = deferred();
     const load = vi.fn().mockResolvedValueOnce([{ id: 'a', balance: '123.4567' }]).mockReturnValueOnce(next.promise);

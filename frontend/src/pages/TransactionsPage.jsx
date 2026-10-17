@@ -1,5 +1,6 @@
 import { categoryLabel, dateLabel, tx, useLocale, currentLocale } from "../localization.js";
 import { currencySymbol, originalTransactionMoney, totalsByCurrency, formatCurrencyTotals } from '../utils/currency';
+import { isAdjustmentDecrease } from '../utils/transactionDirection';
 import BookingMoneyInfo from '../components/BookingMoneyInfo';
 import PendingFxPanel from '../components/PendingFxPanel';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -7,6 +8,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MoreHorizontal, Upload, Plus, Search, ArrowRightLeft, RotateCcw, Lock, SlidersHorizontal, Loader2, ArrowDown, Users, Scissors } from 'lucide-react';
 import { fetchWithAuth } from '../api/fetchWithAuth';
+import { readJsonResponse } from '../api/errorMessages';
+import { normalizeInvestmentFilters } from '../utils/investmentFilters';
 import { useAuth } from '../auth/AuthContext';
 import { useCurrency } from '../CurrencyContext';
 import { useToast } from '../ToastContext';
@@ -31,7 +34,11 @@ import {
 
 export default function TransactionsPage() {
   const locale = useLocale();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [urlParams, setSearchParams] = useSearchParams();
+  const searchParams = useMemo(() => normalizeInvestmentFilters(urlParams), [urlParams]);
+  useEffect(() => {
+    if (searchParams.toString() !== urlParams.toString()) setSearchParams(searchParams, { replace:true });
+  }, [searchParams, urlParams, setSearchParams]);
   const accountIdFilter = searchParams.get('account_id') || '';
   const accountMaskFilter = searchParams.get('account_mask') || '';
   const institutionFilter = searchParams.get('institution_name') || '';
@@ -47,6 +54,9 @@ export default function TransactionsPage() {
   const tagFilter = searchParams.get('tag') || '';
   const merchantFilter = searchParams.get('merchant') || '';
   const merchantGroupFilter = searchParams.get('merchant_group') || '';
+  const investmentActivity = searchParams.get('investment_activity') || '';
+  const fundsFlow = searchParams.get('funds_flow') || '';
+  const investmentDetails = ['valuation','gain','loss'].includes(investmentActivity);
   const statusFilter = searchParams.get('status') || '';
   const minAmountFilter = searchParams.get('min_amount') || '';
   const maxAmountFilter = searchParams.get('max_amount') || '';
@@ -99,6 +109,8 @@ export default function TransactionsPage() {
   const [nextCursor, setNextCursor] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
   const [spendingSummary, setSpendingSummary] = useState(null);
+  const [fundsSummary, setFundsSummary] = useState(null);
+  const [transactionsError, setTransactionsError] = useState('');
   const nextCursorRef = useRef(null);
   const loadMoreRef = useRef(null);
   const requestQueueRef = useRef(null);
@@ -185,6 +197,8 @@ export default function TransactionsPage() {
     if (tagFilter) count += tagFilter.split(',').filter(Boolean).length;
     if (merchantFilter) count += merchantFilter.split(',').filter(Boolean).length;
     if (merchantGroupFilter) count++;
+    if (investmentActivity) count++;
+    if (fundsFlow) count++;
     if (statusFilter) count += statusFilter.split(',').filter(Boolean).length;
     if (minAmountFilter || maxAmountFilter) count++;
     if (startDateFilter || endDateFilter) count++;
@@ -201,6 +215,8 @@ export default function TransactionsPage() {
     tagFilter,
     merchantFilter,
     merchantGroupFilter,
+    investmentActivity,
+    fundsFlow,
     statusFilter,
     minAmountFilter,
     maxAmountFilter,
@@ -216,6 +232,7 @@ export default function TransactionsPage() {
       const request = requestQueueRef.current.start({ replace: reset });
       if (!request) return;
       if (reset) {
+        setTransactionsError('');
         setLoading(true);
         setIsLoadingMore(false);
         setHasMore(false);
@@ -241,6 +258,8 @@ export default function TransactionsPage() {
         if (tagFilter) params.append('tag', tagFilter);
         if (merchantFilter) params.append('merchant', merchantFilter);
         if (merchantGroupFilter) params.append('merchant_group', merchantGroupFilter);
+        if (investmentActivity) params.append('investment_activity', investmentActivity);
+        if (fundsFlow) params.append('funds_flow',fundsFlow);
         if (statusFilter) params.append('status', statusFilter);
         if (minAmountFilter) params.append('min_amount', minAmountFilter);
         if (maxAmountFilter) params.append('max_amount', maxAmountFilter);
@@ -252,11 +271,12 @@ export default function TransactionsPage() {
         }
 
         const res = await fetchWithAuth(`/api/v1/transactions?${params.toString()}`, { signal: request.signal });
-        if (res.ok) {
-          const data = await res.json();
+        {
+          const data = await readJsonResponse(res,'无法加载交易明细，请重试');
           if (!request.isCurrent()) return;
           const items = data.items || [];
           setSpendingSummary(data.spending_summary || null);
+          setFundsSummary(data.funds_summary || null);
           setTransactions((prev) => (reset ? items : [...prev, ...items]));
           setHasMore(Boolean(data.has_more));
           nextCursorRef.current = data.next_cursor || null;
@@ -266,7 +286,7 @@ export default function TransactionsPage() {
           }
         }
       } catch (err) {
-        if (request.isCurrent()) console.error('Failed to fetch transactions', err);
+        if (request.isCurrent()) setTransactionsError(err.message || tx('无法加载交易明细，请重试'));
       } finally {
         if (request.isCurrent()) {
           setLoading(false);
@@ -290,6 +310,8 @@ export default function TransactionsPage() {
       tagFilter,
       merchantFilter,
       merchantGroupFilter,
+      investmentActivity,
+      fundsFlow,
       statusFilter,
       minAmountFilter,
       maxAmountFilter,
@@ -430,7 +452,13 @@ export default function TransactionsPage() {
     });
 
     groups.forEach((g) => {
-      if (spendingNet) {
+      if (fundsSummary) {
+        g.currencyTotals=g.items.reduce((totals,txn)=>{
+          const code=txn.funds_currency || fundsSummary.currency;
+          totals[code]=(totals[code] || 0)+Number(txn.funds_amount || 0);
+          return totals;
+        },{});
+      } else if (spendingNet) {
         g.currencyTotals = g.items.reduce((totals, txn) => {
           const code = txn.spending_currency || txn.currency;
           totals[code] = (totals[code] || 0) + Number(txn.spending_amount || 0);
@@ -446,18 +474,18 @@ export default function TransactionsPage() {
     groups.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
     return groups;
-  }, [transactions, spendingNet]);
+  }, [transactions, spendingNet, fundsSummary]);
 
   // Overall metrics (Total transactions, Income, Expenses)
   const metrics = useMemo(() => {
     return {
       count: totalCount,
-      income: formatCurrencyTotals(totalsByCurrency(transactions, "income", 'original')),
-      expense: spendingNet && spendingSummary
+      income: fundsSummary ? formatCurrencyTotals({[fundsSummary.currency]:fundsSummary.income}) : formatCurrencyTotals(totalsByCurrency(transactions, "income", 'original')),
+      expense: fundsSummary ? formatCurrencyTotals({[fundsSummary.currency]:fundsSummary.expenses}) : spendingNet && spendingSummary
         ? formatCurrencyTotals({ [spendingSummary.currency]: spendingSummary.net })
         : formatCurrencyTotals(totalsByCurrency(transactions, "expense", 'original')),
     };
-  }, [transactions, totalCount, spendingNet, spendingSummary]);
+  }, [transactions, totalCount, spendingNet, spendingSummary, fundsSummary]);
 
   // Selection toggle
   const toggleSelect = (id) => {
@@ -688,7 +716,7 @@ export default function TransactionsPage() {
         </div>
 
         <div className="min-w-0 px-1.5 py-1 sm:px-3 text-center sm:text-left">
-          <p className="text-2xs sm:text-xs font-medium text-emerald-600 dark:text-emerald-400">{tx("收入（原币）")}</p>
+          <p className="text-2xs sm:text-xs font-medium text-emerald-600 dark:text-emerald-400">{tx(investmentDetails ? '投资盈利' : fundsFlow ? '资金流入' : '收入（原币）')}</p>
           <div data-testid="transaction-income-totals" className="flex flex-wrap justify-center sm:justify-start gap-x-3 gap-y-1 text-xs sm:text-base md:text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 tracking-tight tabular-nums">
             {privacyMode ? '••••••' : metrics.income.split(' / ').map((amount) => (
               <span key={amount} className="max-w-full [overflow-wrap:anywhere]">{amount}</span>
@@ -697,7 +725,7 @@ export default function TransactionsPage() {
         </div>
 
         <div className="min-w-0 px-1.5 py-1 sm:px-3 text-center sm:text-left">
-          <p className="text-2xs sm:text-xs font-medium text-zinc-500 dark:text-zinc-400">{tx(spendingNet ? "净支出（扣除退款）" : "支出（原币）")}</p>
+          <p className="text-2xs sm:text-xs font-medium text-zinc-500 dark:text-zinc-400">{tx(investmentDetails ? '投资亏损' : fundsFlow ? '资金流出' : spendingNet ? "净支出（扣除退款）" : "支出（原币）")}</p>
           <div data-testid="transaction-expense-totals" className="flex flex-wrap justify-center sm:justify-start gap-x-3 gap-y-1 text-xs sm:text-base md:text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-0.5 tracking-tight tabular-nums">
             {privacyMode ? '••••••' : metrics.expense.split(' / ').map((amount) => (
               <span key={amount} className="max-w-full [overflow-wrap:anywhere]">{amount}</span>
@@ -741,11 +769,21 @@ export default function TransactionsPage() {
           tagFilter ||
           merchantFilter ||
           merchantGroupFilter ||
+          investmentActivity ||
+          fundsFlow ||
           statusFilter ||
           minAmountFilter ||
           maxAmountFilter) && (
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-zinc-400">{tx("生效筛选:")}</span>
+            {fundsFlow && <span className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+              {tx(fundsFlow==='inflow' ? '资金流入（含投资盈利）' : fundsFlow==='outflow' ? '资金流出（含投资亏损）' : '资金进出（含投资盈亏）')}
+              <button type="button" aria-label={tx('清除筛选')} onClick={()=>{const params=new URLSearchParams(searchParams);params.delete('funds_flow');setSearchParams(params);}}>✕</button>
+            </span>}
+            {investmentActivity && <span className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300">
+              {tx({all:'投资活动',valuation:'投资盈亏',gain:'投资盈利',loss:'投资亏损',income:'分红及利息收入',cost:'投资费用',deposit:'本期投入',withdrawal:'本期提取'}[investmentActivity] || '投资活动')}
+              <button type="button" aria-label={tx('清除筛选')} onClick={() => { const params = new URLSearchParams(searchParams); params.delete('investment_activity'); setSearchParams(params); }}>✕</button>
+            </span>}
 
             {/* 成员 */}
             {userFilter && (
@@ -1038,21 +1076,24 @@ export default function TransactionsPage() {
         <div className="flex-1 min-w-0 pr-4 text-left">
           <span>{tx("交易")}</span>
         </div>
-        <div className="w-36 shrink-0 text-left">
+        {!investmentDetails && <div className="w-36 shrink-0 text-left" data-testid="transaction-category-heading">
           <span>{tx("分类")}</span>
-        </div>
+        </div>}
         <div className="w-32 shrink-0 text-right pr-0.5">
           <span>{tx("金额")}</span>
         </div>
       </div>
 
       {/* ── 6. Grouped Transaction List (Exact 5.png Date-Grouped Layout) ── */}
+      {transactionsError && <div role="alert" className="rounded-xl border border-rose-200 p-4 text-sm text-rose-600">
+        <p>{transactionsError}</p><button type="button" onClick={()=>fetchTransactions(true)} className="mt-2 underline">{tx('重试')}</button>
+      </div>}
       {loading ? (
         <div className="py-24 flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 border-2 border-zinc-900 dark:border-white border-t-transparent rounded-full animate-spin" />
           <span className="text-xs text-zinc-500">{tx("正在获取交易流水...")}</span>
         </div>
-      ) : groupedTransactions.length === 0 ? (
+      ) : transactionsError ? null : groupedTransactions.length === 0 ? (
         <div className="py-24 text-center text-sm text-zinc-400">{tx("未检索到符合条件的交易流水")}</div>
       ) : (
         <div className="space-y-6">
@@ -1075,6 +1116,7 @@ export default function TransactionsPage() {
                   {group.items.map((txn) => {
                     const isSelected = selectedIds.has(txn.id);
                     const isRefund = txn.transaction_type === 'refund';
+                    const investmentReturn = txn.transaction_type === 'adjustment' && ['investment_valuation','investment_return'].includes(txn.extra?.source);
                     const isTransfer = txn.transaction_type === 'transfer' || !!txn.transfer_id;
                     const badge = getTransactionInitialBadge(txn.narration);
                     const originalMoney = originalTransactionMoney(txn);
@@ -1119,7 +1161,7 @@ export default function TransactionsPage() {
                         );
                       }
                       if (txn.transaction_type === 'adjustment') {
-                        const isMinus = (txn.narration || '').includes('(-') || (txn.notes && txn.notes.includes("减少"));
+                        const isMinus = isAdjustmentDecrease(txn);
                         return (
                           <span className={`font-mono font-bold text-xs ${isMinus ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600 dark:text-emerald-400'}`}>
                             {isMinus ? '−' : '+'}{nativeSymbol}{formattedAmt}
@@ -1165,6 +1207,7 @@ export default function TransactionsPage() {
                                     <span>{tx("退款")}</span>
                                   </span>
                                 )}
+                                {investmentReturn && <span data-testid="investment-transaction-type" className="inline-flex shrink-0 items-center gap-1 rounded bg-purple-50 px-1.5 py-0.5 text-[11px] font-semibold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">↗ {tx('投资盈亏')}</span>}
                                 {isTransfer && (
                                   <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-tight font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 whitespace-nowrap shrink-0">
                                     <ArrowRightLeft className="w-2.5 h-2.5" />
@@ -1185,6 +1228,9 @@ export default function TransactionsPage() {
                                 )}
                               </div>
                               <BookingMoneyInfo transaction={txn} privacy={privacyMode} />
+                              {txn.funds_amount !== undefined && <p className="mt-0.5 text-[11px] text-zinc-500" data-testid="transaction-funds-contribution">
+                                {tx('计入当前资金统计')}: {privacyMode ? '••••••' : formatCurrencyTotals({[txn.funds_currency]:txn.funds_amount})}
+                              </p>}
                               {spendingNet && txn.spending_amount !== undefined && (
                                 <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
                                   {tx("计入当前筛选的净支出")}: {privacyMode ? '••••••' : formatCurrencyTotals({ [txn.spending_currency]: txn.spending_amount })}
@@ -1208,7 +1254,7 @@ export default function TransactionsPage() {
                                       )}
                                     </span>
                                     {/* 移动端专享分类胶囊：紧随账户名右侧，释放右侧区域宽度 */}
-                                    {txn.transaction_type !== 'transfer' && (
+                                    {txn.transaction_type !== 'transfer' && !investmentReturn && (
                                       <span
                                         data-testid="mobile-category-pill"
                                         className="sm:hidden inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 shrink-0"
@@ -1224,19 +1270,19 @@ export default function TransactionsPage() {
                           </div>
 
                           {/* Center: Category Pill (Desktop only, exactly w-36 text-left to align with header) */}
-                          <div className="hidden sm:flex items-center w-36 shrink-0 text-left">
+                          {!investmentDetails && <div className="hidden sm:flex items-center w-36 shrink-0 text-left">
                             {txn.transaction_type === 'transfer' ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60" title={tx("账户间内部转账，不计入收支分类")}>
                                 <span>⇄</span>
                                 <span className="truncate max-w-[90px]">{tx("内部转账")}</span>
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
+                            ) : investmentReturn ? null : (
+                              <span data-testid="transaction-category-pill" className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
                                 <span>{txn.category_icon || '📦'}</span>
                                 <span className="truncate max-w-[90px]">{transactionCategoryLabel(txn) || tx("日常消费")}</span>
                               </span>
                             )}
-                          </div>
+                          </div>}
 
                           {/* Right: Amount & Time (Fixed w-32 for alignment) */}
                           <div className="w-auto sm:w-32 text-right shrink-0 flex flex-col items-end gap-0.5">
@@ -1251,7 +1297,7 @@ export default function TransactionsPage() {
                         </div>
 
                         {/* Line 3: 状态胶囊行 (待报销/代垫状态靠左对齐在所属账户正下方；不计支出靠右对齐在时间正下方) */}
-                        {(txn.is_reimbursable || txn.extra?.reimbursement_type || txn.excluded_from_stats) && (
+                        {(txn.is_reimbursable || txn.extra?.reimbursement_type || (txn.excluded_from_stats && !investmentReturn)) && (
                           <div className="pt-1 pl-10 flex flex-wrap items-center justify-between gap-2 min-w-0">
                             {/* Left: 靠左对齐，放置于所属账户下方 */}
                             {(txn.is_reimbursable || txn.extra?.reimbursement_type) && (
@@ -1261,7 +1307,7 @@ export default function TransactionsPage() {
                             )}
 
                             {/* Right: 靠右对齐，放置于时间正下方 (与时间列宽对齐) */}
-                            {txn.excluded_from_stats && (
+                            {txn.excluded_from_stats && !investmentReturn && (
                               <div className="ml-auto shrink-0 w-auto sm:w-32 flex items-center justify-end pr-0.5">
                                 <span
                                   title={tx("此交易不计入家庭支出统计")}

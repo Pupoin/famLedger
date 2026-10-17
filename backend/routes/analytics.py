@@ -217,6 +217,10 @@ def get_comprehensive_report(
 
     total_cash = sum(a["balance"] for a in cash_accounts)
     total_invest = sum(a["balance"] for a in investment_accounts)
+    from services.investments import investment_summary
+    investment_data = investment_summary(session, accounts, start_d, end_d, report_money)
+    for item in investment_accounts:
+        item['balance'] = investment_data['account_values'].get(item['id'], item['balance'])
     total_assets = round(total_cash + total_invest, 2)
 
     total_credit = sum(a["balance"] for a in credit_accounts)
@@ -270,7 +274,7 @@ def get_comprehensive_report(
             "trend_label": "账户净资产走势（不含个人借贷）",
         },
         "investments": {
-            "portfolio_value": round(total_invest, 2),
+            **investment_data,
             "accounts": investment_accounts,
         },
     }

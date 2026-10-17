@@ -261,6 +261,10 @@ def get_budgets_summary(
     total_over = round(max(0.0, total_spent - total_budget), 2)
     usage_pct = round((total_spent / total_budget * 100), 1) if total_budget > 0 else 100.0
 
+    from services.balance_sheet import visible_balance_accounts
+    from services.investments import investment_summary
+    investment_money = ReportCurrency(session, current_user, cache_independently=True)
+    investment_data = investment_summary(session, visible_balance_accounts(session, current_user), start_d, end_d, investment_money)
     persist_fx_cache(session)
     return {
         **report_money.metadata(),
@@ -277,6 +281,7 @@ def get_budgets_summary(
         "usage_pct": usage_pct,
         "expected_income": expected_income,
         "earned_income": total_income,
+        "investment": investment_data,
         "income_diff": round(total_income - expected_income, 2),
         "over_categories": over_categories,
         "normal_categories": normal_categories,

@@ -188,6 +188,17 @@ class Account(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InvestmentSetting(SQLModel, table=True):
+    """Performance scope and optional capital basis, separate from the ledger."""
+    __tablename__ = "investment_settings"
+    account_id: uuid.UUID = Field(primary_key=True, foreign_key="accounts.id")
+    mode: str = Field(max_length=20)  # baseline | history | capital
+    baseline_transaction_id: Optional[uuid.UUID] = None
+    capital_amount: Optional[Decimal] = Field(default=None, sa_column=Column(sqlalchemy.Numeric(19, 4), nullable=True))
+    capital_occurred_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AccountShare(SQLModel, table=True):
     """细粒度账户共享权限。"""
     __tablename__ = "account_shares"

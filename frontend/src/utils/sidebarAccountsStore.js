@@ -1,5 +1,5 @@
 // One in-memory snapshot per signed-in layout; financial data is not persisted.
-export function createSidebarAccountsStore(load) {
+export function createSidebarAccountsStore(load, enrich) {
   let state = { accounts: [], accountsError: '', loading: true };
   let version = 0;
   let controller = null;
@@ -28,8 +28,13 @@ export function createSidebarAccountsStore(load) {
       const currentController = new AbortController();
       controller = currentController;
       publish({ ...state, accountsError: '', loading: true });
-      pending = Promise.resolve().then(() => load(currentController.signal)).then(accounts => {
-        if (request === version) publish({ accounts, accountsError: '', loading: false });
+      pending = Promise.resolve().then(() => load(currentController.signal)).then(async accounts => {
+        if (request !== version) return;
+        publish({ accounts, accountsError: '', loading: false });
+        if (enrich) {
+          const enriched = await enrich(accounts, currentController.signal);
+          if (request === version) publish({ accounts: enriched, accountsError: '', loading: false });
+        }
       }).catch(error => {
         if (request === version && error.name !== 'AbortError') {
           publish({ ...state, accountsError: error.message || '账户加载失败', loading: false });

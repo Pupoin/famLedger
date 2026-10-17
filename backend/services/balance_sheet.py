@@ -88,7 +88,7 @@ def ledger_net_worth_history(session, accounts, report_money, periods):
                 incoming = transaction_direction(row, None, account) == 'inflow'
             balances[row.account_id] += amount if incoming else -amount
         elif kind == 'adjustment':
-            decrease = (row.extra or {}).get('direction') == 'decrease'
+            decrease = row.extra.get('direction') == 'decrease' if row.extra else '(-' in (row.narration or '')
             positive = decrease if financial_classification(account) == 'liability' else not decrease
             balances[row.account_id] += amount if positive else -amount
 

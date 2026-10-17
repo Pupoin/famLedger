@@ -1,3 +1,4 @@
+import InvestmentSummary from '../components/InvestmentSummary';
 import { categoryLabel, tx, useLocale } from "../localization.js";
 import React, { lazy, Suspense, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -804,47 +805,7 @@ export default function Analytics() {
 
         {sectionsOpen.investments && (
           <div className="p-5 space-y-6">
-            {/* 5 Stat Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div className="p-3.5 rounded-xl bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/70">
-                <span className="text-[11px] text-zinc-500 font-medium">
-                  {t('analytics.investments.portfolioValue', tx("投资组合价值"))}
-                </span>
-                <div className="text-base font-bold font-mono text-zinc-900 dark:text-white mt-1">
-                  {fmt(reportData?.investments?.portfolio_value || 0)}
-                </div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/70">
-                <span className="text-[11px] text-zinc-500 font-medium">
-                  {t('analytics.investments.totalReturn', tx("总回报"))}
-                </span>
-                <div className="text-base font-bold font-mono text-zinc-400 mt-1">-</div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/70">
-                <span className="text-[11px] text-zinc-500 font-medium">
-                  {t('analytics.investments.periodReturn', tx("本期回报"))}
-                </span>
-                <div className="text-base font-bold font-mono text-zinc-900 dark:text-white mt-1">
-                  {fmt(0)} <span className="text-xs font-normal text-zinc-400">(0.0%)</span>
-                </div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/70">
-                <span className="text-[11px] text-zinc-500 font-medium">
-                  {t('analytics.investments.periodDeposit', tx("本期投入"))}
-                </span>
-                <div className="text-base font-bold font-mono text-zinc-900 dark:text-white mt-1">
-                  {fmt(0)}
-                </div>
-              </div>
-              <div className="p-3.5 rounded-xl bg-zinc-50/70 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800/70">
-                <span className="text-[11px] text-zinc-500 font-medium">
-                  {t('analytics.investments.periodWithdrawal', tx("本期提取"))}
-                </span>
-                <div className="text-base font-bold font-mono text-zinc-900 dark:text-white mt-1">
-                  {fmt(0)}
-                </div>
-              </div>
-            </div>
+            <InvestmentSummary data={reportData?.investments} privacy={privacyMode} />
 
             {/* Investment Accounts Grid */}
             <div className="space-y-3">

@@ -361,6 +361,7 @@ def shared_transfer_plan(accounts, mode='confirm'):
 
 
 def test_scheduled_incoming_transfer_can_post_but_cannot_undo_readonly_credit(auth_client_a, db, accounts):
+    activity(db, accounts[0], 'income', 100, excluded_from_stats=True)
     readonly_destination(db, accounts[1])
     body = shared_transfer_plan(accounts)
     assert auth_client_a.post('/api/v1/plans/preview', json=body).status_code == 200
@@ -372,17 +373,18 @@ def test_scheduled_incoming_transfer_can_post_but_cannot_undo_readonly_credit(au
     for _ in range(2):
         response = auth_client_a.post(endpoint, json={'action': 'post'})
         assert response.status_code == 200, response.text
-    assert balance(db, accounts[0]) == -25 and balance(db, accounts[1]) == 25
-    assert len(db.exec(select(Transaction)).all()) == 2
+    assert balance(db, accounts[0]) == 75 and balance(db, accounts[1]) == 25
+    assert len(db.exec(select(Transaction)).all()) == 3
     assert auth_client_a.post(endpoint, json={'action': 'undo'}).status_code == 403
-    assert balance(db, accounts[0]) == -25 and balance(db, accounts[1]) == 25
-    assert len(db.exec(select(Transaction)).all()) == 2
+    assert balance(db, accounts[0]) == 75 and balance(db, accounts[1]) == 25
+    assert len(db.exec(select(Transaction)).all()) == 3
 
 
 @pytest.mark.parametrize('revoked', [False, True])
 def test_automatic_transfer_accepts_readonly_destination_and_pauses_after_revocation(auth_client_a, db, accounts, revoked):
     from models import ScheduledPlan
     from services.schedules import run_due
+    activity(db, accounts[0], 'income', 100, excluded_from_stats=True)
     share = readonly_destination(db, accounts[1])
     response = auth_client_a.post('/api/v1/plans', json=shared_transfer_plan(accounts, 'auto'))
     assert response.status_code == 200, response.text
@@ -390,7 +392,7 @@ def test_automatic_transfer_accepts_readonly_destination_and_pauses_after_revoca
     if revoked:
         db.delete(share); db.commit()
     run_due(db.get_bind()); db.expire_all()
-    assert balance(db, accounts[0]) == (0 if revoked else -25)
+    assert balance(db, accounts[0]) == (100 if revoked else 75)
     assert balance(db, accounts[1]) == (0 if revoked else 25)
     assert db.get(ScheduledPlan, plan_id).status == ('paused' if revoked else 'active')
 

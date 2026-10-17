@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from models import Account, Family, Loan, ScheduledPlan, ScheduledOccurrence, ScheduledBankMatch, Transaction, Transfer, User
 from services.booking_money import prepare_booking, money, PendingExchangeRate
+from services.account_types import account_type_is
 from services.schedule_math import LoanConfig, add_months, occurrence_date, scheduled_date, scheduled_period_days, installment, rounded, interest_for
 from services.transaction_lock import lock_mutation
 
@@ -310,6 +311,8 @@ def post(session, actor, plan, number, payment_date=None, linked=None, bank_amou
     if not detail:
         raise HTTPException(409, '贷款已结清或期次已不存在')
     source, target = session.get(Account, plan.account_id), session.get(Account, plan.destination_id)
+    cash_balance = balance(session, source) if any(account_type_is(source.account_type, kind)
+        for kind in ('cash', 'checking', 'savings')) else None
     actual_date = linked.transacted_at if linked else when
     if plan.kind == 'loan':
         config = LoanConfig.model_validate(plan.config['loan'])
@@ -403,6 +406,14 @@ def post(session, actor, plan, number, payment_date=None, linked=None, bank_amou
             repaid = min(deferred, Decimal(detail['deferred_paid']))
             make_transaction(session, plan, row, accrual_account, repaid, 'income', 'deferred_interest_paid', when, excluded=True)
     session.flush()
+    if cash_balance is not None:
+        # The callers hold the shared financial write lock. Inspect the actual
+        # native debit after all components and FX rounding, so principal,
+        # interest and fees cannot separately pass an insufficient-funds check.
+        # Linking an already-booked bank expense is not a second cash payment.
+        remaining_cash = balance(session, source)
+        if remaining_cash < 0 and remaining_cash < cash_balance:
+            raise HTTPException(409, '现金账户余额不足，本期未执行；请补足余额后重试')
     if plan.kind == 'loan':
         detail['remaining_principal'] = str(max(Decimal(0), balance(session, target)))
         detail['deferred_interest'] = str(max(Decimal(0), balance(session, session.get(Account, plan.accrual_account_id)))) if plan.accrual_account_id else '0'

@@ -18,6 +18,9 @@ import { useAuth } from '../auth/AuthContext';
 import { renderAccountLogo, formatAccountDisplayName } from '../utils/accountIcons';
 import useSidebarExpansion from '../hooks/useSidebarExpansion';
 import { sidebarBalanceContributions } from '../utils/sidebarAccountsStore';
+import AccountInvestmentReturn from './AccountInvestmentReturn';
+import useReportData from '../hooks/useReportData';
+import { investmentGroupKey, sidebarInvestmentGroups } from '../utils/investmentGroups';
 
 export const ACCOUNT_TYPES = [
   { code: 'cash', label: '现金', category: 'asset' },
@@ -408,7 +411,6 @@ export default function AccountsPanel({
             type: 'owner',
             subgroups: {},
             total: 0,
-            changePercent: 0.0,
           };
         }
         const inst = acc.institution_name || tx('其他机构');
@@ -418,7 +420,6 @@ export default function AccountsPanel({
             title: inst,
             accounts: [],
             total: 0,
-            changePercent: 0.0,
           };
         }
         groups[owner].subgroups[inst].accounts.push(acc);
@@ -450,7 +451,6 @@ export default function AccountsPanel({
             type: 'owner',
             subgroups: {},
             total: 0,
-            changePercent: 0.0,
           };
         }
         const typeLabel = normalizeAccountType(acc);
@@ -460,7 +460,6 @@ export default function AccountsPanel({
             title: typeLabel,
             accounts: [],
             total: 0,
-            changePercent: 0.0,
           };
         }
         groups[owner].subgroups[typeLabel].accounts.push(acc);
@@ -492,7 +491,6 @@ export default function AccountsPanel({
             title: typeLabel,
             accounts: [],
             total: 0,
-            changePercent: 0.0,
           };
         }
         groups[typeLabel].accounts.push(acc);
@@ -516,7 +514,6 @@ export default function AccountsPanel({
             title: inst,
             accounts: [],
             total: 0,
-            changePercent: 0.0,
           };
         }
         groups[inst].accounts.push(acc);
@@ -538,7 +535,6 @@ export default function AccountsPanel({
           title: owner,
           accounts: [],
           total: 0,
-          changePercent: 0.0,
         };
       }
       groups[owner].accounts.push(acc);
@@ -549,6 +545,21 @@ export default function AccountsPanel({
     });
     return sortGroups(Object.values(groups));
   }, [filteredAccounts, groupBy, user, activeTab, locale]);
+
+  const groupReturnsUrl = useMemo(() => {
+    const groups = sidebarInvestmentGroups(groupedTree, groupBy);
+    if (!groups.length) return null;
+    const query = new URLSearchParams();
+    groups.forEach(group => query.append('groups', group));
+    return `/api/v1/accounts/investment-group-returns?${query}`;
+  }, [groupedTree, groupBy]);
+  const groupReturns = useReportData(groupReturnsUrl, prefCurrency, '今年收益率暂时无法加载');
+  const renderGroupReturn = group => {
+    const key = investmentGroupKey(group.accounts);
+    if (!key || !groupReturnsUrl) return null;
+    const value = groupReturns.data?.returns?.[key] || (groupReturns.error ? {rate:null,reason:'load_failed'} : undefined);
+    return <AccountInvestmentReturn group account={{account_type:'investment',investment_ytd:value}}/>;
+  };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 select-none border-r border-zinc-200/80 dark:border-zinc-800">
@@ -826,19 +837,7 @@ export default function AccountsPanel({
                   <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100 text-[14.5px]">
                     {fmt(group.total)}
                   </span>
-                  {group.changePercent !== undefined && (
-                    <span
-                      className={`text-[11px] font-mono leading-none ${
-                        group.changePercent < 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : group.changePercent > 0
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-zinc-400'
-                      }`}
-                    >
-                      {group.changePercent > 0 ? `+${group.changePercent}%` : `${group.changePercent}%`}
-                    </span>
-                  )}
+                  {groupBy === 'by_type' && renderGroupReturn(group)}
                 </div>
               </div>
 
@@ -873,17 +872,7 @@ export default function AccountsPanel({
                               <span className="font-mono text-zinc-900 dark:text-zinc-100 text-[14.5px] font-bold">
                                 {fmt(sub.total)}
                               </span>
-                              {sub.changePercent !== undefined && (
-                                <span
-                                  className={`text-[11px] font-mono leading-none ${
-                                    sub.changePercent < 0
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-zinc-400'
-                                  }`}
-                                >
-                                  {sub.changePercent}%
-                                </span>
-                              )}
+                              {groupBy === 'owner_by_type' && renderGroupReturn(sub)}
                             </div>
                           </div>
 
@@ -927,7 +916,10 @@ export default function AccountsPanel({
                                         </span>
                                       )}
                                       {renderAccountIcon(acc, isAccountShared(acc), masterAccountIdSet.has(acc.id) || Boolean(acc.has_sub_accounts))}
-                                      {renderAccountDisplayName(acc, acc.isChildInTree)}
+                                      <div className="flex min-w-0 flex-1 flex-col">
+                                        {renderAccountDisplayName(acc, acc.isChildInTree)}
+                                        <AccountInvestmentReturn account={acc}/>
+                                      </div>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       {!isMobileDrawer && (
@@ -1035,7 +1027,10 @@ export default function AccountsPanel({
                               </span>
                             )}
                             {renderAccountIcon(acc, isAccountShared(acc), masterAccountIdSet.has(acc.id) || Boolean(acc.has_sub_accounts))}
-                            {renderAccountDisplayName(acc, acc.isChildInTree)}
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              {renderAccountDisplayName(acc, acc.isChildInTree)}
+                              <AccountInvestmentReturn account={acc}/>
+                            </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             {!isMobileDrawer && (

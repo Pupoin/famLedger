@@ -1,3 +1,4 @@
+import InvestmentSummary from '../components/InvestmentSummary';
 import { categoryLabel, tx, useLocale } from "../localization.js";
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -385,6 +386,10 @@ export default function BudgetsPage() {
           )}
         </div>
       </div>
+
+      {budgetData?.investment?.has_accounts && <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
+        <InvestmentSummary data={budgetData.investment} privacy={privacyMode} compact />
+      </div>}
 
       {/* ── 3. Category Breakdown Section ── */}
       <div data-view-section="budget-categories" className="space-y-4">

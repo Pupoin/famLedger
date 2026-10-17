@@ -1,6 +1,6 @@
 import { chartMoney } from '../utils/chartMoney';
 import { categoryLabel, dateLabel, tx, useLocale, currentLocale } from "../localization.js";
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MoreHorizontal, ChevronDown, Plus, Search, SlidersHorizontal, ArrowRightLeft, ChevronRight, RotateCcw, Users } from 'lucide-react';
@@ -28,6 +28,17 @@ import ScheduledPlans from '../components/ScheduledPlans';
 import { formatDateTime } from '../utils/dates';
 import { getAccountTypeConfig, getTransactionInitialBadge } from '../utils/accountIcons';
 import { isLiabilityAccount } from '../utils/accountTypes';
+import { isAdjustmentDecrease } from '../utils/transactionDirection';
+import InvestmentSetupModal from '../components/InvestmentSetupModal';
+import InvestmentSummary from '../components/InvestmentSummary';
+import { normalizeAccountTypeKey } from '../utils/accountTypes';
+import { usePageViewState } from '../PageViewContext';
+
+const InvestmentReturnsChart = lazy(() => import('../components/InvestmentReturnsChart'));
+const ACCOUNT_PERIODS = [
+  ['MTD', '本月至今'], ['1M', '近30天'], ['3M', '近90天'],
+  ['6M', '近180天'], ['YTD', '今年至今'], ['ALL', '全部时间'],
+];
 
 export default function AccountDetailPage() {
   useLocale();
@@ -41,8 +52,9 @@ export default function AccountDetailPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [period, setPeriod] = useState('MTD'); // MTD | 1M | 3M | 6M | YTD | ALL
+  const [period, setPeriod] = usePageViewState('account-period', 'MTD'); // MTD | 1M | 3M | 6M | YTD | ALL
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const [chartView, setChartView] = usePageViewState('account-chart-view', 'balance');
   const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get('tab') === 'plans' ? 'plans' : 'activity');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -52,6 +64,7 @@ export default function AccountDetailPage() {
 
   // Modals
   const [showNewBalanceModal, setShowNewBalanceModal] = useState(false);
+  const [investmentSetupOpen, setInvestmentSetupOpen] = useState(false);
   const [showAddTxnModal, setShowAddTxnModal] = useState(false);
   const [defaultTxnType, setDefaultTxnType] = useState('expense');
   const [editingAccount, setEditingAccount] = useState(null);
@@ -110,6 +123,8 @@ export default function AccountDetailPage() {
   }, [id, period]);
 
   const account = data?.account?.id === id ? data.account : null;
+  const isInvestment = normalizeAccountTypeKey(account) === 'investment';
+  const showReturns = isInvestment && chartView === 'returns';
   const nativeSymbol = {USD:'$', EUR:'€', GBP:'£', CAD:'C$', AUD:'A$', INR:'₹', JPY:'¥', CNY:'¥', CHF:'CHF', SGD:'S$', HKD:'HK$'}[account?.currency] || account?.currency || '¥';
   const metrics = data?.metrics;
   const chart = data?.chart;
@@ -164,6 +179,11 @@ export default function AccountDetailPage() {
   const [chartWidth, setChartWidth] = useState(800);
 
   useEffect(() => {
+    setHoverIndex(null);
+    setIsScrubbing(false);
+  }, [id, period, showReturns]);
+
+  useEffect(() => {
     if (loading || !chartSvgRef.current) return;
     const node = chartSvgRef.current;
     const updateWidth = () => {
@@ -180,7 +200,7 @@ export default function AccountDetailPage() {
       ro.disconnect();
       window.removeEventListener('resize', updateWidth);
     };
-  }, [loading, data]);
+  }, [loading, data, showReturns]);
 
   const chartData = useMemo(() => {
     const rawPoints = chart?.points || [];
@@ -428,6 +448,20 @@ export default function AccountDetailPage() {
                       <span>{tx("✏️ 编辑")}</span>
                     </button>
                   )}
+                  {isInvestment && account.can_manage === true && (
+                    <button
+                      type="button"
+                      data-testid="account-investment-settings"
+                      onClick={() => {
+                        setInvestmentSetupOpen(true);
+                        setShowAccountMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 flex items-center gap-2 cursor-pointer"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>{tx('投资设置')}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -483,17 +517,81 @@ export default function AccountDetailPage() {
         </div>
       </div>
 
-      {/* ── 3. Balance Trend Overview Card (Exact 13.png with interactive scrub) ── */}
+      {/* ── 3. Account chart: balance or investment returns ── */}
       {(() => {
         const activePoint = hoverIndex !== null && chartData ? chartData.coords[hoverIndex] : null;
         const displayBalance = balanceNumber;
         const displayChangeAmount = metrics?.change_amount || 0;
         const displayChangePct = changePct;
         const isDisplayPositive = parseFloat(displayChangeAmount) >= 0;
+        const periodSelector = (
+          <div className="relative ml-auto shrink-0">
+            <button
+              type="button"
+              data-testid="account-period-trigger"
+              aria-label={tx('时间范围')}
+              aria-expanded={periodDropdownOpen}
+              onClick={() => setPeriodDropdownOpen(!periodDropdownOpen)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 shadow-2xs"
+            >
+              <span>{tx(ACCOUNT_PERIODS.find(([value]) => value === period)?.[1] || '本月至今')}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+            </button>
+
+            {periodDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-40 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl py-1 z-30 text-xs">
+                {ACCOUNT_PERIODS.map(([p, label]) => (
+                  <button
+                    key={p}
+                    type="button"
+                    data-testid={`account-period-option-${p}`}
+                    onClick={() => {
+                      setPeriod(p);
+                      setPeriodDropdownOpen(false);
+                      setHoverIndex(null);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 cursor-pointer ${
+                      period === p
+                        ? 'bg-zinc-100 dark:bg-zinc-700 font-semibold text-zinc-900 dark:text-white'
+                        : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
+                    }`}
+                  >
+                    {tx(label)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
 
         return (
-          <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-xs relative">
-            <div className="flex items-start justify-between">
+          <div data-testid="account-chart-card" className={`rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 ${isInvestment ? 'p-4 sm:p-6' : 'p-6'} shadow-xs relative`}>
+            {isInvestment && <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div role="group" aria-label={tx('账户图表')} className="inline-flex shrink-0 gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 p-1">
+                {[['balance', '余额'], ['returns', '收益率']].map(([view, label]) => <button
+                  key={view}
+                  type="button"
+                  data-testid={`account-chart-${view}-btn`}
+                  aria-pressed={chartView === view}
+                  onClick={() => setChartView(view)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${chartView === view ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'}`}
+                >{tx(label)}</button>)}
+              </div>
+              {periodSelector}
+            </div>}
+            {showReturns ? <>
+              <Suspense fallback={<p className="text-xs text-zinc-500">{tx('正在加载...')}</p>}>
+                <InvestmentReturnsChart data={data?.investment?.performance} embedded scope="period">
+                  <p>{tx('投资回报为已记录的市值涨跌加分红利息、减投资费用。市值涨跌不计入消费预算；分红利息按实际收入统计。')}</p>
+                  <p>{tx('起算回报和收益率包含展示币种汇率影响；净投入不等于证券持仓成本，提现可能包含收益。')}</p>
+                </InvestmentReturnsChart>
+              </Suspense>
+              <details className="mt-4 border-t border-zinc-200/70 pt-3 dark:border-zinc-800">
+                <summary className="cursor-pointer text-xs font-semibold text-zinc-600 dark:text-zinc-300">{tx('投资明细')}</summary>
+                <div className="mt-3"><InvestmentSummary data={data?.investment} privacy={privacyMode} showChart={false} showNotes={false}/></div>
+              </details>
+            </> : <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <p className="text-xs font-semibold text-zinc-500 flex items-center gap-1.5">
@@ -545,40 +643,7 @@ export default function AccountDetailPage() {
                 </div>
               </div>
 
-              {/* Time range selector: MTD ⌄ (Exact 13.png) */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setPeriodDropdownOpen(!periodDropdownOpen)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 shadow-2xs"
-                >
-                  <span>{period}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
-                </button>
-
-                {periodDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1.5 w-28 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-xl py-1 z-30 text-xs">
-                    {["MTD", "1M", "3M", "6M", "YTD", "ALL"].map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => {
-                          setPeriod(p);
-                          setPeriodDropdownOpen(false);
-                          setHoverIndex(null);
-                        }}
-                        className={`w-full text-left px-3 py-1.5 cursor-pointer ${
-                          period === p
-                            ? 'bg-zinc-100 dark:bg-zinc-700 font-semibold text-zinc-900 dark:text-white'
-                            : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/40'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {!isInvestment && periodSelector}
             </div>
 
             {/* ── 交互式平滑折线图容器 (支持鼠标移动与触摸左右滑动 scrub) ── */}
@@ -689,6 +754,7 @@ export default function AccountDetailPage() {
                 <span>{dateLabel(chart?.end_date || tx("Sep 27, 2026"))}</span>
               </div>
             </div>
+            </>}
           </div>
         );
       })()}
@@ -839,6 +905,7 @@ export default function AccountDetailPage() {
                         const badge = getTransactionInitialBadge(txn.narration);
                         const isRefund = txn.transaction_type === 'refund';
                         const isTransfer = txn.transaction_type === 'transfer';
+                        const investmentReturn = txn.transaction_type === 'adjustment' && ['investment_valuation','investment_return'].includes(txn.extra?.source);
 
                         return (
                           <div
@@ -886,7 +953,7 @@ export default function AccountDetailPage() {
                                     {txn.transaction_type === 'adjustment' && (
                                       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 whitespace-nowrap shrink-0">
                                         <SlidersHorizontal className="w-2.5 h-2.5" />
-                                        <span>{tx("余额对账")}</span>
+                                        <span>{tx(['investment_valuation', 'investment_return'].includes(txn.extra?.source) ? '投资盈亏' : '余额对账')}</span>
                                       </span>
                                     )}
                                   </div>
@@ -908,7 +975,7 @@ export default function AccountDetailPage() {
                                           </span>
                                         )}
                                         {/* 移动端专享分类胶囊：紧随账户名右侧，释放右侧区域宽度 */}
-                                        {txn.transaction_type !== 'transfer' && (
+                                        {txn.transaction_type !== 'transfer' && !investmentReturn && (
                                           <span
                                             data-testid="mobile-category-pill"
                                             className="sm:hidden inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 shrink-0"
@@ -925,10 +992,10 @@ export default function AccountDetailPage() {
 
                               {/* Center: Category Pill (matching TransactionsPage) */}
                               <div className="hidden sm:flex items-center w-36 shrink-0 text-left">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
+                                {!investmentReturn && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
                                   <span>{txn.category_icon || '📦'}</span>
                                   <span className="truncate max-w-[90px]">{categoryLabel(txn.category_name) || tx("日常消费")}</span>
-                                </span>
+                                </span>}
                               </div>
 
                               {/* Right: Amount & Time (Fixed w-32 for alignment) */}
@@ -939,7 +1006,7 @@ export default function AccountDetailPage() {
                                     : isTransfer
                                     ? 'text-zinc-600 dark:text-zinc-300'
                                     : txn.transaction_type === 'adjustment'
-                                    ? ((txn.narration || '').includes('(-') || txn.notes?.includes('减少') ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600 dark:text-emerald-400')
+                                    ? (isAdjustmentDecrease(txn) ? 'text-zinc-900 dark:text-zinc-100' : 'text-emerald-600 dark:text-emerald-400')
                                     : 'text-zinc-900 dark:text-white'
                                 }`}>
                                   <TransactionAmount transaction={txn} privacy={privacyMode} />
@@ -954,7 +1021,7 @@ export default function AccountDetailPage() {
                             </div>
 
                             {/* Line 3: 状态胶囊行 (待报销/代垫状态靠左对齐在所属账户正下方；不计支出靠右对齐在时间正下方) */}
-                            {(txn.is_reimbursable || txn.extra?.reimbursement_type || txn.excluded_from_stats) && (
+                            {(txn.is_reimbursable || txn.extra?.reimbursement_type || (txn.excluded_from_stats && !investmentReturn)) && (
                               <div className="pt-1 pl-10 flex flex-wrap items-center justify-between gap-2 min-w-0">
                                 {/* Left: 靠左对齐，放置于所属账户下方 */}
                                 {(txn.is_reimbursable || txn.extra?.reimbursement_type) && (
@@ -964,7 +1031,7 @@ export default function AccountDetailPage() {
                                 )}
 
                                 {/* Right: 靠右对齐，放置于时间正下方 */}
-                                {txn.excluded_from_stats && (
+                                {txn.excluded_from_stats && !investmentReturn && (
                                   <div className="ml-auto shrink-0 w-auto sm:w-32 flex items-center justify-end pr-0.5">
                                     <span
                                       title={tx("此交易不计入家庭支出统计")}
@@ -996,6 +1063,7 @@ export default function AccountDetailPage() {
         account={account}
         onSuccess={loadAccountData}
       />
+      {investmentSetupOpen && <InvestmentSetupModal key={account.id} account={account} onClose={()=>setInvestmentSetupOpen(false)} onSaved={()=>loadAccountData(true)}/>}
 
       {/* 新建交易模态框 */}
       <AddTransactionModal

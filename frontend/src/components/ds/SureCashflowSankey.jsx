@@ -95,6 +95,13 @@ function SureCashflowSankey({
     navigate(buildUrl({ transaction_type: 'expense,refund', spending_net: 'true' }));
   };
 
+  const handleBranchClick = (branch, income) => {
+    if (branch.kind === 'investment') {
+      navigate(buildUrl({investment_activity:branch.investment_activity, account_id:branch.account_ids?.join(',')}));
+    } else if (income) handleIncomeClick(branch.name);
+    else handleExpenseClick(branch.name);
+  };
+
   if (!incomes.length && !expenses.length) {
     return (
       <div className="w-full flex flex-col items-center justify-center py-12 px-4 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/20 border border-dashed border-zinc-200 dark:border-zinc-800 text-center">
@@ -120,7 +127,10 @@ function SureCashflowSankey({
   const topPad = isMobile ? 52 : 28;
   const bottomPad = isMobile ? 12 : 40;
   const mobileLabelWidth = Math.max(40, chartWidth * 0.42 - 28);
-  const labelLines = (name, icon) => isMobile ? wrapMobileLabel(`${icon} ${categoryLabel(name)}`, mobileLabelWidth, titleFontSize) : [`${icon} ${categoryLabel(name)}`];
+  const labelLines = (name, icon, investment) => {
+    const label = `${icon} ${investment ? tx(name) : categoryLabel(name)}`;
+    return isMobile ? wrapMobileLabel(label, mobileLabelWidth, titleFontSize) : [label];
+  };
 
   // 自适应初始高度预估
   const baseEstimateHeight = Math.max(
@@ -144,12 +154,12 @@ function SureCashflowSankey({
       id: exp.id || `exp_${idx}`,
       fraction,
       flowH,
-      labelLines: labelLines(exp.name, exp.icon || '🍪'),
+      labelLines: labelLines(exp.name, exp.icon || '🍪', exp.kind === 'investment'),
     };
   });
 
   // 中间 pool 柱高度与各支出流精确对齐
-  const poolH = expItems.reduce((s, e) => s + e.flowH, 0);
+  const poolH = expItems.reduce((s, e) => s + e.flowH, 0) || Math.max(60, availableRightH * 0.6);
   const minExpSlotH = isMobile ? 42 : 46; // 保底单项高度，确保标题+金额两行文字呼吸自然绝对不叠字
 
   // 先排布右侧支出流，以准确计算支出占用的总跨度并让中间柱垂直居中
@@ -184,7 +194,7 @@ function SureCashflowSankey({
   let currentSourceY = isMobile ? topPad + 4 : Math.max(topPad, poolY - 10);
 
   const incItems = incomes.map((inc, idx) => {
-    const lines = labelLines(inc.name, inc.icon || '💰');
+    const lines = labelLines(inc.name, inc.icon || '💰', inc.kind === 'investment');
     const fraction = inc.amount / totalInc;
     const flowH = Math.max(isMobile ? 12 : 14, fraction * totalIncFlowH);
     const poolStartY = currentLeftPoolY;
@@ -270,11 +280,12 @@ function SureCashflowSankey({
               role="button"
               tabIndex={0}
               className="cursor-pointer group"
-              onClick={() => handleIncomeClick(inc.name)}
+              onClick={() => handleBranchClick(inc, true)}
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleBranchClick(inc, true); } }}
               onMouseEnter={() => setHoveredLink(`inc-${i}`)}
               onMouseLeave={() => setHoveredLink(null)}
             >
-              <title>{tx("{p0}: {p1}{p2} (点击查看【{p3}】收入明细)", {p0: (categoryLabel(inc.name)), p1: '', p2: formatAmount(inc.amount), p3: (categoryLabel(inc.name))})}</title>
+              <title>{inc.kind === 'investment' ? `${tx(inc.name)}: ${formatAmount(inc.amount)} · ${tx('查看投资活动')}` : tx("{p0}: {p1}{p2} (点击查看【{p3}】收入明细)", {p0: (categoryLabel(inc.name)), p1: '', p2: formatAmount(inc.amount), p3: (categoryLabel(inc.name))})}</title>
               <path
                 d={pathD}
                 fill={`url(#sankey-grad-inc-${i})`}
@@ -340,10 +351,12 @@ function SureCashflowSankey({
           return (
             <g
               key={`flow-exp-${i}`}
+              role="button" tabIndex={0}
               className="cursor-pointer group"
               onMouseEnter={() => setHoveredLink(`exp-${i}`)}
               onMouseLeave={() => setHoveredLink(null)}
-              onClick={() => handleExpenseClick(exp.name)}
+              onClick={() => handleBranchClick(exp, false)}
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleBranchClick(exp, false); } }}
             >
               <path
                 d={pathD}
@@ -352,7 +365,7 @@ function SureCashflowSankey({
                 opacity={isHovered ? 0.85 : 0.50}
                 pointerEvents="all"
               >
-                <title>{tx("{p0}: {p1}{p2} (点击查看消费明细)", {p0: (categoryLabel(exp.name)), p1: '', p2: formatAmount(exp.amount)})}</title>
+                <title>{exp.kind === 'investment' ? `${tx(exp.name)}: ${formatAmount(exp.amount)} · ${tx('查看投资活动')}` : tx("{p0}: {p1}{p2} (点击查看消费明细)", {p0: (categoryLabel(exp.name)), p1: '', p2: formatAmount(exp.amount)})}</title>
               </path>
 
               {/* Destination label right-aligned before the colored block */}
@@ -416,7 +429,7 @@ function SureCashflowSankey({
             data-testid="sankey-node-label"
             style={{ fontSize: titleFontSize }}
             className="font-bold fill-zinc-900 dark:fill-zinc-100 select-none"
-          >{tx("Cash Flow")}</text>
+          >{tx(pool.name || 'Cash Flow')}</text>
           <text
             x={isMobile ? poolX + poolWidth / 2 : poolX + 18}
             y={isMobile ? 31 : poolY + 40 + lineGap}
@@ -429,6 +442,7 @@ function SureCashflowSankey({
           </text>
         </g>
       </svg>
+      {data?.includes_investment && <p className="mt-2 text-[11px] leading-relaxed text-zinc-500" data-testid="sankey-investment-note">{tx('投资分支为已记录的非现金盈亏，不属于收支分类或预算；中央净额含投资盈亏。分红、利息及费用按实际收支统计，未重复计入。')}</p>}
     </div>
   );
 }

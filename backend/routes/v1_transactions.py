@@ -570,6 +570,8 @@ def ingest_transaction(data, session, user_or_ctx, pending_record=None):
     extra_data = dict(data.extra or {})
     extra_data.pop('classification', None)
     extra_data.pop('transaction_type_source', None)
+    if extra_data.get('source') in {'investment_valuation', 'investment_return'}:
+        raise HTTPException(400, '投资市值请使用账户新建余额功能记录')
     if transfer_ctx:
         extra_data['direction'] = 'outflow' if transfer_ctx['outgoing'] else 'inflow'
     if data.external_id and data.external_id.startswith('manual:'):
@@ -857,6 +859,8 @@ def list_transactions(
     category_name: Optional[str] = Query(None, description="按分类名称过滤，支持逗号分隔多选"),
     spending_net: bool = Query(False, description="分类报表明细：按原消费分类包含退款，返回展示币种净额"),
     spending_currency: Optional[CurrencyCode] = None,
+    investment_activity: Optional[Literal['all', 'valuation', 'gain', 'loss', 'income', 'cost', 'deposit', 'withdrawal']] = None,
+    funds_flow: Optional[Literal['all', 'inflow', 'outflow']] = None,
     is_refund: Optional[bool] = Query(None, description="仅看退款相关交易"),
     has_refund: Optional[bool] = Query(None, description="仅看已关联退款冲抵的消费"),
     tag: Optional[str] = Query(None, description="按标签过滤，支持逗号分隔多选"),
@@ -879,8 +883,19 @@ def list_transactions(
     极速游标分页交易流水列表（支持全面多维复合筛选：卡号、金融机构、消费类型、分类、退款、标签、金额与日期）。
     """
     from services.ledger_read import LedgerRead
+    from services.investments import is_investment_return
+    if not investment_activity and not funds_flow and not (isinstance(category_id,str) and category_id.strip()):
+        from services.funds_flow import investment_filter
+        inferred=investment_filter(category_name,transaction_type)
+        if inferred:
+            investment_activity=inferred
+            category_name,transaction_type,spending_net=None,None,False
+    if funds_flow and investment_activity:
+        raise HTTPException(400,'资金进出与投资活动筛选不能同时指定')
     read = LedgerRead(session)
     def resolve_cat(t):
+        if is_investment_return(t):
+            return None, None
         account = read.account(t.account_id)
         c = read.family_categories(account.family_id).get(t.category_id) if account and t.category_id else None
         return (c.name, c.icon or "📦") if c else ("其他", "📦")
@@ -895,7 +910,11 @@ def list_transactions(
     # 核心权限隔离矩阵：任何成员仅能检索其名下或显式授权共享给其的账户交易流水
     if current_user:
         from services.stats_engine import get_user_visible_account_ids
-        accessible_acc_ids = get_user_visible_account_ids(session, current_user, current_user.family_id)
+        if investment_activity or funds_flow:
+            from services.balance_sheet import visible_balance_accounts
+            accessible_acc_ids = {a.id for a in visible_balance_accounts(session, current_user)}
+        else:
+            accessible_acc_ids = get_user_visible_account_ids(session, current_user, current_user.family_id)
         if not accessible_acc_ids:
             return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
         stmt = stmt.where(Transaction.account_id.in_(list(accessible_acc_ids)))
@@ -910,12 +929,26 @@ def list_transactions(
     if isinstance(user, str) and user.strip() and user.strip() not in ("全部", "ALL", "all"):
         user_val = user.strip()
         target_u = session.exec(select(User).where(or_(User.username == user_val, User.display_name == user_val))).first()
+        if not target_u:
+            return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
         if target_u:
             u_accs = session.exec(select(Account.id).where(Account.owner_id == target_u.id)).all()
             if u_accs:
                 stmt = stmt.where(Transaction.account_id.in_(u_accs))
             else:
                 return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
+
+    portfolio_ids = set()
+    funds_report_ids = set()
+    if investment_activity or funds_flow:
+        from services.account_types import account_type_is
+        portfolio_ids = {a.id for a in session.exec(select(Account).where(Account.id.in_(accessible_acc_ids))).all()
+                         if account_type_is(a.account_type, 'investment') and (not target_u or a.owner_id == target_u.id)}
+        if funds_flow:
+            from services.dashboard_scope import dashboard_scope
+            _, _, _, flow_accounts, _, _ = dashboard_scope(session,user_or_ctx,user if isinstance(user,str) else None)
+            funds_report_ids = {a.id for a in flow_accounts} & accessible_acc_ids
+        stmt = stmt.where(Transaction.account_id.in_(portfolio_ids | funds_report_ids))
 
     selected_spending_accounts = None
     if isinstance(account_id, str) and account_id.strip():
@@ -934,7 +967,7 @@ def list_transactions(
                     return {"items": [], "has_more": False, "next_cursor": None, "count": 0}
                 expanded_uuids = set(authorized_uuids)
                 # 仅对已授权的主卡穿透其名下附属卡明细，且附属卡也必须在当前用户可见范围内
-                for pid in authorized_uuids:
+                for pid in ([] if funds_flow else authorized_uuids):
                     child_ids = session.exec(select(Account.id).where(Account.parent_account_id == pid)).all()
                     for cid in child_ids:
                         if cid in accessible_acc_ids:
@@ -946,6 +979,8 @@ def list_transactions(
                     for cid in child_ids:
                         expanded_uuids.add(cid)
 
+            if investment_activity or funds_flow:
+                portfolio_ids &= expanded_uuids
             if spending_net is True:
                 selected_spending_accounts = expanded_uuids
             elif len(expanded_uuids) == 1:
@@ -1101,12 +1136,32 @@ def list_transactions(
         desc(Transaction.created_at),
         desc(Transaction.id),
     )
-    memory_filter = (spending_net is True or other_merchant_names is not None or bool(parsed_cat_uuids)
+    memory_filter = (bool(funds_flow) or bool(investment_activity) or spending_net is True or other_merchant_names is not None or bool(parsed_cat_uuids)
         or (isinstance(category_name, str) and bool(category_name.strip()))
         or (isinstance(tag, str) and bool(tag.strip())))
     all_matched = session.exec(stmt).all() if memory_filter else []
     if memory_filter:
         read.prepare(all_matched)
+    if investment_activity and investment_activity != 'all':
+        from services.investments import load_pairs, signed, is_investment_return
+        pairs = load_pairs(session, all_matched)
+        pair_txn_ids = {key for pair in pairs.values() for key in (pair.inflow_transaction_id, pair.outflow_transaction_id)}
+        pair_accounts = dict(session.exec(select(Transaction.id, Transaction.account_id).where(
+            Transaction.id.in_(pair_txn_ids))).all()) if pair_txn_ids else {}
+        def matches_investment(row):
+            if investment_activity in {'valuation', 'gain', 'loss'}:
+                return (is_investment_return(row) and not (row.extra or {}).get('valuation_baseline')
+                        and (investment_activity == 'valuation' or (signed(row, pairs) > 0 if investment_activity == 'gain' else signed(row, pairs) < 0)))
+            if investment_activity in {'income', 'cost'}:
+                return not row.excluded_from_stats and row.transaction_type in (
+                    {'income', 'refund'} if investment_activity == 'income' else {'expense'})
+            if row.transaction_type != 'transfer':
+                return False
+            pair = pairs.get(row.transfer_id)
+            internal = pair and all(pair_accounts.get(key) in portfolio_ids for key in
+                                   (pair.inflow_transaction_id, pair.outflow_transaction_id))
+            return not internal and (signed(row, pairs) >= 0) == (investment_activity == 'deposit')
+        all_matched = [row for row in all_matched if matches_investment(row)]
     if other_merchant_names is not None:
         all_matched = [t for t in all_matched if (t.narration or '其他') in other_merchant_names]
     from services.tags import tag_resolver
@@ -1121,6 +1176,8 @@ def list_transactions(
         return refund_categories[t.id]
 
     def effective_categories(t):
+        if is_investment_return(t):
+            return []
         if t.transaction_type == "refund":
             info = refund_categories_for(t)
             return info['linked_categories'] + ([info['unallocated_category']] if info['category_editable'] else [])
@@ -1172,6 +1229,31 @@ def list_transactions(
             if any(any(ct in str(x).lower() for ct in cleaned_tags) for x in resolve_tags(t.tags))
             or (t.notes and any(ct in t.notes.lower() for ct in cleaned_tags))
         ]
+
+    funds_summary, funds_amounts = None, {}
+    if funds_flow or investment_activity in {'valuation','gain','loss'}:
+        from services.funds_flow import contribution, eligible
+        from services.report_currency import ReportCurrency, persist_fx_cache
+        converter=ReportCurrency(session,current_user,cache_independently=True)
+        converter.account_ids=funds_report_ids
+        converter.read=read
+        all_matched=[row for row in all_matched if eligible(row,read.accounts,funds_report_ids,portfolio_ids)]
+        converter.prepare(all_matched)
+        selected=[]
+        income,expense=Decimal(0),Decimal(0)
+        for row in all_matched:
+            part=contribution(session,row,read.accounts,funds_report_ids,portfolio_ids,converter)
+            if part is None or (funds_flow=='inflow' and part[0]!='income') or (funds_flow=='outflow' and part[0]!='expense'):
+                continue
+            kind,amount,_=part
+            selected.append(row)
+            if kind=='income':income+=amount
+            else:expense+=amount
+            funds_amounts[row.id]=amount if kind=='income' else -amount
+        all_matched=selected
+        funds_summary={'currency':converter.currency,'income':float(round(income,2)),
+                       'expenses':float(round(expense,2)),'balance':float(round(income-expense,2))}
+        persist_fx_cache(session)
 
     effective_limit = limit if isinstance(limit, int) else 50
     if spending_summary is not None:
@@ -1238,7 +1320,7 @@ def list_transactions(
         m = re.search(r"\(([0-9Xx]{4})\)", acc_name)
         mask = m.group(1) if m else (acc_name[-4:] if len(acc_name) >= 4 else "0000")
         cname, cicon = resolve_cat(t)
-        displayed_category_id = str(t.category_id) if t.category_id else None
+        displayed_category_id = str(t.category_id) if t.category_id and not is_investment_return(t) else None
         refund_category_info = refund_categories_for(t) if t.transaction_type == "refund" else None
         if refund_category_info and not refund_category_info['category_editable']:
             linked = refund_category_info['linked_categories']
@@ -1300,6 +1382,7 @@ def list_transactions(
             **({"spending_amount": money_text(spending_amounts[t.id]),
                 "spending_currency": spending_summary['currency'],
                 "spending_categories": spending_categories[t.id]} if spending_summary else {}),
+            **({'funds_amount':money_text(funds_amounts[t.id]),'funds_currency':funds_summary['currency']} if funds_summary else {}),
             **money_metadata(t),
             "currency": t.currency,
             "narration": t.narration,
@@ -1335,6 +1418,7 @@ def list_transactions(
         "count": len(output),
         "total_count": total_count,
         "spending_summary": spending_summary,
+        "funds_summary": funds_summary,
     }
 
 
@@ -1656,6 +1740,9 @@ def get_transaction_detail(
     category = session.get(Category, txn.category_id) if txn.category_id else None
     cat_name = category.name if category else "其他"
     cat_icon = category.icon if category else "📦"
+    from services.investments import is_investment_return
+    if is_investment_return(txn):
+        cat_name, cat_icon = None, None
 
     # 转账对端信息
     paired_transfer = None
@@ -1855,6 +1942,7 @@ def get_transaction_detail(
         "external_id": txn.external_id,
         "account_id": str(txn.account_id),
         "account_name": account.name if account else "招商银行账户",
+        "account_type": account.account_type if account else None,
         "account_owner_name": this_owner_name,
         "account_owner_id": str(account.owner_id) if account and account.owner_id else None,
         "account_is_owner": this_is_owner,
@@ -1867,7 +1955,7 @@ def get_transaction_detail(
         "currency": txn.currency,
         "narration": txn.narration,
         "name": txn.narration,
-        "category_id": displayed_category_id,
+        "category_id": None if is_investment_return(txn) else displayed_category_id,
         "category_name": cat_name,
         "category_icon": cat_icon,
         "transaction_type": txn.transaction_type,
@@ -1918,6 +2006,9 @@ def update_reimbursement_status(
         raise HTTPException(status_code=404, detail="交易不存在")
 
     _verify_account_write_permission(session, user_or_ctx, txn.account_id, "修改交易报销状态")
+    from services.investments import is_investment_return
+    if is_investment_return(txn):
+        raise HTTPException(400, '投资市值记录不能设置报销或计入日常收支')
     from services.schedules import guard_transaction
     guard_transaction(txn)
 
@@ -1950,6 +2041,8 @@ def update_reimbursement_status(
 
 
 class TransactionUpdateRequest(BaseModel):
+    investment_direction: Optional[Literal['gain', 'loss']] = None
+    valuation_amount: Optional[Decimal] = Field(default=None, ge=0, max_digits=19, decimal_places=4)
     refund_of_transaction_id: Optional[uuid.UUID] = None
     allocation_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
     allocation_currency: Optional[CurrencyCode] = None
@@ -2018,6 +2111,41 @@ def update_transaction(
     from services.schedules import guard_transaction
     guard_transaction(txn)
 
+    from services.investments import is_valuation, is_investment_return, set_valuation, valuation_time, RETURN_SOURCE, enforce_return_fields
+    if is_valuation(txn):
+        allowed = {'valuation_amount', 'name', 'narration', 'notes', 'occurred_at', 'transacted_at', 'date', 'time'}
+        if payload.model_fields_set - allowed:
+            raise HTTPException(400, '市值记录只能修改目标市值、日期、名称和备注，盈亏由账本自动计算')
+        day = payload.transacted_at or (date.fromisoformat(payload.date) if payload.date else None)
+        instant = payload.occurred_at
+        if instant is None and (day or payload.time):
+            instant, day = valuation_time(day=day or txn.transacted_at, local_time=payload.time or txn.occurred_at.replace(tzinfo=timezone.utc).astimezone(ZoneInfo('Asia/Shanghai')).strftime('%H:%M:%S'))
+        else:
+            instant, day = valuation_time(instant or txn.occurred_at.replace(tzinfo=timezone.utc), day)
+        account = session.get(Account, txn.account_id)
+        set_valuation(session, account, payload.valuation_amount if payload.valuation_amount is not None else txn.extra['target_balance'],
+                      instant, day, payload.narration or payload.name, existing=txn, notes=payload.notes)
+        session.commit()
+        return get_transaction_detail(transaction_id, session=session, user_or_ctx=user_or_ctx)
+    if payload.valuation_amount is not None:
+        raise HTTPException(400, '只有投资市值记录可以修改目标市值')
+
+    was_return = is_investment_return(txn)
+    wants_return = payload.transaction_type == 'investment' or (was_return and payload.transaction_type is None)
+    if payload.investment_direction is not None and not wants_return:
+        raise HTTPException(400, '盈利或亏损方向仅适用于投资盈亏')
+    if wants_return:
+        if payload.transaction_type == 'investment' and payload.investment_direction is None and not was_return:
+            raise HTTPException(422, '请选择投资盈利或亏损')
+        if any(getattr(payload, name) is not None for name in ('from_account_id', 'to_account_id', 'transfer_direction',
+                'source_amount', 'destination_amount', 'refund_of_transaction_id', 'allocation_amount',
+                'allocation_currency', 'refund_original_amount')):
+            raise HTTPException(400, '投资盈亏不能同时设置转账或退款关联')
+        if payload.category_id or payload.is_reimbursable or payload.reimbursement_type or payload.counterparty:
+            raise HTTPException(400, '投资盈亏不属于收支分类，也不能设置报销')
+        if (txn.extra or {}).get('source') == 'account_opening':
+            raise HTTPException(400, '期初本金不能改为投资盈亏')
+
     # 前置校验 1：目标账户合法性与写权限（严禁在校验前进行任何状态修改或提交）
     if "category_id" in payload.model_fields_set:
         from services.refund_money import guard_refund_category_edit
@@ -2045,8 +2173,14 @@ def update_transaction(
             _verify_account_write_permission(session, user_or_ctx, target_acc.id, "修改流水所属账户")
 
     # 前置校验 2：transaction_type 枚举校验
+    if wants_return:
+        from services.account_types import account_type_is
+        if not account_type_is((target_acc or session.get(Account, txn.account_id)).account_type, 'investment'):
+            raise HTTPException(400, '只有投资类型账户可以记录投资盈亏')
+        if payload.transaction_type == 'investment':
+            payload.transaction_type = 'adjustment'
     if payload.transaction_type is not None:
-        VALID_TXN_TYPES = {"expense", "income", "transfer", "refund"}
+        VALID_TXN_TYPES = {"expense", "income", "transfer", "refund"} | ({'adjustment'} if wants_return else set())
         if payload.transaction_type not in VALID_TXN_TYPES:
             raise HTTPException(status_code=400, detail=f"transaction_type 必须是 {sorted(VALID_TXN_TYPES)} 之一")
     resulting_type = payload.transaction_type or txn.transaction_type
@@ -2114,7 +2248,7 @@ def update_transaction(
     if payload.tags is not None:
         txn.tags = [str(t).strip() for t in payload.tags if str(t).strip()]
 
-    if "category_id" in payload.model_fields_set:
+    if "category_id" in payload.model_fields_set and not wants_return:
         txn.category_source = "manual"
         txn.extra = {k: v for k, v in (txn.extra or {}).items() if k != "classification"}
         acc = target_acc or session.get(Account, txn.account_id)
@@ -2210,6 +2344,16 @@ def update_transaction(
         txn.reimbursement_status = payload.reimbursement_status
     if payload.excluded_from_stats is not None:
         txn.excluded_from_stats = payload.excluded_from_stats
+
+    if wants_return:
+        direction = payload.investment_direction or ('loss' if (txn.extra or {}).get('direction') == 'decrease' else 'gain')
+        txn.extra = {**(txn.extra or {}), 'source': RETURN_SOURCE,
+                     'direction': 'decrease' if direction == 'loss' else 'increase'}
+        enforce_return_fields(txn)
+    elif was_return:
+        txn.extra = {key: value for key, value in (txn.extra or {}).items() if key != 'source'}
+        # A return's mandatory exclusion is not a lasting user preference.
+        txn.excluded_from_stats = payload.excluded_from_stats if payload.excluded_from_stats is not None else False
 
     txn.updated_at = datetime.now(timezone.utc)
     session.add(txn)

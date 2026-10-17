@@ -4,7 +4,7 @@ Callers authorize the accounts first; this service never commits.
 """
 from sqlmodel import select
 from models import (Account, AccountShare, Loan, Transaction, TransactionSplit,
-                    Transfer, RefundAllocation, RejectedTransfer, Valuation, PendingFxTransaction)
+                    Transfer, RefundAllocation, RejectedTransfer, Valuation, PendingFxTransaction, InvestmentSetting)
 
 
 def delete_account_data(session, account_ids):
@@ -67,7 +67,7 @@ def delete_account_data(session, account_ids):
         for txn in transactions:
             session.delete(txn)
         session.flush()
-    for model in (AccountShare, Loan, Valuation):
+    for model in (AccountShare, Loan, Valuation, InvestmentSetting):
         for record in session.exec(select(model).where(model.account_id.in_(account_ids))).all():
             session.delete(record)
     for child in session.exec(select(Account).where(Account.parent_account_id.in_(account_ids))).all():

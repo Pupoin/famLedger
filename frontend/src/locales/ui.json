@@ -11182,5 +11182,625 @@
   "正在加载账户…": {
     "zh": "正在加载账户…",
     "en": "Loading accounts…"
+  },
+  "待补充": {
+    "zh": "待补充",
+    "en": "Needs valuation"
+  },
+  "本期投资回报": {
+    "zh": "本期投资回报",
+    "en": "Period investment return"
+  },
+  "市值涨跌": {
+    "zh": "市值涨跌",
+    "en": "Market value change"
+  },
+  "分红及利息收入": {
+    "zh": "分红及利息收入",
+    "en": "Dividends and interest"
+  },
+  "累计已记录回报": {
+    "zh": "累计已记录回报",
+    "en": "Recorded total return"
+  },
+  "投资参考": {
+    "zh": "投资参考",
+    "en": "Investment reference"
+  },
+  "本期缺少完整市值记录，请在投资账户的“新建余额”中补充；已记录的分红和利息仍正常统计。": {
+    "zh": "本期缺少完整市值记录，请在投资账户的“新建余额”中补充；已记录的分红和利息仍正常统计。",
+    "en": "Valuations are incomplete for this period. Add them using New balance on investment accounts. Recorded dividends and interest are still included."
+  },
+  "最近市值记录：{p0}": {
+    "zh": "最近市值记录：{p0}",
+    "en": "Latest valuation: {p0}"
+  },
+  "投资回报为已记录的市值涨跌加分红利息、减投资费用。市值涨跌不计入消费预算；分红利息按实际收入统计。": {
+    "zh": "投资回报为已记录的市值涨跌加分红利息、减投资费用。市值涨跌不计入消费预算；分红利息按实际收入统计。",
+    "en": "Return includes recorded market value changes plus dividends and interest, less investment expenses. Market value changes do not affect spending budgets; dividends and interest count as actual income."
+  },
+  "编辑投资市值": {
+    "zh": "编辑投资市值",
+    "en": "Edit investment value"
+  },
+  "填写当时的投资总市值（含账户现金），盈亏差额和后续市值记录会自动重算。": {
+    "zh": "填写当时的投资总市值（含账户现金），盈亏差额和后续市值记录会自动重算。",
+    "en": "Enter the total investment value at that time, including account cash. Gains, losses and later valuations will be recalculated."
+  },
+  "投资总市值": {
+    "zh": "投资总市值",
+    "en": "Total investment value"
+  },
+  "投资市值已保存，盈亏及后续余额已重新计算": {
+    "zh": "投资市值已保存，盈亏及后续余额已重新计算",
+    "en": "Investment value saved. Returns and later balances have been recalculated."
+  },
+  "投资盈亏": {
+    "zh": "投资盈亏",
+    "en": "Investment gain / loss"
+  },
+  "投资市值不计入日常收支。入金、提取请记录为转账；分红、利息请记录为收入。即使市值不变，也会保存此次市值记录。": {
+    "zh": "投资市值不计入日常收支。入金、提取请记录为转账；分红、利息请记录为收入。即使市值不变，也会保存此次市值记录。",
+    "en": "Valuations do not count as everyday income or spending. Record deposits and withdrawals as transfers, and dividends and interest as income. A valuation is saved even when its value is unchanged."
+  },
+  "盈亏差额根据所选时间之前的流水计算，修改目标市值或历史交易后会自动更新。": {
+    "zh": "盈亏差额根据所选时间之前的流水计算，修改目标市值或历史交易后会自动更新。",
+    "en": "Gains and losses are calculated from transactions before the valuation time. Changing the target value or earlier transactions recalculates them."
+  },
+  "只有投资类型账户可以记录投资盈亏": {
+    "zh": "只有投资类型账户可以记录投资盈亏",
+    "en": "Only investment accounts can record investment gains and losses."
+  },
+  "投资市值不能为负数": {
+    "zh": "投资市值不能为负数",
+    "en": "Investment value cannot be negative."
+  },
+  "不能记录未来的投资市值": {
+    "zh": "不能记录未来的投资市值",
+    "en": "Investment valuations cannot be dated in the future."
+  },
+  "市值日期早于账户期初记录，请先核对期初日期": {
+    "zh": "市值日期早于账户期初记录，请先核对期初日期",
+    "en": "The market value predates the opening entry. Check the opening contribution date in Investment settings."
+  },
+  "市值记录只能修改目标市值、日期、名称和备注，盈亏由账本自动计算": {
+    "zh": "市值记录只能修改目标市值、日期、名称和备注，盈亏由账本自动计算",
+    "en": "Only the target value, date, title and notes can be changed. Gains and losses are calculated automatically."
+  },
+  "市值日期与精确时间不一致": {
+    "zh": "市值日期与精确时间不一致",
+    "en": "The valuation date does not match its timestamp."
+  },
+  "市值记录时间无效": {
+    "zh": "市值记录时间无效",
+    "en": "Invalid valuation time."
+  },
+  "该时刻已有市值记录，请修改已有记录": {
+    "zh": "该时刻已有市值记录，请修改已有记录",
+    "en": "A valuation already exists at this time. Edit the existing record."
+  },
+  "时间": {
+    "zh": "时间",
+    "en": "Time"
+  },
+  "首次市值作为基准，不作为投资收益。": {
+    "zh": "首次市值作为基准，不作为投资收益。",
+    "en": "The first valuation establishes a baseline and is not treated as investment income."
+  },
+  "资金加权期间收益率": {
+    "zh": "资金加权期间收益率",
+    "en": "Money-weighted period return"
+  },
+  "资金加权年化收益率（XIRR）": {
+    "zh": "资金加权年化收益率（XIRR）",
+    "en": "Money-weighted annual return (XIRR)"
+  },
+  "期间收益率（Dietz 估算）": {
+    "zh": "期间收益率（Dietz 估算）",
+    "en": "Period return (Dietz estimate)"
+  },
+  "时间加权期间收益率": {
+    "zh": "时间加权期间收益率",
+    "en": "Time-weighted period return"
+  },
+  "时间加权年化收益率": {
+    "zh": "时间加权年化收益率",
+    "en": "Time-weighted annual return"
+  },
+  "单利年化收益率": {
+    "zh": "单利年化收益率",
+    "en": "Simple annual return"
+  },
+  "请先在投资账户的“投资设置”中选择统计起点。": {
+    "zh": "请先在投资账户的“投资设置”中选择统计起点。",
+    "en": "Choose a starting point in the investment account’s Investment settings first."
+  },
+  "起算市值记录已被删除，请重新设置投资统计起点。": {
+    "zh": "起算市值记录已被删除，请重新设置投资统计起点。",
+    "en": "The starting valuation was deleted. Set a new investment starting point."
+  },
+  "缺少真实投入记录，请补录初始本金或入金。": {
+    "zh": "缺少真实投入记录，请补录初始本金或入金。",
+    "en": "Contributions are missing. Record the actual initial investment or deposits."
+  },
+  "精确时间加权需要资金进出时点的市值；目前可查看资金加权或 Dietz 估算。": {
+    "zh": "精确时间加权需要资金进出时点的市值；目前可查看资金加权或 Dietz 估算。",
+    "en": "Exact time-weighted returns require valuations at cash-flow times. Money-weighted returns or Dietz estimates may be available."
+  },
+  "期间存在普通余额纠错或缺少本金依据的市值，收益率暂不可计算。": {
+    "zh": "期间存在普通余额纠错或缺少本金依据的市值，收益率暂不可计算。",
+    "en": "This period contains balance corrections or valuations without a funding basis. Returns cannot be calculated reliably."
+  },
+  "所选范围早于投资统计起点。": {
+    "zh": "所选范围早于投资统计起点。",
+    "en": "This period precedes the investment starting point."
+  },
+  "请至少记录两个不同日期的市值。": {
+    "zh": "请至少记录两个不同日期的市值。",
+    "en": "Record valuations on at least two different dates."
+  },
+  "不足一年仅展示期间收益率，不展示年化收益率。": {
+    "zh": "不足一年仅展示期间收益率，不展示年化收益率。",
+    "en": "Periods shorter than one year show period returns only, without annualization."
+  },
+  "缺少有效的投入基数，暂不能计算此收益率。": {
+    "zh": "缺少有效的投入基数，暂不能计算此收益率。",
+    "en": "A valid investment base is missing for this return calculation."
+  },
+  "期间有追加或提取，请使用资金加权收益率。": {
+    "zh": "期间有追加或提取，请使用资金加权收益率。",
+    "en": "This period includes deposits or withdrawals. Use money-weighted returns."
+  },
+  "现金流存在多个收益率解，无法可靠显示 XIRR；可查看 Dietz 估算。": {
+    "zh": "现金流存在多个收益率解，无法可靠显示 XIRR；可查看 Dietz 估算。",
+    "en": "These cash flows have multiple return solutions. XIRR is unavailable; a Dietz estimate may be available."
+  },
+  "根据当前现金流无法求得有效收益率；可查看 Dietz 估算。": {
+    "zh": "根据当前现金流无法求得有效收益率；可查看 Dietz 估算。",
+    "en": "No valid return could be calculated from these cash flows. A Dietz estimate may be available."
+  },
+  "暂无可计算的收益率": {
+    "zh": "暂无可计算的收益率",
+    "en": "No calculable return yet"
+  },
+  "投资收益率走势": {
+    "zh": "投资收益率走势",
+    "en": "Investment return history"
+  },
+  "收益率统计范围": {
+    "zh": "收益率统计范围",
+    "en": "Return period basis"
+  },
+  "收益率计算方法": {
+    "zh": "收益率计算方法",
+    "en": "Return calculation method"
+  },
+  "所选期间": {
+    "zh": "所选期间",
+    "en": "Selected period"
+  },
+  "起算以来": {
+    "zh": "起算以来",
+    "en": "Since inception"
+  },
+  "曲线基于已记录市值，不补造缺失估值。期间收益率从对应起点累计，包含展示币种的汇率影响。Dietz 为估算；复利年化不代表自动再投资。": {
+    "zh": "曲线基于已记录市值，不补造缺失估值。期间收益率从对应起点累计，包含展示币种的汇率影响。Dietz 为估算；复利年化不代表自动再投资。",
+    "en": "The chart uses recorded valuations only. Returns accumulate from the selected starting point and include display-currency effects. Dietz is an estimate; annualization does not create reinvestments."
+  },
+  "投资设置": {
+    "zh": "投资设置",
+    "en": "Investment settings"
+  },
+  "投资统计起点": {
+    "zh": "投资统计起点",
+    "en": "Performance starting point"
+  },
+  "从指定日期的市值开始": {
+    "zh": "从指定日期的市值开始",
+    "en": "Start from a dated market value"
+  },
+  "使用完整历史投入与提取": {
+    "zh": "使用完整历史投入与提取",
+    "en": "Use complete deposit and withdrawal history"
+  },
+  "此市值作为收益率起点，不当作历史投入本金。保存会新增或更新对应市值记录，之后继续用“新建余额”更新市值。": {
+    "zh": "此市值作为收益率起点，不当作历史投入本金。保存会新增或更新对应市值记录，之后继续用“新建余额”更新市值。",
+    "en": "This value is the performance baseline, not historical contributed capital. Saving creates or updates its valuation. Use New balance for later valuations."
+  },
+  "起算总市值": {
+    "zh": "起算总市值",
+    "en": "Starting total market value"
+  },
+  "起算日期": {
+    "zh": "起算日期",
+    "en": "Starting date"
+  },
+  "请确认期初金额是真实投入，并补齐全部入金、提现。本金由这些流水累计；投资账户之间互转在组合统计中抵消。": {
+    "zh": "请确认期初金额是真实投入，并补齐全部入金、提现。本金由这些流水累计；投资账户之间互转在组合统计中抵消。",
+    "en": "Confirm that opening balances represent real contributions and record all deposits and withdrawals. Contributions come from these activities; transfers between investment accounts cancel at portfolio level."
+  },
+  "初始投入本金": {
+    "zh": "初始投入本金",
+    "en": "Initial contribution"
+  },
+  "投入日期": {
+    "zh": "投入日期",
+    "en": "Contribution date"
+  },
+  "保存将补录一笔期初投入，不计日常收入。已有投入流水时不会重复创建本金。": {
+    "zh": "保存将补录一笔期初投入，不计日常收入。已有投入流水时不会重复创建本金。",
+    "en": "Saving records one opening contribution, excluded from everyday income. Existing contributions will not be duplicated."
+  },
+  "已找到真实期初或入金记录；修改本金或日期请到活动中编辑原流水。": {
+    "zh": "已找到真实期初或入金记录；修改本金或日期请到活动中编辑原流水。",
+    "en": "An opening contribution or deposit already exists. Edit the original activity to change its amount or date."
+  },
+  "保存投资设置": {
+    "zh": "保存投资设置",
+    "en": "Save investment settings"
+  },
+  "起算市值基准": {
+    "zh": "起算市值基准",
+    "en": "Starting value baseline"
+  },
+  "累计真实投入": {
+    "zh": "累计真实投入",
+    "en": "Recorded contributions"
+  },
+  "累计真实提取": {
+    "zh": "累计真实提取",
+    "en": "Recorded withdrawals"
+  },
+  "起算后净投入": {
+    "zh": "起算后净投入",
+    "en": "Net contributions since start"
+  },
+  "起算回报和收益率包含展示币种汇率影响；净投入不等于证券持仓成本，提现可能包含收益。": {
+    "zh": "起算回报和收益率包含展示币种汇率影响；净投入不等于证券持仓成本，提现可能包含收益。",
+    "en": "Returns since start include display-currency effects. Net contributions are not security cost basis; withdrawals may include gains."
+  },
+  "只有投资类型账户可以配置投资统计": {
+    "zh": "只有投资类型账户可以配置投资统计",
+    "en": "Only investment accounts support investment performance settings."
+  },
+  "请填写投资起算市值和日期": {
+    "zh": "请填写投资起算市值和日期",
+    "en": "Enter the starting market value and date."
+  },
+  "已有期初或入金流水，请编辑原流水，不能重复添加本金": {
+    "zh": "已有期初或入金流水，请编辑原流水，不能重复添加本金",
+    "en": "An opening contribution or deposit already exists. Edit it instead of adding duplicate capital."
+  },
+  "请填写初始投入日期": {
+    "zh": "请填写初始投入日期",
+    "en": "Enter the initial contribution date."
+  },
+  "请先补录真实的初始投入或入金流水": {
+    "zh": "请先补录真实的初始投入或入金流水",
+    "en": "Record the actual initial contribution or deposit first."
+  },
+  "投资初始投入": {
+    "zh": "投资初始投入",
+    "en": "Initial investment contribution"
+  },
+  "正在加载...": {
+    "zh": "正在加载...",
+    "en": "Loading…"
+  },
+  "已初始化 {p0}/{p1} 个投资账户；请完成全部可见投资账户的设置后计算组合收益率。": {
+    "zh": "已初始化 {p0}/{p1} 个投资账户；请完成全部可见投资账户的设置后计算组合收益率。",
+    "en": "Initialized {p0}/{p1} investment accounts. Configure all visible investment accounts to calculate portfolio returns."
+  },
+  "市值起算不能同时补录历史本金": {
+    "zh": "市值起算不能同时补录历史本金",
+    "en": "A market-value baseline cannot also add historical contributed capital."
+  },
+  "历史投入模式请使用真实本金和投入日期": {
+    "zh": "历史投入模式请使用真实本金和投入日期",
+    "en": "In historical mode, use the actual contribution amount and date."
+  },
+  "根据每笔投入、提取的金额与日期计算，显示该期间的等效资金加权回报。": {
+    "zh": "根据每笔投入、提取的金额与日期计算，显示该期间的等效资金加权回报。",
+    "en": "Accounts for the amount and date of each contribution and withdrawal to show the equivalent money-weighted return for this period."
+  },
+  "等效复利年化收益率；只有一次投入且无提取时，与复合年增长率（CAGR）一致。": {
+    "zh": "等效复利年化收益率；只有一次投入且无提取时，与复合年增长率（CAGR）一致。",
+    "en": "Equivalent compound annual return. With one contribution and no withdrawals, this equals the compound annual growth rate (CAGR)."
+  },
+  "按每笔资金参与投资的时长加权估算；大额资金变动和市场波动可能增加误差。": {
+    "zh": "按每笔资金参与投资的时长加权估算；大额资金变动和市场波动可能增加误差。",
+    "en": "An estimate weighted by how long each cash flow was invested. Large cash flows and market volatility can increase approximation errors."
+  },
+  "剔除外部入金、提取的影响，将资金变动前后的投资回报逐段连乘。": {
+    "zh": "剔除外部入金、提取的影响，将资金变动前后的投资回报逐段连乘。",
+    "en": "Neutralizes external contributions and withdrawals by geometrically linking investment returns between cash flows."
+  },
+  "将时间加权的累计回报换算成等效复利年化，适用于至少一年的区间。": {
+    "zh": "将时间加权的累计回报换算成等效复利年化，适用于至少一年的区间。",
+    "en": "Converts cumulative time-weighted returns into an equivalent compound annual return for periods of at least one year."
+  },
+  "累计回报除以持有年数，仅用于没有后续追加或提取的投资。": {
+    "zh": "累计回报除以持有年数，仅用于没有后续追加或提取的投资。",
+    "en": "Cumulative return divided by years held, available only when there are no later contributions or withdrawals."
+  },
+  "账户图表": {
+    "zh": "账户图表",
+    "en": "Account chart"
+  },
+  "收益率": {
+    "zh": "收益率",
+    "en": "Returns"
+  },
+  "投资明细": {
+    "zh": "投资明细",
+    "en": "Investment details"
+  },
+  "计算说明": {
+    "zh": "计算说明",
+    "en": "Calculation notes"
+  },
+  "今年收益率暂时无法加载": {
+    "zh": "今年收益率暂时无法加载",
+    "en": "YTD return is temporarily unavailable"
+  },
+  "今年投资收益率：{p0}": {
+    "zh": "今年投资收益率：{p0}",
+    "en": "YTD investment return: {p0}"
+  },
+  "截至 {p0}": {
+    "zh": "截至 {p0}",
+    "en": "As of {p0}"
+  },
+  "今年 {p0}": {
+    "zh": "今年 {p0}",
+    "en": "YTD {p0}"
+  },
+  "本月至今": {
+    "zh": "本月至今",
+    "en": "This month"
+  },
+  "近30天": {
+    "zh": "近30天",
+    "en": "Last 30 days"
+  },
+  "近90天": {
+    "zh": "近90天",
+    "en": "Last 90 days"
+  },
+  "近180天": {
+    "zh": "近180天",
+    "en": "Last 180 days"
+  },
+  "今年至今": {
+    "zh": "今年至今",
+    "en": "This year"
+  },
+  "全部时间": {
+    "zh": "全部时间",
+    "en": "All time"
+  },
+  "时间范围": {
+    "zh": "时间范围",
+    "en": "Date range"
+  },
+  "估算": {
+    "zh": "估算",
+    "en": "Estimated"
+  },
+  "缺少边界日市值，已按最近记录市值及后续资金活动估算，未记录的市场涨跌未计入。": {
+    "zh": "缺少边界日市值，已按最近记录市值及后续资金活动估算，未记录的市场涨跌未计入。",
+    "en": "Estimated from the latest recorded market values and subsequent cash activities because boundary-day valuations are missing. Unrecorded market changes are not included."
+  },
+  "期初参考记录：{p0}": {
+    "zh": "期初参考记录：{p0}",
+    "en": "Opening reference records: {p0}"
+  },
+  "期末参考记录：{p0}": {
+    "zh": "期末参考记录：{p0}",
+    "en": "Closing reference records: {p0}"
+  },
+  "尚无此前市值，参考值仅来自已记录的本金和资金活动。": {
+    "zh": "尚无此前市值，参考值仅来自已记录的本金和资金活动。",
+    "en": "No earlier market value is available; the reference uses only recorded capital and cash activities."
+  },
+  "缺少可用的期初市值或本金记录，请在投资设置中补充统计依据。": {
+    "zh": "缺少可用的期初市值或本金记录，请在投资设置中补充统计依据。",
+    "en": "No usable opening market value or capital records. Add a starting basis in Investment settings."
+  },
+  "缺少可用的市值或本金记录，请补充投资统计依据。": {
+    "zh": "缺少可用的市值或本金记录，请补充投资统计依据。",
+    "en": "No usable market value or capital records. Add an investment starting basis."
+  },
+  "现金账户余额不足，本期未执行；请补足余额后重试": {
+    "zh": "现金账户余额不足，本期未执行；请补足余额后重试",
+    "en": "Insufficient cash account balance. This installment was not posted; add funds and retry."
+  },
+  "请填写初始投入本金和日期": {
+    "zh": "请填写初始投入本金和日期",
+    "en": "Enter the initial capital and its actual investment date."
+  },
+  "从指定日期的本金开始": {
+    "zh": "从指定日期的本金开始",
+    "en": "Start from capital on a chosen date"
+  },
+  "基准本金": {
+    "zh": "基准本金",
+    "en": "Capital basis"
+  },
+  "本金基准日期": {
+    "zh": "本金基准日期",
+    "en": "Capital basis date"
+  },
+  "设定本金基准": {
+    "zh": "设定本金基准",
+    "en": "Declared capital basis"
+  },
+  "本金基准只用于收益计算，可以早于建账期初；不会新增或修改流水，也不改变账户余额。后续期初记录作为市值参考，不会重复计为入金。": {
+    "zh": "本金基准只用于收益计算，可以早于建账期初；不会新增或修改流水，也不改变账户余额。后续期初记录作为市值参考，不会重复计为入金。",
+    "en": "This basis is for return calculations only and may predate the account opening. It does not add or edit transactions or change the balance. A later opening entry is a value reference, not another contribution."
+  },
+  "将使用已有期初和资金流水计算。如需独立指定本金，请选择“从指定日期的本金开始”。": {
+    "zh": "将使用已有期初和资金流水计算。如需独立指定本金，请选择“从指定日期的本金开始”。",
+    "en": "Uses existing opening entries and cash flows. To declare capital separately, choose “Start from capital on a chosen date”."
+  },
+  "本金基准不能携带市值或新增入金流水": {
+    "zh": "本金基准不能携带市值或新增入金流水",
+    "en": "A capital basis cannot include a market-value update or a new contribution transaction."
+  },
+  "请填写基准本金和基准日期": {
+    "zh": "请填写基准本金和基准日期",
+    "en": "Enter the capital basis and its date."
+  },
+  "本金基准请使用指定日期本金模式": {
+    "zh": "本金基准请使用指定日期本金模式",
+    "en": "Use the capital-on-a-chosen-date mode for a capital basis."
+  },
+  "盈亏方向": {
+    "zh": "盈亏方向",
+    "en": "Profit or loss"
+  },
+  "投资盈利": {
+    "zh": "投资盈利",
+    "en": "Investment gains"
+  },
+  "投资亏损": {
+    "zh": "投资亏损",
+    "en": "Investment losses"
+  },
+  "投资盈亏单独统计，不归入收支分类，也不计入消费预算。": {
+    "zh": "投资盈亏单独统计，不归入收支分类，也不计入消费预算。",
+    "en": "Investment gains and losses are tracked separately, without an income or expense category or a spending budget impact."
+  },
+  "本期回报构成": {
+    "zh": "本期回报构成",
+    "en": "Period return breakdown"
+  },
+  "估值盈亏（含汇率影响）": {
+    "zh": "估值盈亏（含汇率影响）",
+    "en": "Valuation gain/loss (including FX)"
+  },
+  "投资费用": {
+    "zh": "投资费用",
+    "en": "Investment fees"
+  },
+  "估值盈亏按本期总回报扣除分红利息、加回投资费用计算，包含汇率及本金基准差异；明细仅列已记录的盈亏。": {
+    "zh": "估值盈亏按本期总回报扣除分红利息、加回投资费用计算，包含汇率及本金基准差异；明细仅列已记录的盈亏。",
+    "en": "Valuation gain/loss equals the period return minus cash income plus fees, including FX and capital-basis differences. Details list recorded gains and losses only."
+  },
+  "投入与提取": {
+    "zh": "投入与提取",
+    "en": "Deposits and withdrawals"
+  },
+  "投入和提取是资金转移，不计入投资回报或消费预算。": {
+    "zh": "投入和提取是资金转移，不计入投资回报或消费预算。",
+    "en": "Deposits and withdrawals are transfers, excluded from investment returns and spending budgets."
+  },
+  "查看投资活动": {
+    "zh": "查看投资活动",
+    "en": "View investment activity"
+  },
+  "投资活动": {
+    "zh": "投资活动",
+    "en": "Investment activity"
+  },
+  "期初净资产": {
+    "zh": "期初净资产",
+    "en": "Opening net worth"
+  },
+  "期末净资产": {
+    "zh": "期末净资产",
+    "en": "Closing net worth"
+  },
+  "本期净资产变动": {
+    "zh": "本期净资产变动",
+    "en": "Period net worth change"
+  },
+  "净资产变动包含账户收支、投资盈亏、汇率和余额调整，与现金结余分别统计。": {
+    "zh": "净资产变动包含账户收支、投资盈亏、汇率和余额调整，与现金结余分别统计。",
+    "en": "Net worth changes include account cash flows, investment gains/losses, FX and balance adjustments, and are separate from cash surplus."
+  },
+  "投资分支为已记录的非现金盈亏，不属于收支分类或预算；中央净额含投资盈亏。分红、利息及费用按实际收支统计，未重复计入。": {
+    "zh": "投资分支为已记录的非现金盈亏，不属于收支分类或预算；中央净额含投资盈亏。分红、利息及费用按实际收支统计，未重复计入。",
+    "en": "Investment branches show recorded non-cash gains and losses outside spending categories and budgets. The central net amount includes these changes. Dividends, interest and fees remain in actual cash flows and are counted once."
+  },
+  "收支及投资净额": {
+    "zh": "收支及投资净额",
+    "en": "Net flow incl. investments"
+  },
+  "盈利或亏损方向仅适用于投资盈亏": {
+    "zh": "盈利或亏损方向仅适用于投资盈亏",
+    "en": "Profit or loss direction is only valid for investment returns."
+  },
+  "请选择投资盈利或亏损": {
+    "zh": "请选择投资盈利或亏损",
+    "en": "Choose investment gain or loss."
+  },
+  "投资盈亏不能同时设置转账或退款关联": {
+    "zh": "投资盈亏不能同时设置转账或退款关联",
+    "en": "Investment returns cannot also have transfer or refund links."
+  },
+  "投资盈亏不属于收支分类，也不能设置报销": {
+    "zh": "投资盈亏不属于收支分类，也不能设置报销",
+    "en": "Investment returns have no income or expense category and cannot be reimbursable."
+  },
+  "期初本金不能改为投资盈亏": {
+    "zh": "期初本金不能改为投资盈亏",
+    "en": "Opening capital cannot be converted to an investment gain or loss."
+  },
+  "清除筛选": {
+    "zh": "清除筛选",
+    "en": "Clear filter"
+  },
+  "资金流入": {
+    "zh": "资金流入",
+    "en": "Money in"
+  },
+  "资金流出": {
+    "zh": "资金流出",
+    "en": "Money out"
+  },
+  "当期净变动": {
+    "zh": "当期净变动",
+    "en": "Period net change"
+  },
+  "点击查看 {p0} 资金明细：流入 {p1}，流出 {p2}；投资盈利 {p3}，投资亏损 {p4}": {
+    "zh": "点击查看 {p0} 资金明细：流入 {p1}，流出 {p2}；投资盈利 {p3}，投资亏损 {p4}",
+    "en": "View {p0}: money in {p1}, money out {p2}; investment gains {p3}, investment losses {p4}"
+  },
+  "资金流入 = 收入 {p0} + 投资盈利 {p1}": {
+    "zh": "资金流入 = 收入 {p0} + 投资盈利 {p1}",
+    "en": "Money in = income {p0} + investment gains {p1}"
+  },
+  "资金流出 = 净支出 {p0} + 投资亏损 {p1}": {
+    "zh": "资金流出 = 净支出 {p0} + 投资亏损 {p1}",
+    "en": "Money out = net spending {p0} + investment losses {p1}"
+  },
+  "包含已记录的投资盈亏及非现金估值变动；投资盈亏不归入消费分类或预算。": {
+    "zh": "包含已记录的投资盈亏及非现金估值变动；投资盈亏不归入消费分类或预算。",
+    "en": "Includes recorded investment gains/losses and non-cash valuation changes. Investment returns do not belong to spending categories or budgets."
+  },
+  "无法加载交易明细，请重试": {
+    "zh": "无法加载交易明细，请重试",
+    "en": "Unable to load transaction details. Please try again."
+  },
+  "资金进出与投资活动筛选不能同时指定": {
+    "zh": "资金进出与投资活动筛选不能同时指定",
+    "en": "Choose either money flow or investment activity filtering."
+  },
+  "资金流入（含投资盈利）": {
+    "zh": "资金流入（含投资盈利）",
+    "en": "Money in (including investment gains)"
+  },
+  "资金流出（含投资亏损）": {
+    "zh": "资金流出（含投资亏损）",
+    "en": "Money out (including investment losses)"
+  },
+  "资金进出（含投资盈亏）": {
+    "zh": "资金进出（含投资盈亏）",
+    "en": "Money in/out (including investment returns)"
+  },
+  "计入当前资金统计": {
+    "zh": "计入当前资金统计",
+    "en": "Contribution to this view"
   }
 }

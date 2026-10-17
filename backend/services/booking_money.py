@@ -165,6 +165,9 @@ def complete_ledger_money(session, flush_context, instances):
         for txn in list(session.new) + list(session.dirty):
             if not isinstance(txn, Transaction) or txn in session.deleted:
                 continue
+            from services.investments import is_investment_return, enforce_return_fields
+            if is_investment_return(txn):
+                enforce_return_fields(txn)
             state = inspect(txn)
             financial_change = any(state.attrs[name].history.has_changes() for name in
                                    ("amount", "currency", "account_id", "original_amount", "original_currency", "transacted_at", "occurred_at"))

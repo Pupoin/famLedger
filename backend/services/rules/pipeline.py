@@ -48,6 +48,9 @@ class RulePipeline:
         # Evaluate cascading rules against a detached working copy in previews.
         if dry_run:
             txn = Transaction.model_validate(txn.model_dump())
+        from services.investments import is_investment_return
+        if is_investment_return(txn):
+            return []
         matched_records: List[Dict[str, Any]] = []
         category_matched = False
         account = self.session.get(Account, txn.account_id) if self.session is not None else None

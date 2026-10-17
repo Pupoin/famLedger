@@ -436,6 +436,8 @@ def get_dashboard_summary(
     acc_list = visible_balance_accounts(session, user_or_ctx if isinstance(user_or_ctx, str)
                                         and user_or_ctx.startswith('service:') else user_db,
                                         target_user_obj.id if target_user_obj else None)
+    if isinstance(account_id, str) and account_id.strip():
+        acc_list = [a for a in acc_list if str(a.id) == str(account_id)]
     from services.account_balances import current_balances
     native_balances = current_balances(session, acc_list)
     realtime_map = get_report_account_balances(session, acc_list, report_money, native_balances)
@@ -472,6 +474,19 @@ def get_dashboard_summary(
     total_assets = round(sum(realtime_map.get(a.id, float(a.balance or 0)) for a in asset_accs), 2)
     total_liabilities = round(sum(realtime_map.get(a.id, 0) for a in liab_accs), 2)
     net_worth = round(total_assets - total_liabilities, 2)
+    from services.balance_sheet import ledger_net_worth_history
+    today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date()
+    observed_end = min(end_date, today)
+    opening_day = start_date - datetime.timedelta(days=1) if start_date > datetime.date.min else datetime.date.min
+    history = ledger_net_worth_history(session, acc_list, report_money,
+        [('opening', opening_day), ('closing', observed_end)]) if start_date <= observed_end else []
+    net_worth_period = {
+        'start': start_date.isoformat(), 'end': observed_end.isoformat(),
+        'opening_as_of': opening_day.isoformat(),
+        'opening': history[0]['value'] if history else None,
+        'closing': history[1]['value'] if history else None,
+        'change': round(history[1]['value'] - history[0]['value'], 2) if history else None,
+    }
 
     # Color maps
     TYPE_COLORS = {
@@ -546,6 +561,7 @@ def get_dashboard_summary(
         "total_assets": total_assets,
         "total_liabilities": total_liabilities,
         "net_worth": net_worth,
+        "period": net_worth_period,
         "currency_symbol": report_money.symbol,
         "by_type": {
             "assets": {
@@ -584,6 +600,33 @@ def get_dashboard_summary(
         2,
     )
 
+    from services.investments import investment_summary
+    investment_data = investment_summary(session, asset_accs, start_date, end_date, report_money)
+    from services.funds_flow import investment_months
+    investment_trend = investment_months(session,asset_accs,earliest_month,next_month-datetime.timedelta(days=1),report_money)
+    for bar in m_bars:
+        gains=investment_trend.get(bar['ym'],{})
+        bar.update(cash_income=bar['income'],cash_expense=bar['expense'],
+                   investment_gain=float(round(gains.get('gain',Decimal(0)),2)),
+                   investment_loss=float(round(gains.get('loss',Decimal(0)),2)))
+        bar['income']=round(bar['cash_income']+bar['investment_gain'],2)
+        bar['expense']=round(bar['cash_expense']+bar['investment_loss'],2)
+    # These are performance branches, not income/expense categories. Actual
+    # dividends and fees already appear in their ordinary cash-flow branches.
+    for key, name, side, activity, icon, color in (
+        ('period_gross_gain', '投资盈利', 'income_sources', 'gain', '↗', '#10b981'),
+        ('period_gross_loss', '投资亏损', 'expense_destinations', 'loss', '↘', '#ef4444'),
+    ):
+        if investment_data[key] > 0:
+            sankey_data[side].append({'id': f'investment_{activity}', 'name': name, 'amount': investment_data[key],
+                'icon': icon, 'color': color, 'kind': 'investment', 'investment_activity': activity,
+                'account_ids': investment_data['account_ids']})
+    has_investment_flows = investment_data['period_gross_gain'] > 0 or investment_data['period_gross_loss'] > 0
+    sankey_data['includes_investment'] = has_investment_flows
+    if has_investment_flows:
+        sankey_data['pool'].update(name='收支及投资净额',
+            amount=round(total_income_raw - total_net_expense + investment_data['period_gain'], 2))
+
     from services.report_currency import persist_fx_cache
     persist_fx_cache(session)
 
@@ -615,20 +658,27 @@ def get_dashboard_summary(
         },
         "spending_calendar": spending_calendar,
         "money_in_out": {
+            "account_id": str(real_account_id) if real_account_id else None,
             "period_label": f"{start_date.strftime('%Y年%m月%d日')} 至 {end_date.strftime('%Y年%m月%d日')}",
             "period_dates": {
                 "start": start_date.isoformat(),
                 "end": end_date.isoformat(),
             },
             "month_label": end_date.strftime("%Y年%m月"),
-            "balance": round(total_income_raw - total_net_expense + fx_summary['fx_gain'] - fx_summary['fx_loss'], 2),
-            "income": round(total_income_raw, 2) if total_income_raw > 0 else total_net_income,
-            "expenses": total_net_expense,
+            "balance": round(total_income_raw - total_net_expense + investment_data['period_gain'] + fx_summary['fx_gain'] - fx_summary['fx_loss'], 2),
+            "income": round(total_income_raw + investment_data['period_gross_gain'], 2),
+            "expenses": round(total_net_expense + investment_data['period_gross_loss'], 2),
+            "cash_income": round(total_income_raw,2),
+            "cash_expenses": total_net_expense,
+            "investment_gain": investment_data['period_gross_gain'],
+            "investment_loss": investment_data['period_gross_loss'],
+            "includes_investment": has_investment_flows or any(b['investment_gain'] or b['investment_loss'] for b in m_bars),
             "last_6_months": m_bars[-6:],
             "last_12_months": m_bars,
         },
         "investment": {
             "total": total_investment,
+            **investment_data,
             "currency_symbol": report_money.symbol,
         },
     }

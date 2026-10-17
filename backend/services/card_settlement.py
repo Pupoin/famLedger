@@ -341,6 +341,10 @@ def persist_allocations(session):
     lock_mutation(session)
     session.flush()
     touched = session.info.pop("card_settlement_touched", set())
+    from services.investments import replay_valuations
+    replay_valuations(session, touched)
+    session.flush()
+    touched.update(session.info.pop("card_settlement_touched", set()))
     if touched:
         # All writes are flushed. Reload metadata left in long-lived identity
         # maps by another worker, including the persisted opening-history flag.

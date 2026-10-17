@@ -36,4 +36,12 @@ describe('original activity amount and preference detail amount', () => {
     expect(render({privacy:true})).toBe('••••••');
     expect(render({privacy:true, detailed:true})).toBe('••••••');
   });
+  it('uses the ledger direction for a valuation loss without parsing its title', () => {
+    const html=render({transaction:{...transaction,transaction_type:'adjustment',narration:'Portfolio value',extra:{direction:'decrease'}}});
+    expect(html).toContain('-$100.00'); expect(html).not.toContain('+$100.00');
+  });
+  it('does not reverse a valuation gain because its notes mention a decrease', () => {
+    const html=render({transaction:{...transaction,transaction_type:'adjustment',notes:'未减少',extra:{direction:'increase'}}});
+    expect(html).toContain('+$100.00');
+  });
 });

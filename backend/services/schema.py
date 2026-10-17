@@ -42,11 +42,13 @@ logger = logging.getLogger("mosaic")
 
 # Bumped when older writers cannot safely maintain the database's invariants.
 # Version 5 requires ledger writes to maintain materialized account balances.
+# Version 6 also requires writes to replay dated investment value anchors.
+# Version 7 understands investment capital bases independent of ledger openings.
 # Stored via `PRAGMA user_version` on SQLite, and schema_version on PostgreSQL.
 #
 # 1 -- first stamped version (Mosaic v2.1.0). Structurally identical to the
 #      v2.0.0 schema: v2.1.0 introduces the stamp, not a schema change.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 
 def get_db_schema_version(engine) -> int:

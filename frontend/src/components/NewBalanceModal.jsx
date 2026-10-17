@@ -6,6 +6,7 @@ import {
   CircleDollarSign,
   ArrowLeftRight,
   SlidersHorizontal,
+  TrendingUp,
 } from 'lucide-react';
 import { fetchWithAuth } from '../api/fetchWithAuth';
 import { currencySymbol } from '../utils/currency';
@@ -23,11 +24,12 @@ export default function NewBalanceModal({
   useLocale();
   const nativeSymbol = currencySymbol(account?.currency);
   const { showToast } = useToast();
+  const isInvestment = normalizeAccountTypeKey(account) === 'investment';
 
   const [date, setDate] = useState(() => toLocalISODate(new Date()));
   const [time, setTime] = useState(() => toLocalISOTime(new Date(), true));
   const [newBalance, setNewBalance] = useState('');
-  const [reason, setReason] = useState('expense'); // 'expense' | 'income' | 'transfer' | 'adjustment'
+  const [reason, setReason] = useState(isInvestment ? 'investment' : 'expense');
   const [txnName, setTxnName] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
@@ -41,7 +43,7 @@ export default function NewBalanceModal({
       setNewBalance(parseFloat(account.balance || 0).toFixed(2));
       setDate(toLocalISODate(now));
       setTime(toLocalISOTime(now, true));
-      setReason('expense');
+      setReason(normalizeAccountTypeKey(account) === 'investment' ? 'investment' : 'expense');
       setTxnName('');
       setCategoryId('');
 
@@ -109,7 +111,7 @@ export default function NewBalanceModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!newBalance && newBalance !== 0) {
+    if (newBalance === '' || !Number.isFinite(targetBal) || (reason === 'investment' && targetBal < 0)) {
       showToast(tx("请输入新余额"), 'error');
       return;
     }
@@ -124,7 +126,7 @@ export default function NewBalanceModal({
           date: date,
           time: time,
           occurred_at: localToUTCISO(date, time),
-          reconciliation_type: isDiff ? reason : 'adjustment',
+          reconciliation_type: reason === 'investment' ? 'investment' : isDiff ? reason : 'adjustment',
           name: txnName || undefined,
           category_id: categoryId || undefined,
           counterparty_account_id: counterpartyId || undefined,
@@ -132,7 +134,9 @@ export default function NewBalanceModal({
       });
 
       if (res.ok) {
-        if (!isDiff) {
+        if (reason === 'investment') {
+          showToast(tx('投资市值已保存，盈亏及后续余额已重新计算'), 'success');
+        } else if (!isDiff) {
           showToast(tx("账户余额核对一致，已刷新对账基准时间"), 'info');
         } else {
           showToast(tx("新余额已更新并成功生成对账记录！"), 'success');
@@ -157,6 +161,8 @@ export default function NewBalanceModal({
       ? '信用卡'
       : normalizeAccountTypeKey(account) === 'loan'
       ? '贷款'
+      : isInvestment
+      ? '投资账户'
       : isLiab
       ? '负债'
       : '借记卡';
@@ -170,7 +176,7 @@ export default function NewBalanceModal({
       />
 
       {/* Modal Dialog Card (Exact 14.png) */}
-      <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] border border-zinc-200 dark:border-zinc-800 overflow-y-auto overscroll-contain z-10 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="px-6 pt-5 pb-3 flex items-center justify-between">
           <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{tx("确认新余额")}</h2>
@@ -201,6 +207,7 @@ export default function NewBalanceModal({
               <input
                 type="number"
                 step="0.01"
+                min={reason === 'investment' ? '0' : undefined}
                 required
                 value={newBalance}
                 onChange={(e) => setNewBalance(e.target.value)}
@@ -251,7 +258,7 @@ export default function NewBalanceModal({
           </div>
 
           {/* ── Zero-Diff Informative Banner ── */}
-          {!isDiff && (
+          {!isDiff && !isInvestment && (
             <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
               <span className="text-base leading-none">ℹ️</span>
               <div className="space-y-0.5">
@@ -262,12 +269,12 @@ export default function NewBalanceModal({
           )}
 
           {/* ── Difference Section (Exact 14.png) ── */}
-          {isDiff && (
+          {(isDiff || isInvestment) && (
             <div className="space-y-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-800/50 p-4">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{tx("这笔余额差额是什么？")}</h3>
                 <p className="mt-0.5 text-xs text-zinc-500 font-medium">
-                  {isDecreased
+                  {reason === 'investment' ? tx('填写当时的投资总市值（含账户现金），盈亏差额和后续市值记录会自动重算。') : isDecreased
                     ? (isLiab ? tx("债务欠款减少了 {p0}{p1}", {p0: nativeSymbol, p1: Math.abs(diff).toFixed(2)}) : tx("余额减少了 {p0}{p1}", {p0: nativeSymbol, p1: Math.abs(diff).toFixed(2)}))
                     : (isLiab ? tx("债务欠款增加了 {p0}{p1}", {p0: nativeSymbol, p1: Math.abs(diff).toFixed(2)}) : tx("余额增加了 {p0}{p1}", {p0: nativeSymbol, p1: Math.abs(diff).toFixed(2)}))}
                 </p>
@@ -276,6 +283,7 @@ export default function NewBalanceModal({
               {/* 2x2 Grid Radio Cards (Exact 14.png) */}
               <div className="grid grid-cols-2 gap-2">
                 {[
+                  ...(isInvestment ? [{ id: 'investment', label: '投资盈亏', icon: TrendingUp }] : []),
                   { id: 'expense', label: isLiab ? tx("消费/支出") : tx("支出"), icon: ShoppingCart },
                   { id: 'income', label: isLiab ? tx("还款/存入") : tx("收入"), icon: CircleDollarSign },
                   { id: 'transfer', label: '转账', icon: ArrowLeftRight },
@@ -405,7 +413,9 @@ export default function NewBalanceModal({
 
               {/* Footnote hint (Exact 14.png) */}
               <p className="text-[11px] text-zinc-400 dark:text-zinc-500 pt-0.5">
-                {reason === 'adjustment'
+                {reason === 'investment'
+                  ? tx('投资市值不计入日常收支。入金、提取请记录为转账；分红、利息请记录为收入。即使市值不变，也会保存此次市值记录。')
+                  : reason === 'adjustment'
                   ? tx("生成余额调整记录，不计入日常收支统计。")
                   : reason === 'transfer' && !counterpartyId ? tx("未选择对端账户，将记录为外部转账，仅改变此账户余额。") : tx("请选择差额原因。选择支出或收入后，还需要选择对应分类。")}
               </p>

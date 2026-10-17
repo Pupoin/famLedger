@@ -20,7 +20,7 @@ from models import (
 from auth import get_current_user_or_token, get_current_user
 from services.card_sharing import primary_owner_can_read
 from services.account_permissions import account_capabilities, can_manage_sharing, can_receive_transfer
-from services.account_types import normalize_account_type, account_classification, change_account_type, financial_classification
+from services.account_types import normalize_account_type, account_classification, change_account_type, financial_classification, account_type_is
 from services.card_settlement import group_for_account
 from services.card_history import link_can_change
 
@@ -527,6 +527,60 @@ def list_accounts(
     return {"accounts": items, "items": items, "count": len(items)}
 
 
+@router.get('/investment-returns')
+def get_account_investment_returns(
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    """Batch sidebar returns without delaying the ordinary account list."""
+    from services.balance_sheet import visible_balance_accounts
+    from services.investment_rates import account_ytd_returns
+    from services.report_currency import ReportCurrency, persist_fx_cache
+
+    user = session.exec(select(User).where(User.username == user_or_ctx)).first() if isinstance(user_or_ctx, str) and not user_or_ctx.startswith('service:') else None
+    accounts = visible_balance_accounts(session, user or user_or_ctx)
+    converter = ReportCurrency(session, user, cache_independently=True)
+    returns = account_ytd_returns(session, accounts, converter)
+    persist_fx_cache(session)
+    return {'returns': returns, 'currency': converter.currency}
+
+
+@router.get('/investment-group-returns')
+def get_investment_group_returns(
+    groups: List[str] = Query(default=[], max_length=100),
+    session: Session = Depends(get_session),
+    user_or_ctx: Any = Depends(get_current_user_or_token),
+):
+    from services.account_types import account_type_is
+    from services.balance_sheet import visible_balance_accounts
+    from services.investment_rates import investment_group_ytd_returns
+    from services.report_currency import ReportCurrency, persist_fx_cache
+
+    user = session.exec(select(User).where(User.username == user_or_ctx)).first() if isinstance(user_or_ctx, str) and not user_or_ctx.startswith('service:') else None
+    visible = {account.id: account for account in visible_balance_accounts(session, user or user_or_ctx)
+               if account_type_is(account.account_type, 'investment')}
+    requested = {}
+    count = 0
+    for raw in groups:
+        if len(raw) > 74000:
+            raise HTTPException(422, '投资分组账户过多')
+        try:
+            ids = set(uuid.UUID(value) for value in raw.split(','))
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(422, '投资分组账户标识无效') from exc
+        count += len(ids)
+        if count > 2000:
+            raise HTTPException(422, '投资分组账户过多')
+        if not ids.issubset(visible):
+            raise HTTPException(403, '无权查看此投资分组')
+        key = ','.join(sorted(str(value) for value in ids))
+        requested[key] = [visible[value] for value in ids]
+    converter = ReportCurrency(session, user, cache_independently=True)
+    returns = investment_group_ytd_returns(session, requested, converter)
+    persist_fx_cache(session)
+    return {'returns': returns, 'currency': converter.currency}
+
+
 @router.get("/shares/matrix")
 def get_shares_matrix(
     session: Session = Depends(get_session),
@@ -872,10 +926,41 @@ class ReconcileBalanceIn(BaseModel):
     date: Optional[DateType] = None
     time: Optional[str] = None
     occurred_at: Optional[str] = None
-    reconciliation_type: str = "adjustment"  # expense | income | transfer | adjustment
+    reconciliation_type: str = "adjustment"  # expense | income | transfer | adjustment | investment
     name: Optional[str] = None
     category_id: Optional[str] = None
     counterparty_account_id: Optional[uuid.UUID] = None
+
+
+class InvestmentSetupIn(BaseModel):
+    model_config = {'extra': 'forbid'}
+    mode: Literal['baseline', 'history', 'capital']
+    target_balance: Optional[Decimal] = Field(default=None, ge=0, max_digits=19, decimal_places=4)
+    occurred_at: Optional[str] = None
+    initial_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    initial_occurred_at: Optional[str] = None
+    capital_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=19, decimal_places=4)
+    capital_occurred_at: Optional[str] = None
+
+
+@router.get('/{account_id}/investment-settings')
+def get_investment_settings(account_id: uuid.UUID, session: Session = Depends(get_session),
+                            user_or_ctx: Any = Depends(get_current_user_or_token)):
+    from services.investment_settings import authorized_account, describe
+    account = authorized_account(session, user_or_ctx, account_id)
+    return describe(session, account)
+
+
+@router.put('/{account_id}/investment-settings')
+def update_investment_settings(account_id: uuid.UUID, payload: InvestmentSetupIn,
+                               session: Session = Depends(get_session),
+                               user_or_ctx: Any = Depends(get_current_user_or_token)):
+    lock_mutation(session)
+    from services.investment_settings import authorized_account, configure, describe
+    account = authorized_account(session, user_or_ctx, account_id, manage=True)
+    configure(session, account, payload)
+    session.commit()
+    return describe(session, account)
 
 
 @router.get("/{account_id}")
@@ -940,6 +1025,8 @@ def get_account_detail(
         start_date = today - timedelta(days=180)
     elif period == "YTD":
         start_date = today.replace(month=1, day=1)
+    elif period == "ALL":
+        start_date = None
     else:
         start_date = dt_date(2020, 1, 1)
 
@@ -954,6 +1041,19 @@ def get_account_detail(
         for cid in children:
             if cid in accessible_acc_ids:
                 target_acc_ids.append(cid)
+
+    if start_date is None:
+        created = account.created_at.replace(tzinfo=timezone.utc) if account.created_at.tzinfo is None else account.created_at
+        start_date = session.exec(select(func.min(Transaction.transacted_at)).where(
+            Transaction.account_id.in_(target_acc_ids), Transaction.transacted_at <= today,
+        )).one() or min(created.astimezone(tz_local).date(), today)
+        if account_type_is(account.account_type, 'investment'):
+            from models import InvestmentSetting
+            from services.investment_rates import capital_instant
+            profile = session.get(InvestmentSetting, account.id)
+            if profile and profile.mode == 'capital' and capital_instant(profile):
+                basis_day = capital_instant(profile).astimezone(tz_local).date()
+                start_date = min(start_date, basis_day)
 
     txns = session.exec(
         select(Transaction).where(
@@ -1127,7 +1227,12 @@ def get_account_detail(
             for row in card_group.allocations if row["account_id"] == str(account.id) and row["date"]
         ]
 
-    from services.report_currency import persist_fx_cache
+    from services.report_currency import persist_fx_cache, ReportCurrency
+    investment_data = None
+    if account_type_is(account.account_type, 'investment') and account.id in accessible_acc_ids:
+        from services.investments import investment_summary
+        investment_data = investment_summary(session, [account], start_date, today,
+            ReportCurrency(session, current_user, cache_independently=True))
     persist_fx_cache(session)
     return {
         "account": {
@@ -1167,6 +1272,7 @@ def get_account_detail(
             "compare_label": "与月初相比" if period == "MTD" else "与期初相比",
         },
         "repayment_allocations": repayment_allocations,
+        "investment": investment_data,
         "chart": {
             "points": points,
             "start_date": start_date.strftime("%b %d, %Y"),
@@ -1437,6 +1543,22 @@ def reconcile_balance(
 
         if not can_edit:
             raise HTTPException(status_code=403, detail="您没有权限为此账户调整余额")
+
+    if is_service:
+        from services.principals import verify_service_account
+        verify_service_account(session, user_or_ctx, account)
+    if payload.reconciliation_type == 'investment':
+        from services.investments import set_valuation, valuation_time
+        from services.account_types import account_type_is
+        if not account_type_is(account.account_type, 'investment'):
+            raise HTTPException(400, '只有投资类型账户可以记录投资盈亏')
+        instant, day = valuation_time(payload.occurred_at, payload.date, payload.time)
+        _ensure_opening_balance_transaction(session, account)
+        row = set_valuation(session, account, payload.new_balance, instant, day, payload.name)
+        session.commit()
+        return {'status': 'ok', 'new_balance': str(get_account_realtime_balance(session, account.id)),
+                'difference': str(row.extra['diff']), 'reconciliation_type': 'investment',
+                'transaction_id': str(row.id), 'valuation_amount': row.extra['target_balance']}
 
     if payload.reconciliation_type == "transfer" and payload.counterparty_account_id:
         from routes.v1_transactions import _verify_account_write_permission, _verify_account_transfer_in_permission
